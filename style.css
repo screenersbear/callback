@@ -1131,10 +1131,49 @@ details.more summary {
 details.more[open] summary { margin-bottom: 12px; }
 details.more > .field + .field { margin-top: 14px; }
 
-.map-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin: 14px 0; }
-.csv-preview { border: 3px solid var(--ink); padding: 10px 12px; margin: 14px 0 6px; font-size: 15px; }
-.csv-preview ul { margin: 0; padding-left: 18px; }
-.csv-preview p { margin: 6px 0 0; }
+/* ---------- Add from contacts ---------- */
+
+.steps { margin: 0 0 16px; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; font-size: 15px; }
+.or-line {
+  margin: 20px 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+.sheet-body > .hint:last-child { margin: 12px 0 0; }
+
+.pick-search { margin: 16px 0 4px; }
+.pick-tools { display: flex; gap: 18px; margin: 4px 0 6px; }
+.pick-list { border: 3px solid var(--ink); }
+.pick-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.pick-row:last-child { border-bottom: none; }
+.pick-row input { width: 22px; height: 22px; margin: 0; flex-shrink: 0; accent-color: var(--navy); }
+.pick-row.is-dup { cursor: default; opacity: 0.55; }
+.pick-box { width: 22px; height: 22px; flex-shrink: 0; border: 2px dashed var(--ink); }
+.pick-main { display: flex; flex-direction: column; min-width: 0; }
+.pick-name { font-weight: 700; overflow-wrap: anywhere; }
+.pick-sub { font-size: 14px; color: var(--text-dim); overflow-wrap: anywhere; }
+
+/* The add button stays in reach however long the list is. */
+.sheet.has-footer { padding-bottom: 0; }
+.sheet-footer {
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+  margin: 12px -20px 0;
+  padding: 8px 20px calc(env(safe-area-inset-bottom) + 16px);
+  border-top: 3px solid var(--ink);
+}
+.sheet-footer .field-hint { margin: 0 0 4px; }
 
 /* ---------- Log confirmation ---------- */
 
@@ -1237,7 +1276,6 @@ details.more > .field + .field { margin-top: 14px; }
 
 @media (min-width: 600px) {
   .filter-grid { grid-template-columns: repeat(3, 1fr); }
-  .map-grid { grid-template-columns: 1fr 1fr; }
   .sheet-overlay { align-items: center; padding: 24px; }
   .sheet { max-height: 88vh; border: 3px solid var(--ink); border-top: 4px solid var(--accent); }
   .sheet-small { max-width: 460px; }

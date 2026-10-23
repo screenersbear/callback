@@ -11,7 +11,7 @@ import {
 } from './cadence.js';
 import { pickIdea } from './ideas.js';
 import { upcomingEvents, buildCalendar } from './ics.js';
-import { parseCSV, guessMapping, findHeaderRow, cleanTags, CSV_FIELDS } from './csv.js';
+import { canPickContacts, pickContacts, parseVCards } from './contacts.js';
 import {
   TOUCH_TYPES, touchTypeLabel, RESPONDED, respondedLabel, ROLE_SUGGESTIONS, ORG_TYPES, orgTypeLabel,
   NEWS_SUGGESTIONS,
@@ -86,7 +86,6 @@ const newsOf = (id) => S.newsByPerson.get(id) || [];
 const orgOf = (p) => (p && p.organizationId ? S.orgById.get(p.organizationId) : null);
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const firstName = (p) => (p.name || '').trim().split(/\s+/)[0] || 'them';
-const trunc = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}...` : s);
 
 function parseTags(str) {
   const seen = new Set();
@@ -234,7 +233,7 @@ function firstRunHTML() {
     <p class="teach-tip">The best touchpoints give something: a new frame that fits their work, congratulations on a launch, selects after a shoot. Callback suggests one for each person.</p>
     <button type="button" class="hero-cta" data-action="add-person">Add your first person</button>
     <div class="teach-more">
-      <button type="button" class="btn secondary" data-action="import-csv">Import a spreadsheet (CSV)</button>
+      <button type="button" class="btn secondary" data-action="import-contacts">Add from your contacts</button>
       <button type="button" class="btn secondary" data-action="import-json">Restore a backup</button>
     </div>
   </section>`;
@@ -408,7 +407,7 @@ function peopleListHTML() {
       <p class="empty-title">No one here yet.</p>
       <p>Add the casting directors, bookers, editors and clients you want to stay close to. Callback will tell you when to reach out.</p>
       <button type="button" class="hero-cta" data-action="add-person">Add your first person</button>
-      <button type="button" class="btn secondary wide" data-action="import-csv">Import a spreadsheet (CSV)</button>
+      <button type="button" class="btn secondary wide" data-action="import-contacts">Add from your contacts</button>
     </div>`;
   }
   const list = filteredPeople();
@@ -780,6 +779,10 @@ function numField(path, value, label, hint) {
   </label>`;
 }
 
+function isIOS() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
 function isStandalone() {
   return matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 }
@@ -790,8 +793,7 @@ function installHTML() {
     return `<p>Install Callback to open it from your home screen or dock, like any other app. It works offline.</p>
       <button type="button" class="primary small-btn" data-action="install">Install Callback</button>`;
   }
-  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  if (ios) return '<p>To install on iPhone or iPad: open Callback in Safari, tap the Share button, then Add to Home Screen.</p>';
+  if (isIOS()) return '<p>To install on iPhone or iPad: open Callback in Safari, tap the Share button, then Add to Home Screen.</p>';
   return '<p>To install, use your browser menu and pick Install or Add to Home Screen. In Chrome and Edge it is the install icon in the address bar.</p>';
 }
 
@@ -837,7 +839,7 @@ function renderSettings() {
       <div class="button-stack">
         <button type="button" class="primary small-btn" data-action="export-json">Export backup (JSON)</button>
         <button type="button" class="secondary small-btn" data-action="import-json">Import backup</button>
-        <button type="button" class="secondary small-btn" data-action="import-csv">Import people from a spreadsheet (CSV)</button>
+        <button type="button" class="secondary small-btn" data-action="import-contacts">Add people from your contacts</button>
       </div>`, 'navy')}
 
     ${sectionBlock('set-cal', 'Calendar', null, `
@@ -1593,134 +1595,196 @@ function staggeredDates(n, perDay, start) {
   return out;
 }
 
-function importCSV() {
-  pickFile('.csv,text/csv,text/plain', async (file) => {
-    let rows;
-    try {
-      rows = parseCSV(await readFileText(file));
-    } catch {
-      toast("That file couldn't be read.");
-      return;
-    }
-    if (!rows.length) {
-      toast('That file looks empty.');
-      return;
-    }
-    csvSheet(rows, file.name);
-  });
-}
-
-function csvSheet(allRows, filename) {
-  const notesAbove = findHeaderRow(allRows);
-  const rows = allRows.slice(notesAbove);
-  let hasHeader = true;
-  let warmth = 'cold';
-  const headerNames = rows[0].map((h, i) => h.trim() || `Column ${i + 1}`);
-  let map = guessMapping(headerNames);
-  const s = openSheet({ title: 'Import people', className: 'sheet-wide' });
-
-  const build = () => {
-    const data = hasHeader ? rows.slice(1) : rows;
-    const get = (r, k) => (map[k] >= 0 ? String(r[map[k]] || '').trim() : '');
-    const emails = new Set(S.people.map((p) => (p.email || '').toLowerCase()).filter(Boolean));
-    const names = new Set(S.people.map((p) => p.name.toLowerCase()));
-    const out = [];
-    let skipped = 0;
-    for (const r of data) {
-      let name = get(r, 'name');
-      const last = get(r, 'lastName');
-      if (last) name = `${name} ${last}`.trim();
-      if (!name) continue;
-      const email = get(r, 'email');
-      if ((email && emails.has(email.toLowerCase())) || names.has(name.toLowerCase())) {
-        skipped++;
-        continue;
-      }
-      names.add(name.toLowerCase());
-      if (email) emails.add(email.toLowerCase());
-      out.push({
-        name,
-        email,
-        role: get(r, 'role'),
-        orgName: get(r, 'organization'),
-        notes: get(r, 'notes'),
-        phone: get(r, 'phone'),
-        instagram: get(r, 'instagram'),
-        website: get(r, 'website'),
-        howWeMet: get(r, 'howWeMet'),
-        tags: parseTags(cleanTags(get(r, 'tags'))),
-      });
-    }
-    return { data, out, skipped };
-  };
-
-  const draw = () => {
-    const cols = hasHeader ? headerNames : rows[0].map((_, i) => `Column ${i + 1}`);
-    const { data, out, skipped } = build();
-    const sample = data[0] || [];
-    s.body.innerHTML = `
-      <p class="sheet-message">${esc(filename)}: ${plural(data.length, 'row')}.${notesAbove ? ` Skipped ${plural(notesAbove, 'line')} of notes above the column names.` : ''} Match your columns to Callback's fields. Name is the only one you need.</p>
-      <label class="check"><input type="checkbox" data-header${hasHeader ? ' checked' : ''}> The first row has column names</label>
-      <div class="map-grid">${CSV_FIELDS.map((f) => `<label class="field"><span class="field-label">${esc(f.label)}</span>
-        <select data-field="${f.key}"><option value="-1">Don't import</option>${cols
-          .map((c, i) => `<option value="${i}"${map[f.key] === i ? ' selected' : ''}>${esc(c)}${sample[i] ? ` (${esc(trunc(String(sample[i]).trim(), 22))})` : ''}</option>`)
-          .join('')}</select></label>`).join('')}</div>
-      <label class="field"><span class="field-label">Warmth for everyone in this file</span>
-        <select data-warmth>${WARMTH.map((w) => `<option value="${w}"${w === warmth ? ' selected' : ''}>${esc(WARMTH_INFO[w].label)}</option>`).join('')}</select></label>
-      <div class="csv-preview">
-        <p class="field-label">Preview</p>
-        ${out.length ? `<ul>${out.slice(0, 4).map((x) => `<li><b>${esc(x.name)}</b>${x.role || x.orgName ? ` <span class="dot">·</span> ${esc([x.role, x.orgName].filter(Boolean).join(', '))}` : ''}${x.email ? ` <span class="dot">·</span> ${esc(x.email)}` : ''}</li>`).join('')}${out.length > 4 ? `<li>and ${out.length - 4} more</li>` : ''}</ul>` : '<p>No names found with this setup. Check the Name column.</p>'}
-        ${skipped ? `<p>${plural(skipped, 'person', 'people')} already in Callback will be skipped.</p>` : ''}
-      </div>
-      <p class="field-hint">Callback spreads their first touchpoints across the coming weekdays, about ${Math.max(1, Math.ceil(S.settings.goals.touchpoints / 5))} a day, so Today stays manageable.</p>
-      <button type="button" class="modal-cta primary" data-go${out.length ? '' : ' disabled'}>Import ${plural(out.length, 'person', 'people')}</button>`;
-  };
-
-  s.body.addEventListener('change', (e) => {
-    const t = e.target;
-    if (t.matches('[data-header]')) hasHeader = t.checked;
-    else if (t.matches('[data-field]')) map = { ...map, [t.dataset.field]: Number(t.value) };
-    else if (t.matches('[data-warmth]')) warmth = t.value;
-    draw();
+// Where the contacts come from: the phone's own picker when the browser
+// offers one, otherwise (and always on iPhone) a contacts file.
+function contactsSheet() {
+  const picker = canPickContacts();
+  const ios = isIOS();
+  const steps = ios
+    ? `<li>Open the <b>Contacts</b> app and tap <b>Lists</b>.</li>
+       <li>Touch and hold <b>All Contacts</b>, or a smaller list, then tap <b>Export</b>.</li>
+       <li>Tap <b>Save to Files</b>.</li>
+       <li>Come back here and choose that file.</li>`
+    : `<li>Export your contacts as a vCard (.vcf) file. Google Contacts, Outlook and most phone contacts apps have an Export option.</li>
+       <li>Come back here and choose that file.</li>`;
+  const s = openSheet({
+    title: 'Add from your contacts',
+    className: 'sheet-small',
+    body: `
+      ${picker ? `<p class="sheet-message">Pick people straight from your phone's contacts.</p>
+        <button type="button" class="modal-cta primary" data-pick>Choose from contacts</button>
+        <p class="or-line">Or use a contacts file</p>` : ''}
+      <p class="sheet-message">${ios
+        ? "iPhone doesn't let web apps open Contacts directly, but Contacts can hand Callback a copy in a few taps:"
+        : 'Your contacts app can save a copy of your contacts for Callback to read:'}</p>
+      <ol class="steps">${steps}</ol>
+      <button type="button" class="${picker ? 'secondary small-btn' : 'modal-cta primary'}" data-file>Choose a contacts file</button>
+      <p class="hint">Nothing is added until you tick who you want.</p>`,
   });
 
   s.body.addEventListener('click', async (e) => {
-    const go = e.target.closest('[data-go]');
-    if (!go || go.disabled) return;
-    go.disabled = true;
-    const { out } = build();
-    const today = todayStr();
-    const now = nowISO();
-    const orgIds = new Map(S.orgs.map((o) => [o.name.trim().toLowerCase(), o.id]));
-    for (const x of out) {
-      const key = x.orgName.toLowerCase();
-      if (x.orgName && !orgIds.has(key)) {
-        const o = await db.saveOrganization({ name: x.orgName, type: 'other', website: '', notes: '' });
-        orgIds.set(key, o.id);
+    if (e.target.closest('[data-pick]')) {
+      let list;
+      try {
+        list = await pickContacts();
+      } catch {
+        toast("Your phone didn't share any contacts.");
+        return;
       }
+      if (!list.length) return;
+      s.close();
+      contactChooser(list, { preselect: true });
+    } else if (e.target.closest('[data-file]')) {
+      pickFile('.vcf,text/vcard,text/x-vcard,text/directory', async (file) => {
+        let list = [];
+        try {
+          list = parseVCards(await readFileText(file));
+        } catch {
+          /* falls through to the message below */
+        }
+        if (!list.length) {
+          toast("No contacts found in that file. It needs to be a .vcf contacts file.");
+          return;
+        }
+        s.close();
+        contactChooser(list, { preselect: false });
+      });
     }
-    const dates = staggeredDates(out.length, Math.max(1, Math.ceil(S.settings.goals.touchpoints / 5)), today);
-    const people = out.map(({ orgName, ...x }, i) => {
-      const rec = {
-        ...x,
-        organizationId: orgName ? orgIds.get(orgName.toLowerCase()) : null,
-        cadenceOverrideDays: null,
-        pastOrganizations: [],
-        ...warmthChangeFields({}, warmth, now, today),
-        nextTouchpointDate: dates[i],
-      };
-      if (warmth === 'parked') rec.nextTouchpointDate = computeNextDate(rec, [], S.settings, today);
-      return rec;
+  });
+}
+
+// A tick list of contacts. People already in Callback (same email or name)
+// show but can't be ticked. Picked-on-the-phone contacts start ticked, a
+// whole address book starts empty.
+function contactChooser(list, { preselect }) {
+  const emails = new Set(S.people.map((p) => (p.email || '').toLowerCase()).filter(Boolean));
+  const names = new Set(S.people.map((p) => p.name.toLowerCase()));
+  const seen = new Set();
+  const items = [...list]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((c) => {
+      const key = `${c.name.toLowerCase()}|${c.email.toLowerCase()}`;
+      const dup = (c.email && emails.has(c.email.toLowerCase())) || names.has(c.name.toLowerCase()) || seen.has(key);
+      seen.add(key);
+      return { c, dup };
     });
-    await db.savePeople(people);
-    db.askToPersist();
+  const chosen = new Set(preselect ? items.map((x, i) => (x.dup ? -1 : i)).filter((i) => i >= 0) : []);
+  const dups = items.filter((x) => x.dup).length;
+  const perDay = Math.max(1, Math.ceil(S.settings.goals.touchpoints / 5));
+  let warmth = 'warm';
+
+  const row = (x, i) => {
+    const sub = [x.c.role, x.c.org].filter(Boolean).join(', ') || [x.c.email, x.c.phone].find((v) => v && v !== x.c.name) || '';
+    const find = esc([x.c.name, x.c.org, x.c.role, x.c.email].join(' ').toLowerCase());
+    if (x.dup) {
+      return `<div class="pick-row is-dup" data-find="${find}"><span class="pick-box" aria-hidden="true"></span>
+        <span class="pick-main"><span class="pick-name">${esc(x.c.name)}</span><span class="pick-sub">Already in Callback</span></span></div>`;
+    }
+    return `<label class="pick-row" data-find="${find}"><input type="checkbox" data-i="${i}"${chosen.has(i) ? ' checked' : ''}>
+      <span class="pick-main"><span class="pick-name">${esc(x.c.name)}</span>${sub ? `<span class="pick-sub">${esc(sub)}</span>` : ''}</span></label>`;
+  };
+
+  const s = openSheet({
+    title: 'Choose who to add',
+    className: 'sheet-wide has-footer',
+    body: `
+      <p class="sheet-message">${plural(items.length, 'contact')}${dups ? `, ${dups} already in Callback` : ''}. Tick the people you want to keep in touch with, or nobody.</p>
+      <label class="field"><span class="field-label">Warmth for everyone you add</span>
+        <select data-warmth>${WARMTH.map((w) => `<option value="${w}"${w === warmth ? ' selected' : ''}>${esc(WARMTH_INFO[w].label)}: ${esc(WARMTH_INFO[w].blurb)}</option>`).join('')}</select></label>
+      ${items.length > 8 ? '<input type="search" class="search pick-search" data-q placeholder="Search contacts" autocomplete="off" aria-label="Search contacts">' : ''}
+      <div class="pick-tools">
+        <button type="button" class="text-btn" data-all>Tick all shown</button>
+        <button type="button" class="text-btn" data-none>Untick all</button>
+      </div>
+      <div class="pick-list">${items.map(row).join('')}</div>
+      <div class="sheet-footer">
+        <p class="field-hint">Their first touchpoints are spread across the coming weekdays, about ${perDay} a day.</p>
+        <button type="button" class="modal-cta primary" data-go></button>
+      </div>`,
+  });
+  const go = s.body.querySelector('[data-go]');
+  const update = () => {
+    go.textContent = chosen.size ? `Add ${plural(chosen.size, 'person', 'people')}` : 'Tick someone to add';
+    go.disabled = !chosen.size;
+  };
+  update();
+
+  s.body.addEventListener('change', (e) => {
+    const t = e.target;
+    if (t.matches('[data-i]')) {
+      if (t.checked) chosen.add(Number(t.dataset.i));
+      else chosen.delete(Number(t.dataset.i));
+      update();
+    } else if (t.matches('[data-warmth]')) warmth = t.value;
+  });
+
+  s.body.addEventListener('input', (e) => {
+    if (!e.target.matches('[data-q]')) return;
+    const q = e.target.value.trim().toLowerCase();
+    s.body.querySelectorAll('.pick-row').forEach((r) => {
+      r.hidden = !!q && !r.dataset.find.includes(q);
+    });
+  });
+
+  s.body.addEventListener('click', async (e) => {
+    if (e.target.closest('[data-all], [data-none]')) {
+      const on = !!e.target.closest('[data-all]');
+      s.body.querySelectorAll('.pick-row:not([hidden]) input[data-i]').forEach((box) => {
+        box.checked = on;
+        if (on) chosen.add(Number(box.dataset.i));
+        else chosen.delete(Number(box.dataset.i));
+      });
+      update();
+      return;
+    }
+    if (!e.target.closest('[data-go]') || !chosen.size) return;
+    go.disabled = true;
+    const picked = [...chosen].sort((a, b) => a - b).map((i) => items[i].c);
+    const n = await addPeople(picked, warmth);
     s.close();
     location.hash = '#/people';
     await refresh();
-    toast(`${plural(people.length, 'person', 'people')} imported`);
+    toast(`${plural(n, 'person', 'people')} added`);
   });
+}
 
-  draw();
+// Saves contacts as people: matches or creates their organizations, and
+// spreads first touchpoints over the coming weekdays.
+async function addPeople(contacts, warmth) {
+  const today = todayStr();
+  const now = nowISO();
+  const orgIds = new Map(S.orgs.map((o) => [o.name.trim().toLowerCase(), o.id]));
+  for (const c of contacts) {
+    const key = c.org.trim().toLowerCase();
+    if (key && !orgIds.has(key)) {
+      const o = await db.saveOrganization({ name: c.org.trim(), type: 'other', website: '', notes: '' });
+      orgIds.set(key, o.id);
+    }
+  }
+  const dates = staggeredDates(contacts.length, Math.max(1, Math.ceil(S.settings.goals.touchpoints / 5)), today);
+  const people = contacts.map((c, i) => {
+    const rec = {
+      name: c.name,
+      email: c.email,
+      phone: c.phone,
+      role: c.role,
+      instagram: c.instagram,
+      website: c.website,
+      howWeMet: '',
+      notes: c.notes,
+      tags: parseTags(c.tags.join(',')),
+      organizationId: c.org ? orgIds.get(c.org.trim().toLowerCase()) : null,
+      cadenceOverrideDays: null,
+      pastOrganizations: [],
+      ...warmthChangeFields({}, warmth, now, today),
+      nextTouchpointDate: dates[i],
+    };
+    if (warmth === 'parked') rec.nextTouchpointDate = computeNextDate(rec, [], S.settings, today);
+    return rec;
+  });
+  await db.savePeople(people);
+  db.askToPersist();
+  return people.length;
 }
 
 async function exportICS() {
@@ -1825,7 +1889,7 @@ const ACTIONS = {
   'edit-reflection': (el) => reflectionSheet(el.dataset.week),
   'export-json': () => exportJSON(),
   'import-json': () => importJSON(),
-  'import-csv': () => importCSV(),
+  'import-contacts': () => contactsSheet(),
   'export-ics': () => exportICS(),
   'remind-later': async () => {
     await db.setMeta('exportReminderUntil', addDays(todayStr(), 7));

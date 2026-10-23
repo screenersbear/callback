@@ -1,5 +1,5 @@
 // Bump CACHE_NAME with every deploy so installed copies pick up new files.
-const CACHE_NAME = 'callback-v2';
+const CACHE_NAME = 'callback-v3';
 const ASSETS = [
   './',
   './index.html',
@@ -12,7 +12,7 @@ const ASSETS = [
   './js/ui.js',
   './js/ideas.js',
   './js/ics.js',
-  './js/csv.js',
+  './js/contacts.js',
   './js/model.js',
   './icons/icon.svg',
   './icons/icon-180.png',
