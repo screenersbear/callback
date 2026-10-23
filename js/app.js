@@ -11,7 +11,7 @@ import {
 } from './cadence.js';
 import { pickIdea } from './ideas.js';
 import { upcomingEvents, buildCalendar } from './ics.js';
-import { parseCSV, guessMapping, CSV_FIELDS } from './csv.js';
+import { parseCSV, guessMapping, findHeaderRow, cleanTags, CSV_FIELDS } from './csv.js';
 import {
   TOUCH_TYPES, touchTypeLabel, RESPONDED, respondedLabel, ROLE_SUGGESTIONS, ORG_TYPES, orgTypeLabel,
   NEWS_SUGGESTIONS,
@@ -1610,7 +1610,9 @@ function importCSV() {
   });
 }
 
-function csvSheet(rows, filename) {
+function csvSheet(allRows, filename) {
+  const notesAbove = findHeaderRow(allRows);
+  const rows = allRows.slice(notesAbove);
   let hasHeader = true;
   let warmth = 'cold';
   const headerNames = rows[0].map((h, i) => h.trim() || `Column ${i + 1}`);
@@ -1646,7 +1648,7 @@ function csvSheet(rows, filename) {
         instagram: get(r, 'instagram'),
         website: get(r, 'website'),
         howWeMet: get(r, 'howWeMet'),
-        tags: parseTags(get(r, 'tags')),
+        tags: parseTags(cleanTags(get(r, 'tags'))),
       });
     }
     return { data, out, skipped };
@@ -1657,7 +1659,7 @@ function csvSheet(rows, filename) {
     const { data, out, skipped } = build();
     const sample = data[0] || [];
     s.body.innerHTML = `
-      <p class="sheet-message">${esc(filename)}: ${plural(data.length, 'row')}. Match your columns to Callback's fields. Name is the only one you need.</p>
+      <p class="sheet-message">${esc(filename)}: ${plural(data.length, 'row')}.${notesAbove ? ` Skipped ${plural(notesAbove, 'line')} of notes above the column names.` : ''} Match your columns to Callback's fields. Name is the only one you need.</p>
       <label class="check"><input type="checkbox" data-header${hasHeader ? ' checked' : ''}> The first row has column names</label>
       <div class="map-grid">${CSV_FIELDS.map((f) => `<label class="field"><span class="field-label">${esc(f.label)}</span>
         <select data-field="${f.key}"><option value="-1">Don't import</option>${cols

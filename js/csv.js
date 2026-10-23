@@ -45,29 +45,42 @@ export function parseCSV(input) {
 }
 
 // Fields a column can map to, with header words that suggest each one.
+// Within a field, earlier hints win: "Job Title" beats Outlook's "Title"
+// column, which holds Mr or Ms.
 export const CSV_FIELDS = [
   { key: 'name', label: 'Name', hints: ['full name', 'name', 'contact', 'display name'] },
   { key: 'lastName', label: 'Last name (optional, joined to the name)', hints: ['last name', 'surname', 'family name', 'last'] },
-  { key: 'email', label: 'Email', hints: ['email', 'e-mail', 'mail'] },
-  { key: 'role', label: 'Role', hints: ['role', 'title', 'job', 'position'] },
+  { key: 'email', label: 'Email', hints: ['email', 'e-mail', 'email address', 'mail'] },
+  { key: 'role', label: 'Role', hints: ['role', 'job title', 'position', 'title', 'job'] },
   { key: 'organization', label: 'Organization', hints: ['organization', 'organisation', 'company', 'agency', 'brand', 'employer'] },
   { key: 'notes', label: 'Notes', hints: ['notes', 'note', 'comments', 'description'] },
   { key: 'phone', label: 'Phone', hints: ['phone', 'mobile', 'cell', 'tel'] },
   { key: 'instagram', label: 'Instagram', hints: ['instagram', 'ig', 'insta'] },
-  { key: 'website', label: 'Website', hints: ['website', 'web', 'url', 'site'] },
+  { key: 'website', label: 'Website', hints: ['website', 'web page', 'web', 'url', 'site'] },
   { key: 'howWeMet', label: 'How we met', hints: ['how we met', 'met', 'source'] },
-  { key: 'tags', label: 'Tags', hints: ['tags', 'tag', 'labels', 'groups'] },
+  { key: 'tags', label: 'Tags', hints: ['tags', 'tag', 'labels', 'group membership', 'groups'] },
 ];
+
+// Google Contacts and Outlook split each email, phone and website into a
+// "- Label" (or "- Type") column saying Work or Home, then a "- Value"
+// column with the address itself. The label column is never the one wanted.
+const LABEL_COLUMN = /-\s*(label|type)\s*$/;
+
+// Headings that contain a hint word but mean something else.
+const NOT_FOR = {
+  name: /compan|organi|last|user|file|sur|prefix|suffix|nick|phonetic|middle|yomi/,
+  phone: /phonetic/,
+};
 
 // Best guess at which column feeds each field (index, or -1 for none).
 export function guessMapping(headers) {
-  const norm = headers.map((h) => h.trim().toLowerCase());
+  const norm = headers.map((h) => String(h).trim().toLowerCase());
   const used = new Set();
   const map = {};
   const firstIdx = norm.findIndex((h) => /^(first|given)( name)?$/.test(h));
   const find = (hints, test) => {
     for (const hint of hints) {
-      const i = norm.findIndex((h, j) => !used.has(j) && test(h, hint));
+      const i = norm.findIndex((h, j) => !used.has(j) && !LABEL_COLUMN.test(h) && test(h, hint));
       if (i >= 0) return i;
     }
     return -1;
@@ -78,12 +91,34 @@ export function guessMapping(headers) {
     let idx = find(f.hints, (h, hint) => h === hint);
     if (f.key === 'name' && idx < 0 && firstIdx >= 0) idx = firstIdx;
     if (idx < 0) {
-      idx = find(f.hints, (h, hint) =>
-        hint.length > 3 && h.includes(hint) && !(f.key === 'name' && /compan|organi|last|user|file|sur/.test(h)));
+      const avoid = NOT_FOR[f.key];
+      idx = find(f.hints, (h, hint) => hint.length > 3 && h.includes(hint) && !(avoid && avoid.test(h)));
     }
     if (f.key === 'lastName' && (firstIdx < 0 || map.name !== firstIdx)) idx = -1;
     if (idx >= 0) used.add(idx);
     map[f.key] = idx;
   }
   return map;
+}
+
+// Some exports, LinkedIn's among them, start with a few lines of notes
+// before the column names. The heading row is the first of the opening rows
+// made of short cells that include a name column. Falls back to row 0.
+export function findHeaderRow(rows) {
+  for (let i = 0; i < Math.min(rows.length, 10); i++) {
+    const cells = rows[i].map((c) => c.trim()).filter(Boolean);
+    if (cells.length < 2 || cells.some((c) => c.length > 60)) continue;
+    if (guessMapping(rows[i]).name >= 0) return i;
+  }
+  return 0;
+}
+
+// Google Contacts writes groups as "Clients ::: * myContacts". Groups that
+// start with * are Google's own (myContacts, starred), not the person's.
+export function cleanTags(cell) {
+  return String(cell || '')
+    .split(/:::|[,;]/)
+    .map((t) => t.trim())
+    .filter((t) => t && !t.startsWith('*'))
+    .join(', ');
 }
