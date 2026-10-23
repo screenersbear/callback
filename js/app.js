@@ -11,7 +11,7 @@ import {
 } from './cadence.js';
 import { pickIdea } from './ideas.js';
 import { upcomingEvents, buildCalendar } from './ics.js';
-import { canPickContacts, pickContacts, parseVCards } from './contacts.js';
+import { canPickContacts, pickContacts, parseVCards, parsePasted } from './contacts.js';
 import {
   TOUCH_TYPES, touchTypeLabel, RESPONDED, respondedLabel, ROLE_SUGGESTIONS, ORG_TYPES, orgTypeLabel,
   NEWS_SUGGESTIONS,
@@ -960,6 +960,72 @@ window.addEventListener('hashchange', (e) => {
 // ---------------------------------------------------------------------------
 // Sheets: person form
 
+const PASTE_FIELDS = [
+  ['name', 'name'],
+  ['role', 'role'],
+  ['org', 'organization'],
+  ['email', 'email'],
+  ['phone', 'phone'],
+  ['instagram', 'Instagram'],
+  ['website', 'website'],
+];
+
+function joinWords(list) {
+  return list.length < 2 ? list.join('') : `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
+}
+
+// Fills the Add person form from pasted text. Fields someone typed into
+// themselves are left alone; ones filled by an earlier paste are replaced.
+function wirePasteBox(form) {
+  const box = form.querySelector('[data-paste]');
+  const result = form.querySelector('[data-paste-result]');
+  const fill = (text) => {
+    if (!text.trim()) {
+      result.textContent = '';
+      return;
+    }
+    const c = parsePasted(text);
+    const values = { ...c, instagram: c.instagram ? `@${c.instagram}` : '' };
+    const filled = [];
+    for (const [key, word] of PASTE_FIELDS) {
+      const input = form.querySelector(`[name="${key}"]`);
+      if (!values[key]) {
+        // Left over from an earlier paste: clear it, don't mix two people.
+        if (input.dataset.pasted) {
+          input.value = '';
+          delete input.dataset.pasted;
+        }
+        continue;
+      }
+      if (input.value.trim() && !input.dataset.pasted) continue;
+      input.value = values[key];
+      input.dataset.pasted = '1';
+      filled.push(word);
+    }
+    if (filled.some((w) => ['email', 'phone', 'Instagram', 'website'].includes(w))) form.querySelector('details.more').open = true;
+    if (values.name) form.querySelector('[data-error="name"]').hidden = true;
+    result.textContent = filled.length
+      ? `Filled in ${joinWords(filled)}. Check them below before saving.`
+      : "Couldn't find any details in that. A signature or contact card works best.";
+  };
+  const fillSoon = debounce(fill, 250);
+  box.addEventListener('input', () => fillSoon(box.value));
+  form.addEventListener('input', (e) => {
+    if (e.target !== box && e.target.dataset) delete e.target.dataset.pasted;
+  });
+  const clip = form.querySelector('[data-clip]');
+  if (clip) {
+    clip.addEventListener('click', async () => {
+      try {
+        box.value = await navigator.clipboard.readText();
+        fill(box.value);
+      } catch {
+        result.textContent = 'Your phone didn\'t share what you copied. Press and hold in the box above, then tap Paste.';
+      }
+    });
+  }
+}
+
 function personForm(p, preset = {}) {
   const isNew = !p;
   const v = p || { warmth: 'cold', nextTouchpointDate: todayStr(), ...preset };
@@ -970,6 +1036,13 @@ function personForm(p, preset = {}) {
   const s = openSheet({
     title: isNew ? 'Add person' : 'Edit person',
     body: `<form class="form" novalidate>
+      ${isNew ? `<details class="paste-box">
+        <summary>Paste details from a signature or contact</summary>
+        <p class="field-hint">Paste an email signature, a copied contact, or text from a website or DM. Callback fills in what it finds, and you check it before saving.</p>
+        <div class="field"><textarea data-paste rows="5" aria-label="Pasted details" placeholder="Rosa Lind&#10;Booker | Ford Models&#10;M: +1 212 555 0101&#10;rosa@fordmodels.com"></textarea></div>
+        ${navigator.clipboard && navigator.clipboard.readText ? '<button type="button" class="secondary small-btn" data-clip>Paste what I copied</button>' : ''}
+        <p class="paste-result" data-paste-result aria-live="polite"></p>
+      </details>` : ''}
       ${field('name', 'Name', v.name, 'autocomplete="off" placeholder="Who is it?" required')}
       <p class="field-error" data-error="name" hidden>Add a name first.</p>
       ${field('role', 'Role', v.role, 'list="roleList" autocomplete="off" placeholder="Casting director, editor, client"')}
@@ -1004,6 +1077,7 @@ function personForm(p, preset = {}) {
     </form>`,
   });
   const form = s.body.querySelector('form');
+  if (isNew) wirePasteBox(form);
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();

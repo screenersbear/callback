@@ -189,3 +189,143 @@ export function parseVCards(text) {
   }
   return out;
 }
+
+// ---------- Pasted text ----------
+// Pulls contact details out of whatever someone pastes: an email signature,
+// a copied contact card, a From: line, text from a website or a DM.
+// Best effort: the form shows the result so the person can fix it.
+
+const EMAIL_RE = /[A-Z0-9._%+'-]+@[A-Z0-9-]+(?:\.[A-Z0-9-]+)*\.[A-Z]{2,}/i;
+const PHONE_RE = /\+?\(?\d[\d\s().-]{5,}\d/g;
+// Bare domains only count with a familiar ending, so "J.Crew" or "e.g."
+// never become a website; with http or www anything goes.
+const URL_SRC =
+  '\\b(?:https?:\\/\\/[^\\s|,;<>]+|www\\.[^\\s|,;<>]+|[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.' +
+  '(?:com|net|org|co|io|me|tv|uk|us|ca|au|de|fr|it|es|nl|nyc|la|studio|photo|photography|art|agency|film|media|design|gallery|info|biz|page|site|app|xyz|world)' +
+  '(?:\\/[^\\s|,;<>]*)?)';
+const findUrls = (s) => s.match(new RegExp(URL_SRC, 'gi')) || [];
+const hasUrl = (s) => new RegExp(URL_SRC, 'i').test(s);
+const SOCIAL_RE = /instagram\.com|facebook\.com|twitter\.com|x\.com\/|tiktok\.com|threads\.net|linkedin\.com/i;
+const SIGN_OFF_RE = /^(best( regards| wishes)?|kind regards|warm(est)? regards|regards|warmly|thanks( so much)?|thank you|many thanks|cheers|sincerely|all the best|talk soon|speak soon|xo+|x+|-{2,}|_{2,}|sent from my .*|get outlook for .*|hi|hello|hey|dear .*)[\s,.!]*$/i;
+const ROLE_RE = /\b(director|casting|booker|booking|agent|manager|producer|editor|editorial|marketer|marketing|brand|coordinator|assistant|associate|head|lead|founder|co-?founder|partner|president|vp|chief|officer|executive|photographer|buyer|creative|designer|talent|actor|actress|model|owner|ceo|cmo|coo|specialist|supervisor|strategist|curator|writer|journalist|publicist|stylist|scout|intern)\b/i;
+// Role words that also end company names, as in "Jane Doe Casting".
+const WEAK_ROLE_RE = /\b(casting|creative|talent|brand|booking|editorial)\b/gi;
+const COMPANY_RE = /\b(inc|llc|ltd|limited|corp|corporation|gmbh|studios?|models|management|mgmt|agency|pictures|productions|films?|media|group|magazine|records|entertainment|partners|collective|casting|creative)\.?$/i;
+// " | ", " \u00b7 ", " - " (and en or em dash), " at ", ", " between a role and a company.
+const PART_SPLIT = /\s+[|\u00b7\u2022/]\s+|\s+[-\u2013\u2014]\s+|\s+at\s+|\s+@\s+|,\s+/i;
+
+const strongRole = (s) => ROLE_RE.test(s.replace(WEAK_ROLE_RE, ''));
+
+function isRole(part) {
+  if (!ROLE_RE.test(part)) return false;
+  return !COMPANY_RE.test(part) || strongRole(part.replace(COMPANY_RE, ''));
+}
+
+function titleCase(s) {
+  return s.toLowerCase().replace(/(^|[\s'-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
+}
+
+function looksLikeName(line) {
+  if (line.length > 40 || /[\d@:/|]/.test(line) || SIGN_OFF_RE.test(line)) return false;
+  const words = line.split(/\s+/);
+  if (words.length < 2 || words.length > 4) return false;
+  if (!words.every((w) => /^\p{Lu}[\p{L}'\u2019.-]*$/u.test(w))) return false;
+  return !strongRole(line) && !COMPANY_RE.test(line);
+}
+
+export function parsePasted(input) {
+  const text = String(input || '').replace(/\r\n?/g, '\n');
+  if (/BEGIN:VCARD/i.test(text)) return parseVCards(text)[0] || contact({});
+
+  const lines = text.split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const out = { name: '', email: '', phone: '', role: '', org: '', website: '', instagram: '' };
+
+  // Labelled lines first: "Name: ...", "Title: ...", "Company: ...".
+  const label = (words) => {
+    const re = new RegExp(`^(?:${words})\\s*[:\\-]\\s*(.+)$`, 'i');
+    for (const l of lines) {
+      const m = l.match(re);
+      if (m) return m[1].trim();
+    }
+    return '';
+  };
+  out.name = label('name|full name|contact');
+  out.role = label('title|job title|position|role');
+  out.org = label('company|organi[sz]ation|agency|employer|studio');
+  out.instagram = label('instagram|insta|ig').replace(/^@/, '').split(/\s/)[0];
+
+  const emailMatch = text.match(EMAIL_RE);
+  out.email = emailMatch ? emailMatch[0] : '';
+
+  // "Rosa Lind <rosa@fordmodels.com>", as in a From: line.
+  if (!out.name) {
+    const from = text.match(/(?:^|\n)(?:from:\s*)?"?([^"<>\n@:]{3,40}?)"?\s*<[^>\n]+@[^>\n]+>/i);
+    if (from) out.name = from[1].trim();
+  }
+
+  const noEmails = text.replace(new RegExp(EMAIL_RE.source, 'gi'), ' ');
+
+  if (!out.instagram) {
+    const m = noEmails.match(/instagram\.com\/([A-Za-z0-9._]{2,30})/i) || noEmails.match(/(?:^|[\s(|])@([A-Za-z0-9._]{2,30})\b/);
+    if (m) out.instagram = m[1].replace(/\.$/, '');
+  }
+
+  const urls = findUrls(noEmails).map((u) => u.replace(/[.)\]]+$/, ''));
+  out.website = urls.find((u) => !SOCIAL_RE.test(u)) || '';
+
+  // Phones: one labelled mobile or cell wins, otherwise the first.
+  const phones = [];
+  for (const l of lines) {
+    const clean = l.replace(new RegExp(EMAIL_RE.source, 'gi'), ' ').replace(new RegExp(URL_SRC, 'gi'), ' ');
+    for (const m of clean.matchAll(PHONE_RE)) {
+      const digits = m[0].replace(/\D/g, '');
+      if (digits.length < 7 || digits.length > 15 || /^\d{4}-\d{2}-\d{2}$/.test(m[0].trim())) continue;
+      phones.push({ value: m[0].trim(), mobile: /\b(m|mob|mobile|cell|c)\b\s*[:.]?/i.test(l) });
+    }
+  }
+  out.phone = (phones.find((p) => p.mobile) || phones[0] || { value: '' }).value;
+
+  // The name: the first line that reads like a person's name, or that starts
+  // with one ("Nora Quinn, Executive Producer, Quinn Productions").
+  let nameAt = -1;
+  let sameLine = '';
+  if (out.name) nameAt = lines.findIndex((l) => l.includes(out.name));
+  else {
+    for (let i = 0; i < lines.length && nameAt < 0; i++) {
+      const [head, ...rest] = lines[i].split(PART_SPLIT).map((x) => x.trim());
+      if (looksLikeName(lines[i])) out.name = lines[i];
+      else if (rest.length && looksLikeName(head)) {
+        out.name = head;
+        sameLine = rest.join(' | ');
+      } else continue;
+      nameAt = i;
+    }
+  }
+  if (out.name && out.name === out.name.toUpperCase() && out.name.length > 3) out.name = titleCase(out.name);
+
+  // Role and company: the plain lines right after the name.
+  if ((!out.role || !out.org) && nameAt >= 0) {
+    const plain = sameLine ? [sameLine] : [];
+    for (const l of lines.slice(nameAt + 1, nameAt + 5)) {
+      if (EMAIL_RE.test(l) || /\d{3}/.test(l) || hasUrl(l) || /@|:/.test(l) || l.length > 60 || SIGN_OFF_RE.test(l)) continue;
+      plain.push(l);
+      if (plain.length === 2) break;
+    }
+    const parts = plain
+      .flatMap((l) => l.split(PART_SPLIT))
+      .map((p) => p.trim())
+      .filter((p) => p && !/^(inc|llc|ltd|co)\.?$/i.test(p));
+    const roles = parts.filter(isRole);
+    const others = parts.filter((p) => !isRole(p));
+    if (!out.role && roles.length) out.role = roles[0];
+    if (!out.org && others.length) out.org = others.find((p) => COMPANY_RE.test(p)) || others[others.length - 1];
+  }
+
+  // Last resort for the name: "rosa.lind@..." reads as Rosa Lind.
+  if (!out.name && out.email) {
+    const m = out.email.split('@')[0].match(/^([a-z]{2,})[._]([a-z]{2,})$/i);
+    if (m) out.name = titleCase(`${m[1]} ${m[2]}`);
+  }
+
+  return contact(out);
+}
