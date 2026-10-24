@@ -208,7 +208,7 @@ function ideaSheet(p) {
     body: `<form class="form" novalidate>
       <label class="field"><span class="field-label">What will you reach out with?</span>
         <textarea name="idea" rows="3" maxlength="280" placeholder="Send the prints from Friday's test">${esc(p.customIdea || '')}</textarea>
-        <span class="field-hint">It shows in place of the suggestions until you remove it.</span></label>
+        <span class="field-hint">It shows in place of the suggestions until you log your next touchpoint with ${esc(firstName(p))}.</span></label>
       <button type="submit" class="modal-cta primary">Save idea</button>
     </form>`,
   });
@@ -1321,7 +1321,9 @@ function logSheet(p, { touchpoint = null, newsItem = null } = {}) {
     // touches the latest touchpoint, so a snooze survives fixing an old typo.
     const touchesLatest = !editing || all[0].id === tp.id || (before[0] && before[0].id === tp.id);
     const next = touchesLatest ? computeNextDate(p, all, S.settings, today) : p.nextTouchpointDate;
-    const person = await db.savePerson({ ...p, nextTouchpointDate: next });
+    // Logging a new touchpoint uses up a typed idea; fixing an old one doesn't.
+    const clearedIdea = !editing && !!(p.customIdea || '').trim();
+    const person = await db.savePerson({ ...p, nextTouchpointDate: next, ...(clearedIdea ? { customIdea: '' } : {}) });
     if (newsItem) await db.saveNews({ ...newsItem, dismissedAt: nowISO() });
     db.setMeta('lastLogType', type);
     db.askToPersist();
@@ -1332,7 +1334,7 @@ function logSheet(p, { touchpoint = null, newsItem = null } = {}) {
       toast('Touchpoint saved');
       return;
     }
-    showLogged(s, person, all);
+    showLogged(s, person, all, { clearedIdea });
   });
 
   const del = s.body.querySelector('[data-delete]');
@@ -1353,7 +1355,7 @@ function logSheet(p, { touchpoint = null, newsItem = null } = {}) {
   }
 }
 
-function showLogged(s, p, tps) {
+function showLogged(s, p, tps, { clearedIdea = false } = {}) {
   const next = p.nextTouchpointDate;
   const name = esc(firstName(p));
   let prompt = '';
@@ -1375,6 +1377,7 @@ function showLogged(s, p, tps) {
       <p class="next-rel">${esc(nextRelText(next))}</p>
     </section>
     <p class="logged-why">${whyText(p, tps, next)}</p>
+    ${clearedIdea ? '<p class="logged-why">Your typed idea is used up, so fresh suggestions show next time.</p>' : ''}
     ${prompt}
     <div class="sheet-actions">
       <button type="button" class="btn secondary" data-sheet-act="change-date">Change date</button>
