@@ -43,7 +43,7 @@ export function upcomingEvents(
     } else {
       lines.push('No touchpoints yet.');
     }
-    lines.push(`Idea: ${pickIdea(p, date)}`);
+    lines.push(`Idea: ${(p.customIdea || '').trim() || pickIdea(p, date)}`);
     if (appUrl) lines.push(`${appUrl}#/person/${p.id}`);
     events.push({
       uid: `${p.id}-${compact(scheduled)}@${UID_HOST}`,

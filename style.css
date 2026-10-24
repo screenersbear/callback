@@ -118,6 +118,21 @@ button:active, .row-card:active, .stat-box:active, .item-head:active { opacity: 
   margin-bottom: 20px;
   padding: calc(env(safe-area-inset-top) + 20px) max(16px, calc(50vw - 264px)) 20px;
   border-bottom: 4px solid var(--accent);
+  position: relative;
+}
+
+/* Pulling Today down past the top (the iPhone rubber band) reveals whatever
+   sits above the page, which was white. This strip of header colour, parked
+   just above the header, fills that gap so the header seems to stretch. */
+.hero-band::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 100vh;
+  background: var(--hero);
+  pointer-events: none;
 }
 
 .brand-row {
@@ -419,6 +434,7 @@ h2.collapsed .collapse-arrow { transform: rotate(-90deg); }
   color: var(--text-dim);
 }
 .idea-text { margin: 2px 0 0; font-size: 15px; }
+.idea-tools { display: flex; flex-wrap: wrap; gap: 0 18px; }
 .idea-next {
   border: none;
   background: none;
@@ -592,9 +608,9 @@ h2.collapsed .collapse-arrow { transform: rotate(-90deg); }
 }
 
 .filter-toggle {
-  background: var(--hero);
-  color: #fff;
-  border: 2px solid var(--hero);
+  background: var(--accent);
+  color: var(--on-accent);
+  border: 2px solid var(--navy);
   padding: 8px 12px;
   font-size: 13px;
   font-weight: 700;
@@ -602,7 +618,8 @@ h2.collapsed .collapse-arrow { transform: rotate(-90deg); }
   letter-spacing: 1.2px;
   text-transform: uppercase;
 }
-.filter-toggle.is-on { background: var(--accent); color: var(--on-accent); border-color: var(--navy); }
+/* Filters in use: navy, like an active filter chip. */
+.filter-toggle.is-on { background: var(--hero); color: #fff; border-color: var(--hero); }
 
 .check {
   display: inline-flex;
@@ -1408,11 +1425,11 @@ details.more > .field + .field { margin-top: 14px; }
 /* Dark mode details that tokens alone don't cover. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .section-block h2.heading-navy,
-  :root:not([data-theme="light"]) .filter-toggle,
+  :root:not([data-theme="light"]) .filter-toggle.is-on,
   :root:not([data-theme="light"]) .stat-box,
   :root:not([data-theme="light"]) .next-panel { box-shadow: inset 0 0 0 2px var(--ink); }
 }
 :root[data-theme="dark"] .section-block h2.heading-navy,
-:root[data-theme="dark"] .filter-toggle,
+:root[data-theme="dark"] .filter-toggle.is-on,
 :root[data-theme="dark"] .stat-box,
 :root[data-theme="dark"] .next-panel { box-shadow: inset 0 0 0 2px var(--ink); }

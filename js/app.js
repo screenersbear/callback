@@ -184,13 +184,46 @@ function promptBox(text, buttons) {
   return `<div class="prompt"><p>${text}</p><div class="prompt-actions">${buttons}</div></div>`;
 }
 
+// The rotating suggestion, or the idea the person typed themselves.
 function ideaHTML(p) {
-  const turn = S.ui.ideaTurn.get(p.id) || 0;
-  return `<div class="idea">
-    <span class="idea-label">Idea</span>
-    <p class="idea-text">${esc(pickIdea(p, todayStr(), turn))}</p>
-    <button type="button" class="idea-next" data-action="next-idea" data-id="${esc(p.id)}">Another idea</button>
+  const id = esc(p.id);
+  const own = (p.customIdea || '').trim();
+  const text = own || pickIdea(p, todayStr(), S.ui.ideaTurn.get(p.id) || 0);
+  return `<div class="idea${own ? ' is-own' : ''}">
+    <span class="idea-label">${own ? 'Your idea' : 'Idea'}</span>
+    <p class="idea-text">${esc(text)}</p>
+    <div class="idea-tools">
+      <button type="button" class="idea-next" data-action="next-idea" data-id="${id}">Another idea</button>
+      <button type="button" class="idea-next" data-action="type-idea" data-id="${id}">${own ? 'Edit your idea' : 'Type idea'}</button>
+    </div>
   </div>`;
+}
+
+function ideaSheet(p) {
+  if (!p) return;
+  const had = !!(p.customIdea || '').trim();
+  const s = openSheet({
+    title: `Your idea for ${firstName(p)}`,
+    className: 'sheet-small',
+    body: `<form class="form" novalidate>
+      <label class="field"><span class="field-label">What will you reach out with?</span>
+        <textarea name="idea" rows="3" maxlength="280" placeholder="Send the prints from Friday's test">${esc(p.customIdea || '')}</textarea>
+        <span class="field-hint">It shows in place of the suggestions until you remove it.</span></label>
+      <button type="submit" class="modal-cta primary">Save idea</button>
+    </form>`,
+  });
+  s.body.querySelector('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const idea = String(new FormData(e.target).get('idea') || '').trim();
+    if (!idea && !had) {
+      s.close();
+      return;
+    }
+    await db.savePerson({ ...p, customIdea: idea });
+    s.close();
+    await refresh();
+    toast(idea ? 'Idea saved' : 'Idea removed');
+  });
 }
 
 function statBox(num, label, href) {
@@ -2003,11 +2036,25 @@ const ACTIONS = {
   'make-warm': (el) => setWarmth(person(el), 'warm'),
   unpark: (el) => unpark(person(el)),
   repark: (el) => repark(person(el)),
-  'next-idea': (el) => {
+  'next-idea': async (el) => {
     const p = person(el);
+    if ((p.customIdea || '').trim()) {
+      const ok = await confirmSheet({
+        title: 'Remove your idea?',
+        message: `The idea you typed for ${esc(firstName(p))} will be removed, and Callback's suggestions come back.`,
+        confirmLabel: 'Remove it',
+        cancelLabel: 'Keep it',
+      });
+      if (!ok) return;
+      await db.savePerson({ ...p, customIdea: '' });
+      await refresh();
+      toast('Your idea was removed');
+      return;
+    }
     S.ui.ideaTurn.set(p.id, (S.ui.ideaTurn.get(p.id) || 0) + 1);
     el.closest('.idea').querySelector('.idea-text').textContent = pickIdea(p, todayStr(), S.ui.ideaTurn.get(p.id));
   },
+  'type-idea': (el) => ideaSheet(person(el)),
   'dismiss-news': async (el) => {
     const n = S.news.find((x) => x.id === el.dataset.id);
     if (!n) return;
