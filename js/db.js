@@ -7,10 +7,18 @@
 // knows the record was removed on purpose rather than never seen.
 import { uuid, nowISO } from './util.js';
 import { withDefaults } from './cadence.js';
+import { DEFAULT_RELATIONSHIP } from './model.js';
 
 const DB_NAME = 'callback';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
+// Export format version. Still 1: version 2 of the database only added
+// relationshipType, and files without it read fine (see readExport).
 export const SCHEMA_VERSION = 1;
+
+// Fields added after version 1, filled in for records that predate them.
+export function withPersonDefaults(p) {
+  return p.relationshipType ? p : { ...p, relationshipType: DEFAULT_RELATIONSHIP };
+}
 
 // Stores that travel in exports, imports and (one day) sync.
 const SYNCED = ['people', 'organizations', 'touchpoints', 'news', 'weeks', 'settings', 'tombstones'];
@@ -24,21 +32,34 @@ function open() {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = (e) => {
       const db = req.result;
-      const people = db.createObjectStore('people', { keyPath: 'id' });
-      people.createIndex('organizationId', 'organizationId');
-      db.createObjectStore('organizations', { keyPath: 'id' });
-      const tps = db.createObjectStore('touchpoints', { keyPath: 'id' });
-      tps.createIndex('personId', 'personId');
-      const news = db.createObjectStore('news', { keyPath: 'id' });
-      news.createIndex('personId', 'personId');
-      const weeks = db.createObjectStore('weeks', { keyPath: 'id' });
-      weeks.createIndex('weekStart', 'weekStart');
-      db.createObjectStore('settings', { keyPath: 'id' });
-      db.createObjectStore('tombstones', { keyPath: 'id' });
+      const hadPeople = db.objectStoreNames.contains('people');
+      // Each store is made if it's missing, whatever the old version says.
+      const store = (name, keyPath, indexes = []) => {
+        if (db.objectStoreNames.contains(name)) return;
+        const s = db.createObjectStore(name, { keyPath });
+        for (const i of indexes) s.createIndex(i, i);
+      };
+      store('people', 'id', ['organizationId']);
+      store('organizations', 'id');
+      store('touchpoints', 'id', ['personId']);
+      store('news', 'id', ['personId']);
+      store('weeks', 'id', ['weekStart']);
+      store('settings', 'id');
+      store('tombstones', 'id');
       // Device-only facts (last export, install date). Never exported.
-      db.createObjectStore('meta', { keyPath: 'key' });
+      store('meta', 'key');
+      if (hadPeople && e.oldVersion < 2) {
+        // Version 2 adds relationshipType. Filling in the default is not an
+        // edit, so updatedAt stays put and a later merge isn't skewed by it.
+        req.transaction.objectStore('people').openCursor().onsuccess = (ev) => {
+          const cursor = ev.target.result;
+          if (!cursor) return;
+          if (!cursor.value.relationshipType) cursor.update(withPersonDefaults(cursor.value));
+          cursor.continue();
+        };
+      }
     };
     req.onsuccess = () => {
       const db = req.result;
@@ -46,7 +67,9 @@ function open() {
       resolve(db);
     };
     req.onerror = () => reject(req.error);
-    req.onblocked = () => reject(new Error('Callback is open in another tab that needs to close first.'));
+    // An older copy open in another tab closes itself on versionchange, so a
+    // blocked upgrade just waits for that rather than failing.
+    req.onblocked = () => {};
   });
   return dbPromise;
 }
@@ -109,8 +132,11 @@ async function remove(store, id) {
 }
 
 // ---- People ----
-export const getPeople = () => getAll('people');
-export const getPerson = (id) => getOne('people', id);
+export const getPeople = async () => (await getAll('people')).map(withPersonDefaults);
+export const getPerson = async (id) => {
+  const p = await getOne('people', id);
+  return p && withPersonDefaults(p);
+};
 export const savePerson = (p) => save('people', p);
 export async function savePeople(list) {
   const recs = list.map(stamp);
@@ -220,6 +246,8 @@ export function readExport(payload) {
     const list = Array.isArray(payload.data[store]) ? payload.data[store] : [];
     data[store] = list.filter((r) => r && typeof r.id === 'string');
   }
+  // Exports made before relationshipType existed come in as prospects.
+  data.people = data.people.map(withPersonDefaults);
   return data;
 }
 

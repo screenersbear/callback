@@ -179,5 +179,12 @@ export function buildToday({ people, touchpointsByPerson, news }, today = todayS
     .filter((n) => !(touchpointsByPerson.get(n.personId) || []).some((t) => t.date >= n.date))
     .sort((a, b) => b.date.localeCompare(a.date));
 
-  return { overdue, due, news: newsToday, resurfaced };
+  // Someone due today whose news is today too (often because their next
+  // touchpoint was set to that news date) gets one card, not two: the news
+  // rides along on their due card.
+  const dueIds = new Set([...overdue, ...due].map((p) => p.id));
+  const dueNews = new Map();
+  for (const n of newsToday) if (dueIds.has(n.personId) && !dueNews.has(n.personId)) dueNews.set(n.personId, n);
+
+  return { overdue, due, news: newsToday.filter((n) => !dueIds.has(n.personId)), dueNews, resurfaced };
 }

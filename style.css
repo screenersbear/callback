@@ -525,6 +525,24 @@ h2.collapsed .collapse-arrow { transform: rotate(-90deg); }
 .warmth-client .warmth-icon { color: var(--accent); }
 .warmth-parked { border-style: dashed; color: var(--text-dim); background: transparent; }
 
+/* Relationship type: icon and word, no box, so it reads apart from warmth. */
+.rel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  line-height: 1.2;
+  color: var(--text);
+  white-space: nowrap;
+}
+.rel-icon { width: 14px; height: 14px; flex-shrink: 0; display: block; }
+.item-who .rel { margin-top: 4px; color: var(--text-dim); }
+.chip .rel-icon { width: 13px; height: 13px; }
+.choice .rel-icon { width: 18px; height: 18px; }
+
 /* ---------- Lists ---------- */
 
 .row-card {
@@ -695,6 +713,9 @@ h2.collapsed .collapse-arrow { transform: rotate(-90deg); }
   padding: 4px 0;
 }
 .warmth-btn .warmth { font-size: 13px; padding: 5px 9px 5px 8px; }
+.warmth-btn .rel { font-size: 13px; }
+.person-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 20px; }
+.news-picks { border-top: 1px solid var(--line); padding-top: 14px; }
 .warmth-btn-hint { font-size: 13px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; color: var(--text-dim); }
 
 .next-panel {
@@ -1112,6 +1133,7 @@ h2.collapsed .collapse-arrow { transform: rotate(-90deg); }
   padding: 8px 10px;
 }
 .warmth-option-body .warmth { min-width: 92px; }
+.warmth-option-body .rel { min-width: 118px; }
 .warmth-option-blurb { font-size: 14px; }
 .warmth-option input:checked + .warmth-option-body { border: 3px solid var(--ink); padding: 7px 9px; background: var(--bg); box-shadow: inset 6px 0 0 var(--accent); }
 .warmth-option input:focus-visible + .warmth-option-body { outline: 3px solid var(--accent); outline-offset: 2px; }

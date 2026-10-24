@@ -14,7 +14,7 @@ import { upcomingEvents, buildCalendar } from './ics.js';
 import { canPickContacts, pickContacts, parseVCards, parsePasted } from './contacts.js';
 import {
   TOUCH_TYPES, touchTypeLabel, RESPONDED, respondedLabel, ROLE_SUGGESTIONS, ORG_TYPES, orgTypeLabel,
-  NEWS_SUGGESTIONS,
+  NEWS_SUGGESTIONS, RELATIONSHIP_TYPES, DEFAULT_RELATIONSHIP, relationshipInfo,
 } from './model.js';
 import { openSheet, confirmSheet, choiceSheet, toast, closeAllSheets } from './ui.js';
 
@@ -42,7 +42,7 @@ const S = {
     collapsed: new Set(),
     scroll: new Map(),
     backTo: null,
-    people: { q: '', sort: 'contact', sortOpen: false, warmth: new Set(), role: '', tag: '', org: '', showParked: false, filtersOpen: false },
+    people: { q: '', sort: 'contact', sortOpen: false, warmth: new Set(), rel: new Set(), role: '', tag: '', org: '', showParked: false, filtersOpen: false },
     orgsQ: '',
   },
 };
@@ -118,6 +118,32 @@ function warmthIcon(w) {
 function warmthBadge(w) {
   const info = WARMTH_INFO[w] || WARMTH_INFO.cold;
   return `<span class="warmth warmth-${esc(w)}">${warmthIcon(w)}<span>${esc(info.label)}</span></span>`;
+}
+
+// Relationship type: an icon and a word, no box, so it never reads as a
+// second warmth badge.
+const REL_ICON = {
+  prospect: '<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="8" cy="8" r="2.2" fill="currentColor"/>',
+  collaborator: '<circle cx="5.7" cy="8" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="10.3" cy="8" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/>',
+  industry: '<path d="M3 12.5L8 3.5L13 12.5H3" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="3" cy="12.5" r="2.1" fill="currentColor"/><circle cx="13" cy="12.5" r="2.1" fill="currentColor"/><circle cx="8" cy="3.5" r="2.1" fill="currentColor"/>',
+};
+
+function relIcon(t) {
+  return `<svg class="rel-icon" viewBox="0 0 16 16" aria-hidden="true">${REL_ICON[t] || REL_ICON.prospect}</svg>`;
+}
+
+function relLabel(t) {
+  const info = relationshipInfo(t);
+  return `<span class="rel rel-${esc(info.key)}">${relIcon(info.key)}<span>${esc(info.label)}</span></span>`;
+}
+
+const NEWS_ICON = '<svg class="warmth-icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="13" height="11.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M1.5 6.8h13M5 1v3.5M11 1v3.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
+
+// Their news dates still ahead, soonest first.
+function upcomingNews(p, today = todayStr()) {
+  return newsOf(p.id)
+    .filter((n) => !n.dismissedAt && n.date >= today)
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 function subLine(p, { link = false } = {}) {
@@ -206,8 +232,9 @@ function renderToday() {
   html += exportReminderHTML(today);
 
   const sections = [];
-  if (t.overdue.length) sections.push(['overdue', 'Overdue', t.overdue.length, t.overdue.map((p) => personCard(p, 'overdue')).join('')]);
-  if (t.due.length) sections.push(['due', 'Due today', t.due.length, t.due.map((p) => personCard(p, 'due')).join('')]);
+  const card = (kind) => (p) => personCard(p, kind, t.dueNews.get(p.id));
+  if (t.overdue.length) sections.push(['overdue', 'Overdue', t.overdue.length, t.overdue.map(card('overdue')).join('')]);
+  if (t.due.length) sections.push(['due', 'Due today', t.due.length, t.due.map(card('due')).join('')]);
   if (t.news.length) sections.push(['news', 'Their news', t.news.length, t.news.map(newsCard).join('')]);
   if (t.resurfaced.length) {
     sections.push(['resurfaced', 'Resurfaced', t.resurfaced.length, t.resurfaced.map((p) => personCard(p, 'resurfaced')).join('')]);
@@ -267,7 +294,9 @@ function exportReminderHTML(today) {
   </div>`;
 }
 
-function personCard(p, kind) {
+// news: their-news item to show on this card, when it falls on the day
+// they're due.
+function personCard(p, kind, news = null) {
   const today = todayStr();
   const tps = tpsOf(p.id);
   const last = tps[0];
@@ -299,32 +328,39 @@ function personCard(p, kind) {
   const actions =
     kind === 'resurfaced'
       ? `<button type="button" class="btn secondary" data-action="open-person" data-id="${id}">Open</button>`
-      : `<button type="button" class="btn primary" data-action="log" data-id="${id}">Log touchpoint</button>
+      : `<button type="button" class="btn primary" data-action="log" data-id="${id}"${news ? ` data-news="${esc(news.id)}"` : ''}>Log touchpoint</button>
          <button type="button" class="btn secondary" data-action="snooze" data-id="${id}">Snooze</button>
          <button type="button" class="btn secondary" data-action="open-person" data-id="${id}">Open</button>`;
-  const sub = subLine(p);
+  const newsLine = news
+    ? `<p class="news-line"><span class="news-when">Their news</span>${esc(news.description)}${news.date === today ? '' : ` <span class="dot">·</span> ${esc(relDay(news.date, today))}`}</p>`
+    : '';
+  const idea = news
+    ? '<div class="idea"><span class="idea-label">Idea</span><p class="idea-text">Congratulate them, or send something that fits the moment.</p></div>'
+    : ideaHTML(p);
   return `<article class="item-card${kind === 'overdue' ? ' is-overdue' : ''}">
-    <a class="item-head" href="#/person/${id}">
-      <span class="item-who"><span class="item-name">${esc(p.name)}</span>${sub ? `<span class="item-sub">${sub}</span>` : ''}</span>
-      ${warmthBadge(p.warmth)}
-    </a>
+    ${itemHead(p)}
     <p class="item-facts">${facts.join(' <span class="dot">·</span> ')}</p>
+    ${newsLine}
     ${last && last.note ? `<p class="item-last"><span class="item-last-label">Last:</span> ${esc(last.note)}</p>` : ''}
-    ${prompt || ideaHTML(p)}
+    ${prompt || idea}
     <div class="item-actions">${actions}</div>
   </article>`;
+}
+
+function itemHead(p) {
+  const sub = subLine(p);
+  return `<a class="item-head" href="#/person/${esc(p.id)}">
+      <span class="item-who"><span class="item-name">${esc(p.name)}</span>${sub ? `<span class="item-sub">${sub}</span>` : ''}${relLabel(p.relationshipType)}</span>
+      ${warmthBadge(p.warmth)}
+    </a>`;
 }
 
 function newsCard(n) {
   const p = S.personById.get(n.personId);
   const today = todayStr();
   const id = esc(p.id);
-  const sub = subLine(p);
   return `<article class="item-card news-card">
-    <a class="item-head" href="#/person/${id}">
-      <span class="item-who"><span class="item-name">${esc(p.name)}</span>${sub ? `<span class="item-sub">${sub}</span>` : ''}</span>
-      ${warmthBadge(p.warmth)}
-    </a>
+    ${itemHead(p)}
     <p class="news-line"><span class="news-when">${n.date === today ? 'Today' : esc(cap(relDay(n.date, today)))}</span>${esc(n.description)}</p>
     <p class="item-facts">${esc(sinceText(p, today))}</p>
     <div class="idea"><span class="idea-label">Idea</span><p class="idea-text">Congratulate them, or send something that fits the moment.</p></div>
@@ -372,6 +408,7 @@ function filteredPeople() {
   const q = f.q.trim().toLowerCase();
   let list = S.people.filter((p) => f.showParked || p.warmth !== 'parked');
   if (f.warmth.size) list = list.filter((p) => f.warmth.has(p.warmth));
+  if (f.rel.size) list = list.filter((p) => f.rel.has(p.relationshipType));
   if (f.role) list = list.filter((p) => (p.role || '').toLowerCase() === f.role.toLowerCase());
   if (f.tag) list = list.filter((p) => (p.tags || []).some((t) => t.toLowerCase() === f.tag.toLowerCase()));
   if (f.org) list = list.filter((p) => p.organizationId === f.org);
@@ -398,7 +435,7 @@ function filteredPeople() {
 
 function activeFilterCount() {
   const f = S.ui.people;
-  return f.warmth.size + (f.role ? 1 : 0) + (f.tag ? 1 : 0) + (f.org ? 1 : 0);
+  return f.warmth.size + f.rel.size + (f.role ? 1 : 0) + (f.tag ? 1 : 0) + (f.org ? 1 : 0);
 }
 
 function peopleListHTML() {
@@ -437,6 +474,10 @@ function filtersHTML() {
       ${WARMTH.filter((w) => w !== 'parked' || f.showParked)
         .map((w) => `<button type="button" class="chip${f.warmth.has(w) ? ' active' : ''}" data-action="filter-warmth" data-w="${w}" aria-pressed="${f.warmth.has(w)}">${warmthIcon(w)}${esc(WARMTH_INFO[w].label)}</button>`)
         .join('')}
+    </div>
+    <p class="filter-label">Relationship</p>
+    <div class="filters">
+      ${RELATIONSHIP_TYPES.map((r) => `<button type="button" class="chip${f.rel.has(r.key) ? ' active' : ''}" data-action="filter-rel" data-r="${r.key}" aria-pressed="${f.rel.has(r.key)}">${relIcon(r.key)}${esc(r.label)}</button>`).join('')}
     </div>
     <div class="filter-grid">
       <label class="field"><span class="field-label">Role</span>
@@ -513,8 +554,12 @@ function renderPerson(id) {
     <header class="person-head">
       <h1 class="person-name">${esc(p.name)}</h1>
       ${sub ? `<p class="person-sub">${sub}</p>` : ''}
-      <button type="button" class="warmth-btn" data-action="change-warmth" data-id="${pid}" aria-label="Change warmth, now ${esc(WARMTH_INFO[p.warmth].label)}">
-        ${warmthBadge(p.warmth)}<span class="warmth-btn-hint">Change</span></button>
+      <div class="person-badges">
+        <button type="button" class="warmth-btn" data-action="change-warmth" data-id="${pid}" aria-label="Change warmth, now ${esc(WARMTH_INFO[p.warmth].label)}">
+          ${warmthBadge(p.warmth)}<span class="warmth-btn-hint">Change</span></button>
+        <button type="button" class="warmth-btn" data-action="change-rel" data-id="${pid}" aria-label="Change relationship, now ${esc(relationshipInfo(p.relationshipType).label)}">
+          ${relLabel(p.relationshipType)}<span class="warmth-btn-hint">Change</span></button>
+      </div>
     </header>
     <section class="next-panel${overdue ? ' is-overdue' : ''}">
       <p class="next-label">${p.warmth === 'parked' ? 'Comes back' : 'Next touchpoint'}</p>
@@ -1051,6 +1096,11 @@ function personForm(p, preset = {}) {
         <input name="org" list="orgList" value="${esc(org ? org.name : '')}" autocomplete="off" placeholder="Agency, brand, publication">
         <span class="field-hint">Pick one you've added, or type a new name to add it.${org && !isNew ? ' Changing it keeps a note of where they were before.' : ''}</span></label>
       <datalist id="orgList">${S.orgs.map((o) => `<option value="${esc(o.name)}">`).join('')}</datalist>
+      <fieldset class="field"><legend class="field-label">Relationship</legend>
+        <div class="warmth-options">${RELATIONSHIP_TYPES.map((r) => `<label class="warmth-option">
+          <input type="radio" name="relationshipType" value="${r.key}"${(v.relationshipType || DEFAULT_RELATIONSHIP) === r.key ? ' checked' : ''}>
+          <span class="warmth-option-body">${relLabel(r.key)}<span class="warmth-option-blurb">${esc(r.blurb)}</span></span>
+        </label>`).join('')}</div></fieldset>
       <fieldset class="field"><legend class="field-label">Warmth</legend>
         <div class="warmth-options">${WARMTH.map((w) => `<label class="warmth-option">
           <input type="radio" name="warmth" value="${w}"${v.warmth === w ? ' checked' : ''}>
@@ -1111,6 +1161,7 @@ function personForm(p, preset = {}) {
       tags: parseTags(get('tags')),
       notes: get('notes'),
       cadenceOverrideDays: override > 0 ? override : null,
+      relationshipType: get('relationshipType') || DEFAULT_RELATIONSHIP,
     };
     const warmth = get('warmth') || 'cold';
     const nextInput = /^\d{4}-\d{2}-\d{2}$/.test(get('next')) ? get('next') : '';
@@ -1321,49 +1372,21 @@ function showLogged(s, p, tps) {
 // ---------------------------------------------------------------------------
 // Sheets: dates, snooze, warmth, news, organizations, reflections
 
-function dateSheet(p) {
-  if (!p) return;
-  const s = openSheet({
-    title: p.warmth === 'parked' ? 'Bring back on' : 'Next touchpoint',
-    className: 'sheet-small',
-    body: `<form class="form" novalidate>
-      <label class="field"><span class="field-label">Reach out to ${esc(p.name)} on</span>
-        <input type="date" name="date" value="${esc(p.nextTouchpointDate || todayStr())}" required></label>
-      <button type="submit" class="modal-cta primary">Save date</button>
-    </form>`,
-  });
-  s.body.querySelector('form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const d = String(new FormData(e.target).get('date') || '');
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
-    await db.savePerson({ ...p, nextTouchpointDate: d });
-    s.close();
-    await refresh();
-    toast(`Next touchpoint ${fmtDate(d)}`);
-  });
+function newsChoice(n, today = todayStr()) {
+  return {
+    key: `news:${n.id}`,
+    label: `Their news: ${n.description}`,
+    detail: `${fmtDate(n.date)}, ${n.date === today ? 'today' : relDay(n.date, today)}`,
+    icon: NEWS_ICON,
+  };
 }
 
-async function snoozeSheet(p) {
-  if (!p) return;
-  const today = todayStr();
-  const key = await choiceSheet({
-    title: `Snooze ${p.name}`,
-    message: 'They leave Today until the new date.',
-    options: [
-      ...SNOOZE_OPTIONS.map((o) => ({ key: o.key, label: o.label, detail: fmtDate(o.apply(today)) })),
-      { key: 'pick', label: 'Pick a date', detail: 'Choose any day' },
-    ],
-  });
-  if (!key) return;
-  if (key === 'pick') {
-    dateSheet(p);
-    return;
-  }
-  const d = snoozeDate(key, today);
+// Moves the next touchpoint to a date, with an undo.
+async function moveNext(p, d, message) {
   const prev = p.nextTouchpointDate;
   await db.savePerson({ ...p, nextTouchpointDate: d });
   await refresh();
-  toast(`Snoozed until ${fmtDate(d)}`, {
+  toast(message, {
     action: {
       label: 'Undo',
       run: async () => {
@@ -1373,6 +1396,69 @@ async function snoozeSheet(p) {
       },
     },
   });
+}
+
+function dateSheet(p) {
+  if (!p) return;
+  const news = upcomingNews(p);
+  const s = openSheet({
+    title: p.warmth === 'parked' ? 'Bring back on' : 'Next touchpoint',
+    className: 'sheet-small',
+    body: `<form class="form" novalidate>
+      <label class="field"><span class="field-label">Reach out to ${esc(p.name)} on</span>
+        <input type="date" name="date" value="${esc(p.nextTouchpointDate || todayStr())}" required></label>
+      <button type="submit" class="modal-cta primary">Save date</button>
+      ${news.length ? `<div class="news-picks">
+        <p class="field-label">Or time it with their news</p>
+        <div class="choice-list">${news.map((n) => {
+          const c = newsChoice(n);
+          return `<button type="button" class="choice" data-news-date="${esc(n.date)}" data-news-text="${esc(n.description)}">${c.icon}<span class="choice-text"><span class="choice-label">${esc(n.description)}</span><span class="choice-detail">${esc(c.detail)}</span></span></button>`;
+        }).join('')}</div>
+      </div>` : ''}
+    </form>`,
+  });
+  s.body.querySelector('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const d = String(new FormData(e.target).get('date') || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+    s.close();
+    await moveNext(p, d, `Next touchpoint ${fmtDate(d)}`);
+  });
+  s.body.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-news-date]');
+    if (!b) return;
+    s.close();
+    await moveNext(p, b.dataset.newsDate, `Next touchpoint ${fmtDate(b.dataset.newsDate)}, for their news: ${b.dataset.newsText}`);
+  });
+}
+
+async function snoozeSheet(p) {
+  if (!p) return;
+  const today = todayStr();
+  const news = upcomingNews(p, today);
+  const key = await choiceSheet({
+    title: `Snooze ${p.name}`,
+    message: news.length
+      ? 'They leave Today until the new date. Their news is often the best moment to reach out.'
+      : 'They leave Today until the new date.',
+    options: [
+      ...news.map((n) => newsChoice(n, today)),
+      ...SNOOZE_OPTIONS.map((o) => ({ key: o.key, label: o.label, detail: fmtDate(o.apply(today)) })),
+      { key: 'pick', label: 'Pick a date', detail: 'Choose any day' },
+    ],
+  });
+  if (!key) return;
+  if (key === 'pick') {
+    dateSheet(p);
+    return;
+  }
+  if (key.startsWith('news:')) {
+    const n = news.find((x) => `news:${x.id}` === key);
+    await moveNext(p, n.date, `Next touchpoint ${fmtDate(n.date)}, for their news: ${n.description}`);
+    return;
+  }
+  const d = snoozeDate(key, today);
+  await moveNext(p, d, `Snoozed until ${fmtDate(d)}`);
 }
 
 // Changes warmth and recalculates the next date from the latest touchpoint.
@@ -1393,6 +1479,27 @@ async function setWarmth(p, warmth, { quiet = false } = {}) {
       label: 'Undo',
       run: async () => {
         await db.savePerson({ ...p });
+        await refresh();
+      },
+    },
+  });
+}
+
+async function relationshipSheet(p) {
+  if (!p) return;
+  const key = await choiceSheet({
+    title: "What's this relationship?",
+    message: 'This shapes the touchpoint ideas. How often you reach out still follows their warmth.',
+    options: RELATIONSHIP_TYPES.map((r) => ({ key: r.key, label: r.label, detail: r.blurb, icon: relIcon(r.key), current: p.relationshipType === r.key })),
+  });
+  if (!key || key === p.relationshipType) return;
+  await db.savePerson({ ...p, relationshipType: key });
+  await refresh();
+  toast(`${firstName(p)} is marked as ${relationshipInfo(key).label}.`, {
+    action: {
+      label: 'Undo',
+      run: async () => {
+        await db.savePerson({ ...S.personById.get(p.id), relationshipType: p.relationshipType });
         await refresh();
       },
     },
@@ -1746,6 +1853,7 @@ function contactChooser(list, { preselect }) {
   const dups = items.filter((x) => x.dup).length;
   const perDay = Math.max(1, Math.ceil(S.settings.goals.touchpoints / 5));
   let warmth = 'warm';
+  let rel = DEFAULT_RELATIONSHIP;
 
   const row = (x, i) => {
     const sub = [x.c.role, x.c.org].filter(Boolean).join(', ') || [x.c.email, x.c.phone].find((v) => v && v !== x.c.name) || '';
@@ -1765,6 +1873,8 @@ function contactChooser(list, { preselect }) {
       <p class="sheet-message">${plural(items.length, 'contact')}${dups ? `, ${dups} already in Callback` : ''}. Tick the people you want to keep in touch with, or nobody.</p>
       <label class="field"><span class="field-label">Warmth for everyone you add</span>
         <select data-warmth>${WARMTH.map((w) => `<option value="${w}"${w === warmth ? ' selected' : ''}>${esc(WARMTH_INFO[w].label)}: ${esc(WARMTH_INFO[w].blurb)}</option>`).join('')}</select></label>
+      <label class="field"><span class="field-label">Relationship for everyone you add</span>
+        <select data-rel>${RELATIONSHIP_TYPES.map((r) => `<option value="${r.key}"${r.key === rel ? ' selected' : ''}>${esc(r.label)}: ${esc(r.blurb)}</option>`).join('')}</select></label>
       ${items.length > 8 ? '<input type="search" class="search pick-search" data-q placeholder="Search contacts" autocomplete="off" aria-label="Search contacts">' : ''}
       <div class="pick-tools">
         <button type="button" class="text-btn" data-all>Tick all shown</button>
@@ -1790,6 +1900,7 @@ function contactChooser(list, { preselect }) {
       else chosen.delete(Number(t.dataset.i));
       update();
     } else if (t.matches('[data-warmth]')) warmth = t.value;
+    else if (t.matches('[data-rel]')) rel = t.value;
   });
 
   s.body.addEventListener('input', (e) => {
@@ -1814,7 +1925,7 @@ function contactChooser(list, { preselect }) {
     if (!e.target.closest('[data-go]') || !chosen.size) return;
     go.disabled = true;
     const picked = [...chosen].sort((a, b) => a - b).map((i) => items[i].c);
-    const n = await addPeople(picked, warmth);
+    const n = await addPeople(picked, warmth, rel);
     s.close();
     location.hash = '#/people';
     await refresh();
@@ -1824,7 +1935,7 @@ function contactChooser(list, { preselect }) {
 
 // Saves contacts as people: matches or creates their organizations, and
 // spreads first touchpoints over the coming weekdays.
-async function addPeople(contacts, warmth) {
+async function addPeople(contacts, warmth, relationshipType = DEFAULT_RELATIONSHIP) {
   const today = todayStr();
   const now = nowISO();
   const orgIds = new Map(S.orgs.map((o) => [o.name.trim().toLowerCase(), o.id]));
@@ -1848,6 +1959,7 @@ async function addPeople(contacts, warmth) {
       notes: c.notes,
       tags: parseTags(c.tags.join(',')),
       organizationId: c.org ? orgIds.get(c.org.trim().toLowerCase()) : null,
+      relationshipType,
       cadenceOverrideDays: null,
       pastOrganizations: [],
       ...warmthChangeFields({}, warmth, now, today),
@@ -1886,6 +1998,7 @@ const ACTIONS = {
     location.hash = `#/person/${el.dataset.id}`;
   },
   'change-warmth': (el) => warmthSheet(person(el)),
+  'change-rel': (el) => relationshipSheet(person(el)),
   park: (el) => setWarmth(person(el), 'parked'),
   'make-warm': (el) => setWarmth(person(el), 'warm'),
   unpark: (el) => unpark(person(el)),
@@ -1949,6 +2062,12 @@ const ACTIONS = {
     S.ui.people.filtersOpen = !S.ui.people.filtersOpen;
     render();
   },
+  'filter-rel': (el) => {
+    const set = S.ui.people.rel;
+    if (set.has(el.dataset.r)) set.delete(el.dataset.r);
+    else set.add(el.dataset.r);
+    render();
+  },
   'filter-warmth': (el) => {
     const w = el.dataset.w;
     const set = S.ui.people.warmth;
@@ -1957,7 +2076,7 @@ const ACTIONS = {
     render();
   },
   'clear-filters': () => {
-    Object.assign(S.ui.people, { q: '', warmth: new Set(), role: '', tag: '', org: '' });
+    Object.assign(S.ui.people, { q: '', warmth: new Set(), rel: new Set(), role: '', tag: '', org: '' });
     render();
   },
   'edit-reflection': (el) => reflectionSheet(el.dataset.week),

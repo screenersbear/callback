@@ -69,9 +69,23 @@ const BY_ROLE = [
   },
 ];
 
+// For collaborators: people you make work with, so the reason to reach out
+// is the work itself, not a pitch.
+const COLLABORATOR = [
+  'Share a new frame from your shoot together.',
+  'Send a print of a favorite frame from your work together.',
+  'Pitch a new shoot idea you could make together.',
+  "Send a mood board for something you'd love to make with them.",
+  'Send them selects they can use in their own portfolio.',
+  'Share a behind-the-scenes shot from your last shoot together.',
+  'Tag them in a post of the work you made together.',
+  "Ask what they're excited about lately, and whether they'd like to test something new.",
+];
+
 export const IDEAS = GENERAL;
 
 export function ideasFor(person) {
+  if (person && person.relationshipType === 'collaborator') return COLLABORATOR;
   const role = (person && person.role) || '';
   const own = BY_ROLE.filter((r) => r.match.test(role)).flatMap((r) => r.ideas);
   return [...own, ...GENERAL];

@@ -62,3 +62,17 @@ export const NEWS_SUGGESTIONS = [
   'Season wraps',
   'Birthday',
 ];
+
+// What a relationship is for, separate from how warm it is. Cadence never
+// looks at this; it shapes the touchpoint ideas and helps filter.
+export const RELATIONSHIP_TYPES = [
+  { key: 'prospect', label: 'Prospect', blurb: 'Someone who could hire you.' },
+  { key: 'collaborator', label: 'Collaborator', blurb: 'Someone you make work with: models, actors, artists.' },
+  { key: 'industry', label: 'Industry', blurb: 'Someone who connects you to work: agents, bookers, editors, casting.' },
+];
+
+export const DEFAULT_RELATIONSHIP = 'prospect';
+
+export function relationshipInfo(key) {
+  return RELATIONSHIP_TYPES.find((r) => r.key === key) || RELATIONSHIP_TYPES[0];
+}
