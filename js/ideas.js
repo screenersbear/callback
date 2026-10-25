@@ -1,6 +1,7 @@
 // Touchpoint ideas: reasons to reach out that give something, rather than
 // "just checking in". One shows under each due person, rotating daily.
-import { hash } from './util.js';
+import { hash, todayStr, daysBetween, parseDate } from './util.js';
+import { yearlyWindow } from './cadence.js';
 
 const GENERAL = [
   "Send a recent frame that fits something they're working on.",
@@ -95,4 +96,22 @@ export function ideasFor(person) {
 export function pickIdea(person, dateStr, turn = 0) {
   const list = ideasFor(person);
   return list[(hash(`${person.id}|${dateStr}`) + turn) % list.length];
+}
+
+// When a yearly date (a birthday, say) is within the week, the idea is about
+// that: "Birthday on Friday. A card or print would land well."
+export function yearlyIdea(newsList, tps, today = todayStr()) {
+  let best = null;
+  for (const n of newsList) {
+    if (!n.repeatsYearly) continue;
+    const w = yearlyWindow(n, tps, today);
+    if (!w) continue;
+    const day = w === 'today' ? today : w;
+    if (!best || day < best.day) best = { n, day };
+  }
+  if (!best) return null;
+  const ahead = daysBetween(today, best.day);
+  const when = ahead === 0 ? 'today' : ahead === 1 ? 'tomorrow' : `on ${parseDate(best.day).toLocaleDateString(undefined, { weekday: 'long' })}`;
+  const gift = /birthday/i.test(best.n.description) ? 'A card or print would land well.' : 'A note or a print would land well.';
+  return `${best.n.description} ${when}. ${gift}`;
 }

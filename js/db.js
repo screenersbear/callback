@@ -16,8 +16,17 @@ const DB_VERSION = 3;
 export const SCHEMA_VERSION = 1;
 
 // Fields added after version 1, filled in for records that predate them.
+// Filling a default is not an edit, so updatedAt is left alone.
 export function withPersonDefaults(p) {
-  return p.relationshipType ? p : { ...p, relationshipType: DEFAULT_RELATIONSHIP };
+  const fill = {};
+  if (!p.relationshipType) fill.relationshipType = DEFAULT_RELATIONSHIP;
+  if (p.birthday === undefined) fill.birthday = null;
+  if (!Array.isArray(p.details)) fill.details = [];
+  return Object.keys(fill).length ? { ...p, ...fill } : p;
+}
+
+export function withNewsDefaults(n) {
+  return typeof n.repeatsYearly === 'boolean' ? n : { ...n, repeatsYearly: false };
 }
 
 // Stores that travel in exports, imports and (one day) sync.
@@ -187,7 +196,7 @@ export const saveTouchpoint = (t) => save('touchpoints', t);
 export const deleteTouchpoint = (id) => remove('touchpoints', id);
 
 // ---- Their news ----
-export const getNews = () => getAll('news');
+export const getNews = async () => (await getAll('news')).map(withNewsDefaults);
 export const getNewsFor = (personId) => getByIndex('news', 'personId', personId);
 export const saveNews = (n) => save('news', n);
 export const deleteNews = (id) => remove('news', id);
@@ -254,8 +263,9 @@ export function readExport(payload) {
     const list = Array.isArray(payload.data[store]) ? payload.data[store] : [];
     data[store] = list.filter((r) => r && typeof r.id === 'string');
   }
-  // Exports made before relationshipType existed come in as prospects.
+  // Older exports: missing fields get their defaults (prospect, no birthday...).
   data.people = data.people.map(withPersonDefaults);
+  data.news = data.news.map(withNewsDefaults);
   return data;
 }
 

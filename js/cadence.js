@@ -154,6 +154,40 @@ export function snoozeDate(key, today = todayStr()) {
   return opt ? opt.apply(today) : today;
 }
 
+// ---------- Yearly dates (birthdays and other repeating news) ----------
+
+const pad2 = (n) => String(n).padStart(2, '0');
+
+// The day a yearly date lands on next, today included. February 29 falls on
+// the 28th in other years.
+export function nextYearly(dateStr, from = todayStr()) {
+  const [, m, d] = dateStr.split('-').map(Number);
+  const y0 = Number(from.slice(0, 4));
+  for (const y of [y0, y0 + 1]) {
+    const day = Math.min(d, new Date(y, m, 0).getDate());
+    const s = `${y}-${pad2(m)}-${pad2(day)}`;
+    if (s >= from) return s;
+  }
+  return null;
+}
+
+export const YEARLY_LEAD_DAYS = 7;
+
+// Where a yearly item stands today: 'today' on the day, the date itself when
+// it's coming up within a week, or null. It's settled for this year once
+// it's dismissed or logged from its card in the week before, or once any
+// touchpoint is logged on or after the day.
+export function yearlyWindow(n, tps, today = todayStr()) {
+  const occ = nextYearly(n.date, today);
+  if (!occ) return null;
+  const ahead = daysBetween(today, occ);
+  if (ahead > YEARLY_LEAD_DAYS) return null;
+  const start = addDays(occ, -YEARLY_LEAD_DAYS);
+  if (n.dismissedAt && toDateStr(new Date(n.dismissedAt)) >= start) return null;
+  if (tps.some((t) => t.date >= occ)) return null;
+  return ahead === 0 ? 'today' : occ;
+}
+
 // Everything the Today screen lists, already sorted.
 // news: their-news items from the last week that nobody has acted on yet
 // (no touchpoint for that person since the news date, not dismissed).
@@ -174,10 +208,21 @@ export function buildToday({ people, touchpointsByPerson, news, loops = [] }, to
   due.sort((a, b) => a.name.localeCompare(b.name));
 
   const ids = new Set(people.map((p) => p.id));
-  const newsToday = news
-    .filter((n) => ids.has(n.personId) && !n.dismissedAt && n.date <= today && daysBetween(n.date, today) < 7)
-    .filter((n) => !(touchpointsByPerson.get(n.personId) || []).some((t) => t.date >= n.date))
-    .sort((a, b) => b.date.localeCompare(a.date));
+  const newsToday = [];
+  const comingUp = [];
+  for (const n of news) {
+    if (!ids.has(n.personId)) continue;
+    if (n.repeatsYearly) {
+      const w = yearlyWindow(n, touchpointsByPerson.get(n.personId) || [], today);
+      if (w === 'today') newsToday.push({ ...n, date: today });
+      else if (w) comingUp.push({ ...n, date: w });
+    } else if (
+      !n.dismissedAt && n.date <= today && daysBetween(n.date, today) < 7 &&
+      !(touchpointsByPerson.get(n.personId) || []).some((t) => t.date >= n.date)
+    ) newsToday.push(n);
+  }
+  newsToday.sort((a, b) => b.date.localeCompare(a.date));
+  comingUp.sort((a, b) => a.date.localeCompare(b.date));
 
   // Someone due today whose news is today too (often because their next
   // touchpoint was set to that news date) gets one card, not two: the news
@@ -193,5 +238,5 @@ export function buildToday({ people, touchpointsByPerson, news, loops = [] }, to
     .filter((l) => (l.direction === 'theyOwe' ? l.dueDate < today : l.dueDate <= today))
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || (a.direction === 'iOwe' ? -1 : 1));
 
-  return { overdue, due, news: newsToday.filter((n) => !dueIds.has(n.personId)), dueNews, resurfaced, loops: loopsToday };
+  return { overdue, due, news: newsToday.filter((n) => !dueIds.has(n.personId)), dueNews, comingUp, resurfaced, loops: loopsToday };
 }

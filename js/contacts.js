@@ -6,7 +6,7 @@
 // Both hand back the same plain contact objects for the chooser.
 
 function contact(fields) {
-  return { name: '', email: '', phone: '', role: '', org: '', website: '', instagram: '', notes: '', tags: [], ...fields };
+  return { name: '', email: '', phone: '', role: '', org: '', website: '', instagram: '', notes: '', tags: [], birthday: null, ...fields };
 }
 
 export function canPickContacts() {
@@ -164,11 +164,25 @@ function toContact(props) {
     website: website ? unescapeText(website.value) : '',
     instagram: insta ? instagramHandle(insta) : '',
     notes: text('NOTE'),
+    birthday: parseBirthday(all('BDAY')[0]),
     // Google adds its own groups (myContacts, starred) to every card.
     tags: all('CATEGORIES')
       .flatMap((p) => splitOutside(p.value, ',').map(unescapeText))
       .filter((t) => t && !/^\*?\s*(mycontacts|starred)$/i.test(t)),
   });
+}
+
+// BDAY as 1990-03-14, 19900314 or --03-14. iPhone writes an unknown year as
+// 1604, so that reads as no year.
+function parseBirthday(prop) {
+  if (!prop) return null;
+  const m = prop.value.trim().match(/^(\d{4}|--)-?(\d{2})-?(\d{2})/);
+  if (!m) return null;
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const year = m[1] === '--' || m[1] === '1604' || 'X-APPLE-OMIT-YEAR' in prop.params ? null : Number(m[1]);
+  return { month, day, year };
 }
 
 const SKIP = new Set(['PHOTO', 'LOGO', 'SOUND', 'KEY']);

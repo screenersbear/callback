@@ -3,13 +3,13 @@
 import * as db from './db.js';
 import {
   todayStr, addDays, daysBetween, fmtDate, fmtLongDate, fmtTimestamp, relDay, span, plural, esc,
-  debounce, weekStartStr, toDateStr, parseDate, normalizeUrl, instagramUrl, saveFile, readFileText, nowISO,
+  debounce, weekStartStr, toDateStr, parseDate, normalizeUrl, instagramUrl, saveFile, readFileText, nowISO, uuid,
 } from './util.js';
 import {
   WARMTH, WARMTH_INFO, COLD_STEPS, computeNextDate, warmthChangeFields, cadenceLabel, needsParkPrompt,
-  needsWarmPrompt, SNOOZE_OPTIONS, snoozeDate, buildToday, coldState, sortTouchpoints,
+  needsWarmPrompt, SNOOZE_OPTIONS, snoozeDate, buildToday, coldState, sortTouchpoints, nextYearly,
 } from './cadence.js';
-import { pickIdea } from './ideas.js';
+import { pickIdea, yearlyIdea } from './ideas.js';
 import { upcomingEvents, buildCalendar } from './ics.js';
 import { canPickContacts, pickContacts, parseVCards, parsePasted } from './contacts.js';
 import {
@@ -106,6 +106,7 @@ function parseTags(str) {
 
 const LOGO = `<svg class="brand-logo" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" fill="#ffd103"/><path d="M346.4 331.8A118 118 0 1 1 346.4 180.2" fill="none" stroke="#313d45" stroke-width="64"/><path d="M402 133L290 226L398 245Z" fill="#313d45"/></svg>`;
 
+const X_ICON_SMALL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 const CHECK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square"><path d="M4 12.5l5 5L20 6.5"/></svg>`;
 const ARROW = `<svg class="collapse-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
 
@@ -164,7 +165,8 @@ function loopCountBadge(n) {
 // Their news dates still ahead, soonest first.
 function upcomingNews(p, today = todayStr()) {
   return newsOf(p.id)
-    .filter((n) => !n.dismissedAt && n.date >= today)
+    .map((n) => (n.repeatsYearly ? { ...n, date: nextYearly(n.date, today) } : n))
+    .filter((n) => (n.repeatsYearly || !n.dismissedAt) && n.date >= today)
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
@@ -210,7 +212,9 @@ function promptBox(text, buttons) {
 function ideaHTML(p) {
   const id = esc(p.id);
   const own = (p.customIdea || '').trim();
-  const text = own || pickIdea(p, todayStr(), S.ui.ideaTurn.get(p.id) || 0);
+  const turn = S.ui.ideaTurn.get(p.id) || 0;
+  const yearly = turn ? null : yearlyIdea(newsOf(p.id), tpsOf(p.id));
+  const text = own || yearly || pickIdea(p, todayStr(), turn);
   return `<div class="idea${own ? ' is-own' : ''}">
     <span class="idea-label">${own ? 'Your idea' : 'Idea'}</span>
     <p class="idea-text">${esc(text)}</p>
@@ -291,7 +295,8 @@ function renderToday() {
   if (t.overdue.length) sections.push(['overdue', 'Overdue', t.overdue.length, t.overdue.map(card('overdue')).join('')]);
   if (t.due.length) sections.push(['due', 'Due today', t.due.length, t.due.map(card('due')).join('')]);
   if (t.loops.length) sections.push(['loops', 'Open loops', t.loops.length, t.loops.map(loopCard).join('')]);
-  if (t.news.length) sections.push(['news', 'Their news', t.news.length, t.news.map(newsCard).join('')]);
+  if (t.news.length) sections.push(['news', 'Their news', t.news.length, t.news.map((n) => newsCard(n)).join('')]);
+  if (t.comingUp.length) sections.push(['coming', 'Coming up', t.comingUp.length, t.comingUp.map((n) => newsCard(n, { coming: true })).join('')]);
   if (t.resurfaced.length) {
     sections.push(['resurfaced', 'Resurfaced', t.resurfaced.length, t.resurfaced.map((p) => personCard(p, 'resurfaced')).join('')]);
   }
@@ -390,7 +395,7 @@ function personCard(p, kind, news = null) {
   const newsLine = news
     ? `<p class="news-line"><span class="news-when">Their news</span>${esc(news.description)}${news.date === today ? '' : ` <span class="dot">·</span> ${esc(relDay(news.date, today))}`}</p>`
     : '';
-  const idea = news
+  const idea = news && !news.repeatsYearly
     ? '<div class="idea"><span class="idea-label">Idea</span><p class="idea-text">Congratulate them, or send something that fits the moment.</p></div>'
     : ideaHTML(p);
   return `<article class="item-card${kind === 'overdue' ? ' is-overdue' : ''}">
@@ -411,18 +416,21 @@ function itemHead(p) {
     </a>`;
 }
 
-function newsCard(n) {
+// A their-news card. `coming` marks a yearly date still a few days off.
+function newsCard(n, { coming = false } = {}) {
   const p = S.personById.get(n.personId);
   const today = todayStr();
   const id = esc(p.id);
+  const when = n.date === today ? 'Today' : coming ? `${fmtDate(n.date)}, ${relDay(n.date, today)}` : cap(relDay(n.date, today));
+  const idea = (n.repeatsYearly && yearlyIdea([n], tpsOf(p.id), today)) || 'Congratulate them, or send something that fits the moment.';
   return `<article class="item-card news-card">
     ${itemHead(p)}
-    <p class="news-line"><span class="news-when">${n.date === today ? 'Today' : esc(cap(relDay(n.date, today)))}</span>${esc(n.description)}</p>
+    <p class="news-line"><span class="news-when">${esc(when)}</span>${esc(n.description)}${n.repeatsYearly ? ' <span class="yearly-tag">Every year</span>' : ''}</p>
     <p class="item-facts">${esc(sinceText(p, today))}</p>
-    <div class="idea"><span class="idea-label">Idea</span><p class="idea-text">Congratulate them, or send something that fits the moment.</p></div>
+    <div class="idea"><span class="idea-label">Idea</span><p class="idea-text">${esc(idea)}</p></div>
     <div class="item-actions">
       <button type="button" class="btn primary" data-action="log" data-id="${id}" data-news="${esc(n.id)}">Log touchpoint</button>
-      <button type="button" class="btn secondary" data-action="dismiss-news" data-id="${esc(n.id)}">Dismiss</button>
+      <button type="button" class="btn secondary" data-action="dismiss-news" data-id="${esc(n.id)}">${n.repeatsYearly ? 'Not this year' : 'Dismiss'}</button>
       <button type="button" class="btn secondary" data-action="open-person" data-id="${id}">Open</button>
     </div>
   </article>`;
@@ -666,7 +674,8 @@ function renderPerson(id) {
     ${prompt}
     <button type="button" class="hero-cta log-cta" data-action="log" data-id="${pid}">Log touchpoint</button>
     ${p.warmth === 'parked' ? '' : ideaHTML(p)}
-    ${sectionBlock('details', 'Details', null, detailsHTML(p), 'navy')}`;
+    ${sectionBlock('details', 'Details', null, detailsHTML(p), 'navy')}
+    ${sectionBlock('personal', 'Personal', null, personalHTML(p), 'yellow')}`;
 
   const right = `
     ${sectionBlock('news', 'Their news', newsOf(id).length, newsListHTML(p), 'yellow')}
@@ -706,14 +715,167 @@ function detailsHTML(p) {
   return `<dl class="details">${rows.join('')}</dl>${hint}`;
 }
 
+const MONTHS = Array.from({ length: 12 }, (_, i) => new Date(2000, i, 1).toLocaleDateString(undefined, { month: 'long' }));
+const DETAIL_LABELS = ['From', 'Partner', 'Pet', 'Loves', 'Avoids', 'Coffee order', 'Current project'];
+
+function birthdayText(b) {
+  return `${MONTHS[b.month - 1]} ${b.day}${b.year ? `, ${b.year}` : ''}`;
+}
+
+// Personal: birthday and free-form details, as label and value rows. Values
+// and labels edit in place; the birthday opens its own sheet.
+function personalHTML(p) {
+  const pid = esc(p.id);
+  const details = p.details || [];
+  const today = todayStr();
+  const nextBday = p.birthday ? nextYearly(`2000-${String(p.birthday.month).padStart(2, '0')}-${String(p.birthday.day).padStart(2, '0')}`, today) : null;
+  return `
+    <div class="pd-list">
+      <div class="pd-row pd-birthday">
+        <span class="pd-label-text">Birthday</span>
+        ${p.birthday
+          ? `<button type="button" class="pd-value-btn" data-action="edit-birthday" data-id="${pid}">${esc(birthdayText(p.birthday))}<span class="pd-sub">${esc(nextBday === today ? 'Today' : cap(relDay(nextBday, today)))}</span></button>`
+          : `<button type="button" class="text-btn" data-action="edit-birthday" data-id="${pid}">+ Add birthday</button>`}
+      </div>
+      ${details.map((d) => `<div class="pd-row">
+        <input class="pd-label" value="${esc(d.label)}" data-detail-field="label" data-person="${pid}" data-id="${esc(d.id)}" aria-label="Label" autocomplete="off">
+        <textarea class="pd-value" rows="1" data-detail-field="value" data-person="${pid}" data-id="${esc(d.id)}" aria-label="${esc(d.label || 'Detail')}">${esc(d.value)}</textarea>
+        <button type="button" class="pd-remove" data-action="remove-detail" data-person="${pid}" data-id="${esc(d.id)}" aria-label="Remove ${esc(d.label || 'detail')}">${X_ICON_SMALL}</button>
+      </div>`).join('')}
+    </div>
+    ${details.length ? '' : '<p class="hint">The small things that turn a contact into a relationship: where they\'re from, a pet\'s name, the show they love.</p>'}
+    <button type="button" class="primary small-btn" data-action="add-detail" data-id="${pid}">+ Add detail</button>`;
+}
+
+// In-place detail values wrap onto as many lines as they need.
+function fitHeight(el) {
+  el.style.height = 'auto';
+  // A collapsed section measures 0; leave it at one line until it opens.
+  if (el.scrollHeight) el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+  else el.style.height = '';
+}
+
+// Saves a person without redrawing, for edits made in place.
+async function savePersonQuietly(p) {
+  const saved = await db.savePerson(p);
+  S.people = S.people.map((x) => (x.id === saved.id ? saved : x));
+  S.personById.set(saved.id, saved);
+  return saved;
+}
+
+// A birthday lives on the person and as a yearly "Birthday" news item, so it
+// shows on Today and in the calendar like any other date.
+async function syncBirthdayNews(p) {
+  const existing = newsOf(p.id).find((n) => n.source === 'birthday');
+  if (!p.birthday) {
+    if (existing) await db.deleteNews(existing.id);
+    return;
+  }
+  const { month, day, year } = p.birthday;
+  // The year only anchors the date; 2000 is a leap year, so February 29 works.
+  const date = `${year || 2000}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  if (existing && existing.date === date && existing.repeatsYearly && existing.description === 'Birthday') return;
+  await db.saveNews({ ...(existing || {}), personId: p.id, source: 'birthday', description: 'Birthday', date, repeatsYearly: true });
+}
+
+function birthdaySheet(p) {
+  if (!p) return;
+  const b = p.birthday || { month: 1, day: 1, year: null };
+  const s = openSheet({
+    title: `${firstName(p)}'s birthday`,
+    className: 'sheet-small',
+    body: `<form class="form" novalidate>
+      <div class="bday-grid">
+        <label class="field"><span class="field-label">Month</span>
+          <select name="month">${MONTHS.map((m, i) => `<option value="${i + 1}"${b.month === i + 1 ? ' selected' : ''}>${esc(m)}</option>`).join('')}</select></label>
+        <label class="field"><span class="field-label">Day</span>
+          <select name="day">${Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}"${b.day === i + 1 ? ' selected' : ''}>${i + 1}</option>`).join('')}</select></label>
+        <label class="field"><span class="field-label">Year (optional)</span>
+          <input name="year" type="number" inputmode="numeric" min="1900" max="2100" value="${esc(b.year || '')}" placeholder="Year"></label>
+      </div>
+      <p class="field-error" data-error="day" hidden>That month doesn't have that many days.</p>
+      <p class="field-hint">It comes back every year: on Today a week early under Coming up, and again on the day.</p>
+      ${p.birthday ? '<button type="button" class="btn danger wide" data-delete>Remove birthday</button>' : ''}
+      <button type="submit" class="modal-cta primary">Save birthday</button>
+    </form>`,
+  });
+  const form = s.body.querySelector('form');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const month = Number(fd.get('month'));
+    const day = Number(fd.get('day'));
+    const yearRaw = Number(fd.get('year'));
+    const year = yearRaw >= 1900 && yearRaw <= 2100 ? Math.round(yearRaw) : null;
+    if (day > new Date(year || 2000, month, 0).getDate()) {
+      form.querySelector('[data-error="day"]').hidden = false;
+      return;
+    }
+    const saved = await db.savePerson({ ...p, birthday: { month, day, year } });
+    await syncBirthdayNews(saved);
+    s.close();
+    await refresh();
+    toast('Birthday saved');
+  });
+  const del = s.body.querySelector('[data-delete]');
+  if (del) {
+    del.addEventListener('click', async () => {
+      const saved = await db.savePerson({ ...p, birthday: null });
+      await syncBirthdayNews(saved);
+      s.close();
+      await refresh();
+      toast('Birthday removed');
+    });
+  }
+}
+
+function detailSheet(p) {
+  if (!p) return;
+  const s = openSheet({
+    title: 'Add a detail',
+    className: 'sheet-small',
+    body: `<p class="sheet-person">${esc(p.name)}</p>
+    <form class="form" novalidate>
+      <div class="field"><span class="field-label">Pick a label, or type your own</span>
+        <div class="chip-choices">${DETAIL_LABELS.map((l) => `<button type="button" class="chip" data-label="${esc(l)}">${esc(l)}</button>`).join('')}</div></div>
+      <label class="field"><span class="field-label">Label</span><input name="label" maxlength="40" autocomplete="off" placeholder="Pet"></label>
+      <label class="field"><span class="field-label">Detail</span><input name="value" maxlength="200" autocomplete="off" placeholder="A greyhound called Biscuit"></label>
+      <p class="field-error" data-error="value" hidden>Add the detail itself.</p>
+      <button type="submit" class="modal-cta primary">Add detail</button>
+    </form>`,
+  });
+  const form = s.body.querySelector('form');
+  form.addEventListener('click', (e) => {
+    const chip = e.target.closest('[data-label]');
+    if (!chip) return;
+    form.querySelectorAll('[data-label]').forEach((c) => c.classList.toggle('active', c === chip));
+    form.querySelector('[name="label"]').value = chip.dataset.label;
+    form.querySelector('[name="value"]').focus();
+  });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const label = String(fd.get('label') || '').trim();
+    const value = String(fd.get('value') || '').trim();
+    if (!value) {
+      form.querySelector('[data-error="value"]').hidden = false;
+      return;
+    }
+    await db.savePerson({ ...p, details: [...(p.details || []), { id: uuid(), label: label || 'Note', value }] });
+    s.close();
+    await refresh();
+    toast('Detail added');
+  });
+}
+
 function newsListHTML(p) {
   const today = todayStr();
-  const list = newsOf(p.id);
+  const list = newsOf(p.id).map((n) => (n.repeatsYearly ? { ...n, date: nextYearly(n.date, today) } : n));
   const upcoming = list.filter((n) => n.date >= today).sort((a, b) => a.date.localeCompare(b.date));
   const past = list.filter((n) => n.date < today).sort((a, b) => b.date.localeCompare(a.date));
-  const item = (n) => `<button type="button" class="news-item${n.date < today ? ' is-past' : ''}" data-action="edit-news" data-id="${esc(n.id)}">
+  const item = (n) => `<button type="button" class="news-item${n.date < today ? ' is-past' : ''}" data-action="${n.source === 'birthday' ? 'edit-birthday' : 'edit-news'}" data-id="${esc(n.source === 'birthday' ? p.id : n.id)}">
       <span class="news-item-date">${esc(fmtDate(n.date, { weekday: false }))}</span>
-      <span class="news-item-text">${esc(n.description)}</span>
+      <span class="news-item-text">${esc(n.description)}${n.repeatsYearly ? ' <span class="yearly-tag">Every year</span>' : ''}</span>
       <span class="news-item-rel">${esc(n.date === today ? 'Today' : cap(relDay(n.date, today)))}</span>
     </button>`;
   return `
@@ -1189,6 +1351,7 @@ function render() {
   const y = window.scrollY;
   view.innerHTML = ROUTES[r.name](r.id);
   view.dataset.route = r.name;
+  view.querySelectorAll('textarea.pd-value').forEach(fitHeight);
   const tab = TAB_FOR[r.name] || r.name;
   document.querySelectorAll('.tab').forEach((t) => {
     const on = t.dataset.tab === tab;
@@ -1793,6 +1956,7 @@ function newsSheet(p, n) {
       <datalist id="newsList">${NEWS_SUGGESTIONS.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
       <p class="field-error" data-error="description" hidden>Say what's happening.</p>
       <label class="field"><span class="field-label">When</span><input type="date" name="date" value="${esc(n ? n.date : todayStr())}" required></label>
+      <label class="check"><input type="checkbox" name="repeatsYearly"${n && n.repeatsYearly ? ' checked' : ''}> Repeats every year</label>
       ${editing ? '<button type="button" class="btn danger wide" data-delete>Delete date</button>' : ''}
       <button type="submit" class="modal-cta primary">${editing ? 'Save' : 'Add date'}</button>
     </form>`,
@@ -1808,12 +1972,16 @@ function newsSheet(p, n) {
       return;
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
-    const rec = { ...(n || {}), personId: p.id, description, date };
-    if (n && n.date !== date) rec.dismissedAt = null;
+    const repeatsYearly = !!fd.get('repeatsYearly');
+    const rec = { ...(n || {}), personId: p.id, description, date, repeatsYearly };
+    if (n && (n.date !== date || n.repeatsYearly !== repeatsYearly)) rec.dismissedAt = null;
     await db.saveNews(rec);
     s.close();
     await refresh();
-    toast(editing ? 'Saved' : `Added. It shows on Today ${relDay(date)}.`);
+    const shows = repeatsYearly ? nextYearly(date, todayStr()) : date;
+    toast(editing ? 'Saved' : repeatsYearly
+      ? `Added. It comes back every year, a week early under Coming up.`
+      : `Added. It shows on Today ${relDay(shows)}.`);
   });
   const del = s.body.querySelector('[data-delete]');
   if (del) {
@@ -2206,6 +2374,8 @@ async function addPeople(contacts, warmth, relationshipType = DEFAULT_RELATIONSH
       howWeMet: '',
       notes: c.notes,
       tags: parseTags(c.tags.join(',')),
+      birthday: c.birthday || null,
+      details: [],
       organizationId: c.org ? orgIds.get(c.org.trim().toLowerCase()) : null,
       relationshipType,
       cadenceOverrideDays: null,
@@ -2216,7 +2386,8 @@ async function addPeople(contacts, warmth, relationshipType = DEFAULT_RELATIONSH
     if (warmth === 'parked') rec.nextTouchpointDate = computeNextDate(rec, [], S.settings, today);
     return rec;
   });
-  await db.savePeople(people);
+  const saved = await db.savePeople(people);
+  for (const p of saved) if (p.birthday) await syncBirthdayNews(p);
   db.askToPersist();
   return people.length;
 }
@@ -2270,6 +2441,18 @@ const ACTIONS = {
     el.closest('.idea').querySelector('.idea-text').textContent = pickIdea(p, todayStr(), S.ui.ideaTurn.get(p.id));
   },
   'type-idea': (el) => ideaSheet(person(el)),
+  'edit-birthday': (el) => birthdaySheet(person(el)),
+  'add-detail': (el) => detailSheet(person(el)),
+  'remove-detail': async (el) => {
+    const p = S.personById.get(el.dataset.person);
+    const d = (p.details || []).find((x) => x.id === el.dataset.id);
+    if (!d) return;
+    const ok = await confirmSheet({ title: `Remove ${esc(d.label || 'this detail')}?`, message: esc(d.value), confirmLabel: 'Remove', danger: true });
+    if (!ok) return;
+    await db.savePerson({ ...p, details: p.details.filter((x) => x.id !== d.id) });
+    await refresh();
+    toast('Detail removed');
+  },
   'add-loop': (el) => loopSheet(person(el)),
   'edit-loop': (el) => {
     const l = S.loops.find((x) => x.id === el.dataset.id);
@@ -2321,6 +2504,7 @@ const ACTIONS = {
     el.classList.toggle('collapsed');
     el.setAttribute('aria-expanded', String(!S.ui.collapsed.has(k)));
     el.nextElementSibling.hidden = S.ui.collapsed.has(k);
+    el.nextElementSibling.querySelectorAll('textarea.pd-value').forEach(fitHeight);
   },
   'toggle-sort': () => {
     S.ui.people.sortOpen = !S.ui.people.sortOpen;
@@ -2413,8 +2597,14 @@ document.addEventListener('click', (e) => {
   fn(el, e);
 });
 
-// Section headings act like buttons from the keyboard too.
+// Section headings act like buttons from the keyboard too, and Enter in an
+// in-place detail field saves it.
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.matches && e.target.matches('[data-detail-field]')) {
+    e.preventDefault();
+    e.target.blur();
+    return;
+  }
   if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('h2[data-action]')) {
     e.preventDefault();
     e.target.click();
@@ -2423,6 +2613,7 @@ document.addEventListener('keydown', (e) => {
 
 document.addEventListener('input', (e) => {
   const t = e.target;
+  if (t.matches && t.matches('textarea.pd-value')) fitHeight(t);
   if (t.id === 'peopleSearch') {
     S.ui.people.q = t.value;
     updatePeopleList();
@@ -2442,7 +2633,12 @@ document.addEventListener('input', (e) => {
 document.addEventListener('change', (e) => {
   const t = e.target;
   if (!view.contains(t)) return;
-  if (t.dataset.loopToggle) {
+  if (t.dataset.detailField) {
+    const p = S.personById.get(t.dataset.person);
+    if (!p) return;
+    const details = (p.details || []).map((d) => (d.id === t.dataset.id ? { ...d, [t.dataset.detailField]: t.value.trim() } : d));
+    savePersonQuietly({ ...p, details }).then(() => toast('Saved'));
+  } else if (t.dataset.loopToggle) {
     const l = S.loops.find((x) => x.id === t.dataset.loopToggle);
     if (t.checked) closeLoop(l);
     else reopenLoop(l);

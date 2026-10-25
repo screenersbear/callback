@@ -2,7 +2,7 @@
 // reuse it unchanged if Callback ever gets a server: give it the data, get
 // back calendar text.
 import { addDays, todayStr } from './util.js';
-import { lastTouchpoint, WARMTH_INFO } from './cadence.js';
+import { lastTouchpoint, WARMTH_INFO, nextYearly } from './cadence.js';
 import { pickIdea } from './ideas.js';
 import { touchTypeLabel } from './model.js';
 
@@ -55,17 +55,28 @@ export function upcomingEvents(
 
   for (const n of news) {
     const p = peopleById.get(n.personId);
-    if (!p || n.dismissedAt || n.date < today || n.date > end) continue;
-    const lines = [`Their news: ${n.description}`];
+    if (!p) continue;
+    // Yearly dates go in once with a yearly repeat, whatever the window,
+    // starting from their next occurrence. Their uid has no date in it, so a
+    // later export updates the same event.
+    const yearly = !!n.repeatsYearly;
+    const date = yearly ? nextYearly(n.date, today) : n.date;
+    if (!yearly && (n.dismissedAt || date < today || date > end)) continue;
+    const lines = [`Their news: ${n.description}${yearly ? ' (every year)' : ''}`];
     const role = who(p, orgsById);
     if (role) lines.push(role);
-    lines.push('Idea: Congratulate them, or send something that fits the moment.');
+    lines.push(/birthday/i.test(n.description)
+      ? 'Idea: A card or a print would land well.'
+      : 'Idea: Congratulate them, or send something that fits the moment.');
     if (appUrl) lines.push(`${appUrl}#/person/${p.id}`);
+    const [, m, d] = n.date.split('-').map(Number);
     events.push({
-      uid: `news-${n.id}-${compact(n.date)}@${UID_HOST}`,
-      date: n.date,
+      uid: yearly ? `news-${n.id}@${UID_HOST}` : `news-${n.id}-${compact(n.date)}@${UID_HOST}`,
+      date,
       summary: `Callback: ${p.name}`,
       description: lines.join('\n'),
+      // February 29 repeats on the last day of February in other years.
+      rrule: yearly ? (m === 2 && d === 29 ? 'FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-1' : 'FREQ=YEARLY') : null,
     });
   }
 
@@ -123,6 +134,7 @@ export function buildCalendar(events, { name = 'Callback', now = new Date() } = 
       `DTSTAMP:${dtstamp}`,
       `DTSTART;VALUE=DATE:${compact(e.date)}`,
       `DTEND;VALUE=DATE:${compact(addDays(e.date, 1))}`,
+      ...(e.rrule ? [`RRULE:${e.rrule}`] : []),
       `SUMMARY:${escText(e.summary)}`,
       `DESCRIPTION:${escText(e.description)}`,
       'TRANSP:TRANSPARENT',
