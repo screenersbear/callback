@@ -14,7 +14,7 @@ import { upcomingEvents, buildCalendar } from './ics.js';
 import { canPickContacts, pickContacts, parseVCards, parsePasted } from './contacts.js';
 import {
   TOUCH_TYPES, touchTypeLabel, RESPONDED, respondedLabel, ROLE_SUGGESTIONS, ORG_TYPES, orgTypeLabel,
-  NEWS_SUGGESTIONS, RELATIONSHIP_TYPES, DEFAULT_RELATIONSHIP, relationshipInfo,
+  NEWS_SUGGESTIONS, RELATIONSHIP_TYPES, DEFAULT_RELATIONSHIP, relationshipInfo, LOOP_DIRECTIONS,
 } from './model.js';
 import { openSheet, confirmSheet, choiceSheet, toast, closeAllSheets } from './ui.js';
 
@@ -29,11 +29,13 @@ const S = {
   orgs: [],
   tps: [],
   news: [],
+  loops: [],
   weeks: [],
   personById: new Map(),
   orgById: new Map(),
   tpsByPerson: new Map(),
   newsByPerson: new Map(),
+  loopsByPerson: new Map(),
   settings: null,
   meta: {},
   installPrompt: null,
@@ -42,7 +44,7 @@ const S = {
     collapsed: new Set(),
     scroll: new Map(),
     backTo: null,
-    people: { q: '', sort: 'contact', sortOpen: false, warmth: new Set(), rel: new Set(), role: '', tag: '', org: '', showParked: false, filtersOpen: false },
+    people: { q: '', sort: 'contact', sortOpen: false, warmth: new Set(), rel: new Set(), loops: false, role: '', tag: '', org: '', showParked: false, filtersOpen: false },
     orgsQ: '',
   },
 };
@@ -57,9 +59,9 @@ function groupBy(list, key) {
 }
 
 async function load() {
-  const [people, orgs, tps, news, weeks, settings, lastExportAt, installedAt, reminderUntil, lastLogType] =
+  const [people, orgs, tps, news, loops, weeks, settings, lastExportAt, installedAt, reminderUntil, lastLogType] =
     await Promise.all([
-      db.getPeople(), db.getOrganizations(), db.getTouchpoints(), db.getNews(), db.getWeeks(), db.getSettings(),
+      db.getPeople(), db.getOrganizations(), db.getTouchpoints(), db.getNews(), db.getOpenLoops(), db.getWeeks(), db.getSettings(),
       db.getMeta('lastExportAt'), db.getMeta('installedAt'), db.getMeta('exportReminderUntil'), db.getMeta('lastLogType'),
     ]);
   S.people = people.sort((a, b) => a.name.localeCompare(b.name));
@@ -73,6 +75,8 @@ async function load() {
   S.tpsByPerson = groupBy(tps, 'personId');
   for (const [k, list] of S.tpsByPerson) S.tpsByPerson.set(k, sortTouchpoints(list));
   S.newsByPerson = groupBy(news, 'personId');
+  S.loops = loops;
+  S.loopsByPerson = groupBy(loops, 'personId');
   S.meta = { lastExportAt, installedAt, reminderUntil, lastLogType };
 }
 
@@ -83,6 +87,8 @@ async function refresh() {
 
 const tpsOf = (id) => S.tpsByPerson.get(id) || [];
 const newsOf = (id) => S.newsByPerson.get(id) || [];
+const loopsOf = (id) => S.loopsByPerson.get(id) || [];
+const openLoopsOf = (id) => loopsOf(id).filter((l) => l.status !== 'closed');
 const orgOf = (p) => (p && p.organizationId ? S.orgById.get(p.organizationId) : null);
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const firstName = (p) => (p.name || '').trim().split(/\s+/)[0] || 'them';
@@ -138,6 +144,22 @@ function relLabel(t) {
 }
 
 const NEWS_ICON = '<svg class="warmth-icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="13" height="11.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M1.5 6.8h13M5 1v3.5M11 1v3.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
+
+// Open loops: an arrow out for what you owe, an hourglass for what you're
+// waiting on, and a circling arrow for the count on People.
+const LOOP_SVG = {
+  iOwe: '<path d="M1.5 8h9M7.5 4.5L11 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M14 2.5v11" fill="none" stroke="currentColor" stroke-width="2"/>',
+  theyOwe: '<path d="M3.5 1.5h9L8 8l4.5 6.5h-9L8 8z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
+  count: '<path d="M13 8.5A5 5 0 1 1 11.6 4.6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13.6 1.6v3.8H9.8" fill="none" stroke="currentColor" stroke-width="2"/>',
+};
+
+function loopIcon(kind) {
+  return `<svg class="loop-icon" viewBox="0 0 16 16" aria-hidden="true">${LOOP_SVG[kind] || LOOP_SVG.count}</svg>`;
+}
+
+function loopCountBadge(n) {
+  return n ? `<span class="loop-count" title="${plural(n, 'open loop')}">${loopIcon('count')}<span>${n}</span><span class="visually-hidden"> open ${n === 1 ? 'loop' : 'loops'}</span></span>` : '';
+}
 
 // Their news dates still ahead, soonest first.
 function upcomingNews(p, today = todayStr()) {
@@ -240,7 +262,7 @@ function backButton(fallback, label) {
 
 function renderToday() {
   const today = todayStr();
-  const t = buildToday({ people: S.people, touchpointsByPerson: S.tpsByPerson, news: S.news }, today);
+  const t = buildToday({ people: S.people, touchpointsByPerson: S.tpsByPerson, news: S.news, loops: S.loops }, today);
   let html = `
     <div class="hero-band">
       <div class="brand-row">
@@ -268,6 +290,7 @@ function renderToday() {
   const card = (kind) => (p) => personCard(p, kind, t.dueNews.get(p.id));
   if (t.overdue.length) sections.push(['overdue', 'Overdue', t.overdue.length, t.overdue.map(card('overdue')).join('')]);
   if (t.due.length) sections.push(['due', 'Due today', t.due.length, t.due.map(card('due')).join('')]);
+  if (t.loops.length) sections.push(['loops', 'Open loops', t.loops.length, t.loops.map(loopCard).join('')]);
   if (t.news.length) sections.push(['news', 'Their news', t.news.length, t.news.map(newsCard).join('')]);
   if (t.resurfaced.length) {
     sections.push(['resurfaced', 'Resurfaced', t.resurfaced.length, t.resurfaced.map((p) => personCard(p, 'resurfaced')).join('')]);
@@ -405,6 +428,38 @@ function newsCard(n) {
   </article>`;
 }
 
+// A loop on Today. What you owe reads as a promise to keep; what they owe
+// reads as a gentle follow-up.
+function loopCard(l) {
+  const p = S.personById.get(l.personId);
+  const today = todayStr();
+  const pid = esc(p.id);
+  const lid = esc(l.id);
+  const n = daysBetween(l.dueDate, today);
+  const who = `<a href="#/person/${pid}">${esc(p.name)}</a>`;
+  if (l.direction === 'theyOwe') {
+    return `<article class="item-card loop-card is-theyowe">
+      <p class="loop-kicker">${loopIcon('theyOwe')}<span>Still waiting on ${who}</span></p>
+      <p class="loop-desc">${esc(l.description)}</p>
+      <p class="item-facts"><b>Expected ${esc(fmtDate(l.dueDate))}</b> <span class="dot">·</span> ${esc(relDay(l.dueDate, today))}. A gentle nudge?</p>
+      <div class="item-actions">
+        <button type="button" class="btn primary" data-action="loop-follow-up" data-id="${lid}">Log follow-up</button>
+        <button type="button" class="btn secondary" data-action="close-loop" data-id="${lid}">Got it</button>
+        <button type="button" class="btn secondary" data-action="open-person" data-id="${pid}">Open</button>
+      </div>
+    </article>`;
+  }
+  return `<article class="item-card loop-card is-iowe${n > 0 ? ' is-overdue' : ''}">
+    <p class="loop-kicker">${loopIcon('iOwe')}<span>You promised ${who}</span></p>
+    <p class="loop-desc">${esc(l.description)}</p>
+    <p class="item-facts"><b>${n === 0 ? 'Due today' : `Due ${esc(relDay(l.dueDate, today))}`}</b></p>
+    <div class="item-actions">
+      <button type="button" class="btn primary" data-action="close-loop" data-id="${lid}">Done</button>
+      <button type="button" class="btn secondary" data-action="open-person" data-id="${pid}">Open</button>
+    </div>
+  </article>`;
+}
+
 // ---------------------------------------------------------------------------
 // People
 
@@ -431,7 +486,7 @@ function personRow(p) {
       ${sub ? `<span class="row-sub">${sub}</span>` : ''}
       <span class="row-meta"><span class="nowrap">${esc(sinceText(p, today))}</span> <span class="dot">·</span> <span class="nowrap">${nextText}</span></span>
     </span>
-    ${warmthBadge(p.warmth)}
+    <span class="row-badges">${warmthBadge(p.warmth)}${loopCountBadge(openLoopsOf(p.id).length)}</span>
   </a>`;
 }
 
@@ -442,6 +497,7 @@ function filteredPeople() {
   let list = S.people.filter((p) => f.showParked || p.warmth !== 'parked');
   if (f.warmth.size) list = list.filter((p) => f.warmth.has(p.warmth));
   if (f.rel.size) list = list.filter((p) => f.rel.has(p.relationshipType));
+  if (f.loops) list = list.filter((p) => openLoopsOf(p.id).length);
   if (f.role) list = list.filter((p) => (p.role || '').toLowerCase() === f.role.toLowerCase());
   if (f.tag) list = list.filter((p) => (p.tags || []).some((t) => t.toLowerCase() === f.tag.toLowerCase()));
   if (f.org) list = list.filter((p) => p.organizationId === f.org);
@@ -468,7 +524,7 @@ function filteredPeople() {
 
 function activeFilterCount() {
   const f = S.ui.people;
-  return f.warmth.size + f.rel.size + (f.role ? 1 : 0) + (f.tag ? 1 : 0) + (f.org ? 1 : 0);
+  return f.warmth.size + f.rel.size + (f.loops ? 1 : 0) + (f.role ? 1 : 0) + (f.tag ? 1 : 0) + (f.org ? 1 : 0);
 }
 
 function peopleListHTML() {
@@ -511,6 +567,10 @@ function filtersHTML() {
     <p class="filter-label">Relationship</p>
     <div class="filters">
       ${RELATIONSHIP_TYPES.map((r) => `<button type="button" class="chip${f.rel.has(r.key) ? ' active' : ''}" data-action="filter-rel" data-r="${r.key}" aria-pressed="${f.rel.has(r.key)}">${relIcon(r.key)}${esc(r.label)}</button>`).join('')}
+    </div>
+    <p class="filter-label">Promises</p>
+    <div class="filters">
+      <button type="button" class="chip${f.loops ? ' active' : ''}" data-action="filter-loops" aria-pressed="${f.loops}">${loopIcon('count')}Has open loops</button>
     </div>
     <div class="filter-grid">
       <label class="field"><span class="field-label">Role</span>
@@ -610,7 +670,8 @@ function renderPerson(id) {
 
   const right = `
     ${sectionBlock('news', 'Their news', newsOf(id).length, newsListHTML(p), 'yellow')}
-    ${sectionBlock('timeline', 'Touchpoints', tps.length, timelineHTML(p, tps), 'navy')}`;
+    ${sectionBlock('loops', 'Open loops', openLoopsOf(id).length, loopsHTML(p), 'navy')}
+    ${sectionBlock('timeline', 'Touchpoints', tps.length, timelineHTML(p, tps), 'yellow')}`;
 
   return `
     <div class="detail-top">${backButton('#/people', 'Back')}
@@ -659,6 +720,128 @@ function newsListHTML(p) {
     <p class="hint">Upcoming dates worth reaching out about: a premiere, a launch, a new agency. They show up on Today when the day comes.</p>
     ${upcoming.map(item).join('')}${past.map(item).join('')}
     <button type="button" class="primary small-btn" data-action="add-news" data-id="${esc(p.id)}">+ Add a date</button>`;
+}
+
+function loopRow(l, today) {
+  const closed = l.status === 'closed';
+  let when = '';
+  if (closed) when = l.closedAt ? `Done ${fmtDate(toDateStr(new Date(l.closedAt)), { weekday: false })}` : 'Done';
+  else if (l.dueDate) {
+    const n = daysBetween(l.dueDate, today);
+    const lead = l.direction === 'theyOwe' ? 'Expected' : 'Due';
+    when = n === 0 ? `${lead} today` : `${lead} ${fmtDate(l.dueDate, { weekday: false })}, ${relDay(l.dueDate, today)}`;
+  }
+  const late = !closed && l.dueDate && l.dueDate < today;
+  return `<li class="loop${late ? ' is-late' : ''}">
+    <input type="checkbox" class="loop-box" data-loop-toggle="${esc(l.id)}"${closed ? ' checked' : ''} aria-label="${closed ? 'Reopen' : 'Done'}: ${esc(l.description)}">
+    <button type="button" class="loop-text" data-action="edit-loop" data-id="${esc(l.id)}">
+      <span class="loop-desc-text">${esc(l.description)}</span>
+      ${when ? `<span class="loop-when">${esc(when)}</span>` : ''}
+    </button>
+  </li>`;
+}
+
+// Open loops on the person page: what you owe and what they owe, with the
+// closed ones folded away under Done.
+function loopsHTML(p) {
+  const today = todayStr();
+  const all = loopsOf(p.id);
+  const open = all.filter((l) => l.status !== 'closed');
+  const done = all.filter((l) => l.status === 'closed').sort((a, b) => (b.closedAt || '').localeCompare(a.closedAt || ''));
+  const byDue = (a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999') || a.createdAt.localeCompare(b.createdAt);
+  const group = (dir) => {
+    const list = open.filter((l) => l.direction === dir.key).sort(byDue);
+    if (!list.length) return '';
+    return `<div class="loop-group">
+      <p class="loop-group-title">${loopIcon(dir.key)}${esc(dir.label)}</p>
+      <ul class="loop-list">${list.map((l) => loopRow(l, today)).join('')}</ul>
+    </div>`;
+  };
+  return `
+    ${open.length ? LOOP_DIRECTIONS.map(group).join('') : `<p class="hint">Small promises, either way: a print you said you'd send, dates they said they'd share. Add them here so none slip.</p>`}
+    <button type="button" class="primary small-btn" data-action="add-loop" data-id="${esc(p.id)}">+ Add loop</button>
+    ${done.length ? `<details class="loop-done"><summary>Done (${done.length})</summary><ul class="loop-list">${done.map((l) => loopRow(l, today)).join('')}</ul></details>` : ''}`;
+}
+
+function loopSheet(p, l = null) {
+  if (!p) return;
+  const v = l || { direction: 'iOwe', description: '', dueDate: '' };
+  const s = openSheet({
+    title: l ? 'Edit loop' : 'Add a loop',
+    className: 'sheet-small',
+    body: `<p class="sheet-person">${esc(p.name)}</p>
+    <form class="form" novalidate>
+      <label class="field"><span class="field-label">What's the promise?</span>
+        <input name="description" value="${esc(v.description)}" maxlength="140" autocomplete="off" placeholder="Send a print of the window frame" required></label>
+      <p class="field-error" data-error="description" hidden>Say what was promised.</p>
+      <fieldset class="field"><legend class="field-label">Who owes it?</legend>
+        <div class="seg">${LOOP_DIRECTIONS.map((d) => `<label class="seg-option"><input type="radio" name="direction" value="${d.key}"${v.direction === d.key ? ' checked' : ''}><span>${esc(d.label)}</span></label>`).join('')}</div>
+      </fieldset>
+      <label class="field"><span class="field-label">By when? (optional)</span>
+        <input type="date" name="dueDate" value="${esc(v.dueDate || '')}">
+        <span class="field-hint">With a date, it shows on Today when it's due. Without one, it waits here.</span></label>
+      ${l ? '<button type="button" class="btn danger wide" data-delete>Delete loop</button>' : ''}
+      <button type="submit" class="modal-cta primary">${l ? 'Save' : 'Add loop'}</button>
+    </form>`,
+  });
+  const form = s.body.querySelector('form');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const description = String(fd.get('description') || '').trim();
+    if (!description) {
+      form.querySelector('[data-error="description"]').hidden = false;
+      return;
+    }
+    const due = String(fd.get('dueDate') || '');
+    await db.saveOpenLoop({
+      status: 'open',
+      closedAt: null,
+      ...(l || {}),
+      personId: p.id,
+      direction: String(fd.get('direction') || 'iOwe'),
+      description,
+      dueDate: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : null,
+    });
+    s.close();
+    await refresh();
+    toast(l ? 'Saved' : 'Loop added');
+  });
+  const del = s.body.querySelector('[data-delete]');
+  if (del) {
+    del.addEventListener('click', async () => {
+      await db.deleteOpenLoop(l.id);
+      s.close();
+      await refresh();
+      toast('Loop deleted');
+    });
+  }
+}
+
+// Closing what you owe is often a touchpoint in itself, so offer to log it.
+async function closeLoop(l) {
+  if (!l || l.status === 'closed') return;
+  await db.saveOpenLoop({ ...l, status: 'closed', closedAt: nowISO() });
+  await refresh();
+  const p = S.personById.get(l.personId);
+  if (l.direction !== 'iOwe' || !p) {
+    toast('Loop closed', { action: { label: 'Undo', run: () => reopenLoop(S.loops.find((x) => x.id === l.id)) } });
+    return;
+  }
+  const log = await confirmSheet({
+    title: 'Log this as a touchpoint?',
+    message: `You kept a promise to ${esc(firstName(p))}: ${esc(l.description)}. Logging it lets Callback schedule what's next.`,
+    confirmLabel: 'Log touchpoint',
+    cancelLabel: 'Not now',
+  });
+  if (log) logSheet(S.personById.get(l.personId), { note: l.description });
+}
+
+async function reopenLoop(l) {
+  if (!l) return;
+  await db.saveOpenLoop({ ...l, status: 'open', closedAt: null });
+  await refresh();
+  toast('Loop reopened');
 }
 
 function timelineHTML(p, tps) {
@@ -1267,14 +1450,14 @@ function whyText(p, tps, next) {
   return `${cap(span(c[p.warmth]))} after the latest touchpoint, because ${first} is ${WARMTH_INFO[p.warmth].label}.`;
 }
 
-function logSheet(p, { touchpoint = null, newsItem = null } = {}) {
+function logSheet(p, { touchpoint = null, newsItem = null, note = '' } = {}) {
   if (!p) return;
   const editing = !!touchpoint;
   const today = todayStr();
   const v = touchpoint || {
     type: S.meta.lastLogType || 'email',
     date: today,
-    note: newsItem ? `Their news: ${newsItem.description}` : '',
+    note: note || (newsItem ? `Their news: ${newsItem.description}` : ''),
     responded: 'pending',
   };
   const s = openSheet({
@@ -1290,11 +1473,25 @@ function logSheet(p, { touchpoint = null, newsItem = null } = {}) {
       <fieldset class="field"><legend class="field-label">Did they reply?</legend>
         <div class="seg">${RESPONDED.map((r) => `<label class="seg-option"><input type="radio" name="responded" value="${r.key}"${(v.responded || 'pending') === r.key ? ' checked' : ''}><span>${esc(r.label)}</span></label>`).join('')}</div>
       </fieldset>
+      ${editing ? '' : `<div class="field promise-field">
+        <label class="field"><span class="field-label">Anything promised? (optional)</span>
+          <input name="promise" maxlength="140" autocomplete="off" placeholder="Send her a print of the window frame"></label>
+        <div class="promise-more" hidden>
+          <div class="seg">${LOOP_DIRECTIONS.map((d, i) => `<label class="seg-option"><input type="radio" name="promiseDir" value="${d.key}"${i === 0 ? ' checked' : ''}><span>${esc(d.label)}</span></label>`).join('')}</div>
+          <label class="field"><span class="field-label">By when? (optional)</span><input type="date" name="promiseDue"></label>
+        </div>
+      </div>`}
       ${editing ? '<button type="button" class="btn danger wide" data-delete>Delete touchpoint</button>' : ''}
       <button type="submit" class="modal-cta primary">${editing ? 'Save changes' : 'Save touchpoint'}</button>
     </form>`,
   });
   const form = s.body.querySelector('form');
+  const promise = form.querySelector('[name="promise"]');
+  if (promise) {
+    promise.addEventListener('input', () => {
+      form.querySelector('.promise-more').hidden = !promise.value.trim();
+    });
+  }
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1325,6 +1522,20 @@ function logSheet(p, { touchpoint = null, newsItem = null } = {}) {
     const clearedIdea = !editing && !!(p.customIdea || '').trim();
     const person = await db.savePerson({ ...p, nextTouchpointDate: next, ...(clearedIdea ? { customIdea: '' } : {}) });
     if (newsItem) await db.saveNews({ ...newsItem, dismissedAt: nowISO() });
+    // "Anything promised?" becomes an open loop alongside the touchpoint.
+    const promised = String(fd.get('promise') || '').trim();
+    let loop = null;
+    if (!editing && promised) {
+      const due = String(fd.get('promiseDue') || '');
+      loop = await db.saveOpenLoop({
+        personId: p.id,
+        direction: String(fd.get('promiseDir') || 'iOwe'),
+        description: promised,
+        dueDate: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : null,
+        status: 'open',
+        closedAt: null,
+      });
+    }
     db.setMeta('lastLogType', type);
     db.askToPersist();
     await refresh();
@@ -1334,7 +1545,7 @@ function logSheet(p, { touchpoint = null, newsItem = null } = {}) {
       toast('Touchpoint saved');
       return;
     }
-    showLogged(s, person, all, { clearedIdea });
+    showLogged(s, person, all, { clearedIdea, loop });
   });
 
   const del = s.body.querySelector('[data-delete]');
@@ -1355,7 +1566,7 @@ function logSheet(p, { touchpoint = null, newsItem = null } = {}) {
   }
 }
 
-function showLogged(s, p, tps, { clearedIdea = false } = {}) {
+function showLogged(s, p, tps, { clearedIdea = false, loop = null } = {}) {
   const next = p.nextTouchpointDate;
   const name = esc(firstName(p));
   let prompt = '';
@@ -1378,6 +1589,7 @@ function showLogged(s, p, tps, { clearedIdea = false } = {}) {
     </section>
     <p class="logged-why">${whyText(p, tps, next)}</p>
     ${clearedIdea ? '<p class="logged-why">Your typed idea is used up, so fresh suggestions show next time.</p>' : ''}
+    ${loop ? `<p class="logged-why">${loopIcon(loop.direction)} Open loop added: ${esc(loop.description)}${loop.dueDate ? `, by ${esc(fmtDate(loop.dueDate))}` : ''}.</p>` : ''}
     ${prompt}
     <div class="sheet-actions">
       <button type="button" class="btn secondary" data-sheet-act="change-date">Change date</button>
@@ -2058,6 +2270,16 @@ const ACTIONS = {
     el.closest('.idea').querySelector('.idea-text').textContent = pickIdea(p, todayStr(), S.ui.ideaTurn.get(p.id));
   },
   'type-idea': (el) => ideaSheet(person(el)),
+  'add-loop': (el) => loopSheet(person(el)),
+  'edit-loop': (el) => {
+    const l = S.loops.find((x) => x.id === el.dataset.id);
+    if (l) loopSheet(S.personById.get(l.personId), l);
+  },
+  'close-loop': (el) => closeLoop(S.loops.find((x) => x.id === el.dataset.id)),
+  'loop-follow-up': (el) => {
+    const l = S.loops.find((x) => x.id === el.dataset.id);
+    if (l) logSheet(S.personById.get(l.personId), { note: `Followed up about: ${l.description}` });
+  },
   'dismiss-news': async (el) => {
     const n = S.news.find((x) => x.id === el.dataset.id);
     if (!n) return;
@@ -2112,6 +2334,10 @@ const ACTIONS = {
     S.ui.people.filtersOpen = !S.ui.people.filtersOpen;
     render();
   },
+  'filter-loops': () => {
+    S.ui.people.loops = !S.ui.people.loops;
+    render();
+  },
   'filter-rel': (el) => {
     const set = S.ui.people.rel;
     if (set.has(el.dataset.r)) set.delete(el.dataset.r);
@@ -2126,7 +2352,7 @@ const ACTIONS = {
     render();
   },
   'clear-filters': () => {
-    Object.assign(S.ui.people, { q: '', warmth: new Set(), rel: new Set(), role: '', tag: '', org: '' });
+    Object.assign(S.ui.people, { q: '', warmth: new Set(), rel: new Set(), loops: false, role: '', tag: '', org: '' });
     render();
   },
   'edit-reflection': (el) => reflectionSheet(el.dataset.week),
@@ -2216,7 +2442,11 @@ document.addEventListener('input', (e) => {
 document.addEventListener('change', (e) => {
   const t = e.target;
   if (!view.contains(t)) return;
-  if (t.dataset.filter === 'parked') {
+  if (t.dataset.loopToggle) {
+    const l = S.loops.find((x) => x.id === t.dataset.loopToggle);
+    if (t.checked) closeLoop(l);
+    else reopenLoop(l);
+  } else if (t.dataset.filter === 'parked') {
     S.ui.people.showParked = t.checked;
     if (!t.checked) S.ui.people.warmth.delete('parked');
     render();

@@ -157,7 +157,7 @@ export function snoozeDate(key, today = todayStr()) {
 // Everything the Today screen lists, already sorted.
 // news: their-news items from the last week that nobody has acted on yet
 // (no touchpoint for that person since the news date, not dismissed).
-export function buildToday({ people, touchpointsByPerson, news }, today = todayStr()) {
+export function buildToday({ people, touchpointsByPerson, news, loops = [] }, today = todayStr()) {
   const overdue = [];
   const due = [];
   const resurfaced = [];
@@ -186,5 +186,12 @@ export function buildToday({ people, touchpointsByPerson, news }, today = todayS
   const dueNews = new Map();
   for (const n of newsToday) if (dueIds.has(n.personId) && !dueNews.has(n.personId)) dueNews.set(n.personId, n);
 
-  return { overdue, due, news: newsToday.filter((n) => !dueIds.has(n.personId)), dueNews, resurfaced };
+  // Open loops: what you owe shows once it's due and stays until closed;
+  // what they owe shows once it's late, as a nudge. Undated loops never do.
+  const loopsToday = loops
+    .filter((l) => ids.has(l.personId) && l.status !== 'closed' && l.dueDate)
+    .filter((l) => (l.direction === 'theyOwe' ? l.dueDate < today : l.dueDate <= today))
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || (a.direction === 'iOwe' ? -1 : 1));
+
+  return { overdue, due, news: newsToday.filter((n) => !dueIds.has(n.personId)), dueNews, resurfaced, loops: loopsToday };
 }

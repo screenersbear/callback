@@ -76,3 +76,9 @@ export const DEFAULT_RELATIONSHIP = 'prospect';
 export function relationshipInfo(key) {
   return RELATIONSHIP_TYPES.find((r) => r.key === key) || RELATIONSHIP_TYPES[0];
 }
+
+// Open loops: small promises, either way.
+export const LOOP_DIRECTIONS = [
+  { key: 'iOwe', label: 'You owe', blurb: 'Something you promised.' },
+  { key: 'theyOwe', label: 'They owe', blurb: "Something they promised, or you're waiting on." },
+];

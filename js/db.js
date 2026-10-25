@@ -10,9 +10,9 @@ import { withDefaults } from './cadence.js';
 import { DEFAULT_RELATIONSHIP } from './model.js';
 
 const DB_NAME = 'callback';
-const DB_VERSION = 2;
-// Export format version. Still 1: version 2 of the database only added
-// relationshipType, and files without it read fine (see readExport).
+const DB_VERSION = 3;
+// Export format version. Still 1: later database versions only added
+// optional fields and stores, and files without them read fine (see readExport).
 export const SCHEMA_VERSION = 1;
 
 // Fields added after version 1, filled in for records that predate them.
@@ -21,7 +21,7 @@ export function withPersonDefaults(p) {
 }
 
 // Stores that travel in exports, imports and (one day) sync.
-const SYNCED = ['people', 'organizations', 'touchpoints', 'news', 'weeks', 'settings', 'tombstones'];
+const SYNCED = ['people', 'organizations', 'touchpoints', 'news', 'openLoops', 'weeks', 'settings', 'tombstones'];
 // settings holds one record, id 'settings', so two devices merge into the
 // same record instead of each keeping its own.
 const SETTINGS_ID = 'settings';
@@ -45,6 +45,7 @@ function open() {
       store('organizations', 'id');
       store('touchpoints', 'id', ['personId']);
       store('news', 'id', ['personId']);
+      store('openLoops', 'id', ['personId']);
       store('weeks', 'id', ['weekStart']);
       store('settings', 'id');
       store('tombstones', 'id');
@@ -144,19 +145,21 @@ export async function savePeople(list) {
   return recs;
 }
 
-// Removes a person along with their touchpoints and news.
+// Removes a person along with their touchpoints, news and open loops.
 export async function deletePerson(id) {
-  const [tps, news] = await Promise.all([getByIndex('touchpoints', 'personId', id), getByIndex('news', 'personId', id)]);
-  await write(['people', 'touchpoints', 'news', 'tombstones'], (st) => {
+  const [tps, news, loops] = await Promise.all([
+    getByIndex('touchpoints', 'personId', id),
+    getByIndex('news', 'personId', id),
+    getByIndex('openLoops', 'personId', id),
+  ]);
+  await write(['people', 'touchpoints', 'news', 'openLoops', 'tombstones'], (st) => {
     st('people').delete(id);
     st('tombstones').put(tombstone(id, 'people'));
-    for (const t of tps) {
-      st('touchpoints').delete(t.id);
-      st('tombstones').put(tombstone(t.id, 'touchpoints'));
-    }
-    for (const n of news) {
-      st('news').delete(n.id);
-      st('tombstones').put(tombstone(n.id, 'news'));
+    for (const [store, list] of [['touchpoints', tps], ['news', news], ['openLoops', loops]]) {
+      for (const r of list) {
+        st(store).delete(r.id);
+        st('tombstones').put(tombstone(r.id, store));
+      }
     }
   });
 }
@@ -188,6 +191,11 @@ export const getNews = () => getAll('news');
 export const getNewsFor = (personId) => getByIndex('news', 'personId', personId);
 export const saveNews = (n) => save('news', n);
 export const deleteNews = (id) => remove('news', id);
+
+// ---- Open loops (small promises, either way) ----
+export const getOpenLoops = () => getAll('openLoops');
+export const saveOpenLoop = (l) => save('openLoops', l);
+export const deleteOpenLoop = (id) => remove('openLoops', id);
 
 // ---- Weekly reflections (one record per week, keyed by its Monday) ----
 export const getWeeks = () => getAll('weeks');
