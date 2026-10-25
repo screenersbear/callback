@@ -82,3 +82,18 @@ export const LOOP_DIRECTIONS = [
   { key: 'iOwe', label: 'You owe', blurb: 'Something you promised.' },
   { key: 'theyOwe', label: 'They owe', blurb: "Something they promised, or you're waiting on." },
 ];
+
+// How engaged someone seems. It shapes the touchpoint ideas; cadence never
+// looks at it.
+export const INTEREST_LEVELS = [
+  { key: 'eager', label: 'Eager', blurb: 'Excited to work together.' },
+  { key: 'open', label: 'Open', blurb: 'Interested if the timing works.' },
+  { key: 'lukewarm', label: 'Lukewarm', blurb: 'Friendly but not leaning in.' },
+  { key: 'unknown', label: 'Unknown', blurb: 'Not sure yet.' },
+];
+
+export const DEFAULT_INTEREST = 'unknown';
+
+export function interestInfo(key) {
+  return INTEREST_LEVELS.find((i) => i.key === key) || INTEREST_LEVELS[3];
+}

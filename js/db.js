@@ -7,7 +7,7 @@
 // knows the record was removed on purpose rather than never seen.
 import { uuid, nowISO } from './util.js';
 import { withDefaults } from './cadence.js';
-import { DEFAULT_RELATIONSHIP } from './model.js';
+import { DEFAULT_RELATIONSHIP, DEFAULT_INTEREST } from './model.js';
 
 const DB_NAME = 'callback';
 const DB_VERSION = 3;
@@ -25,6 +25,7 @@ export function withPersonDefaults(p) {
   if (typeof p.dreamList !== 'boolean') fill.dreamList = false;
   if (p.introducedById === undefined) fill.introducedById = null;
   if (!Array.isArray(p.canIntroduceToIds)) fill.canIntroduceToIds = [];
+  if (!p.interest) fill.interest = DEFAULT_INTEREST;
   return Object.keys(fill).length ? { ...p, ...fill } : p;
 }
 
@@ -250,6 +251,9 @@ export async function askToPersist() {
 export async function exportAll() {
   const data = {};
   for (const store of SYNCED) data[store] = await getAll(store);
+  // Written out complete, defaults included, so a backup reads back as-is.
+  data.people = data.people.map(withPersonDefaults);
+  data.news = data.news.map(withNewsDefaults);
   return { app: 'callback', version: SCHEMA_VERSION, exportedAt: nowISO(), data };
 }
 

@@ -568,6 +568,30 @@ h2.collapsed .collapse-arrow { transform: rotate(-90deg); }
   white-space: nowrap;
 }
 
+/* ---------- Interest ---------- */
+
+.interest-picks { display: grid; grid-template-columns: repeat(4, 1fr); border: 2px solid var(--ink); }
+.interest-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 56px;
+  padding: 6px 2px;
+  border: none;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.interest-pick + .interest-pick { border-left: 2px solid var(--ink); }
+.interest-pick .rel-icon { width: 18px; height: 18px; }
+.interest-pick.is-on { background: var(--accent); color: var(--on-accent); }
+.tl-head .rel { font-size: 11px; color: var(--text-dim); }
+
 /* ---------- Dream list and introductions ---------- */
 
 .dream-badge {

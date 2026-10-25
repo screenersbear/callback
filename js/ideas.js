@@ -83,9 +83,38 @@ const COLLABORATOR = [
   "Ask what they're excited about lately, and whether they'd like to test something new.",
 ];
 
+// By how engaged someone seems. Eager gets concrete asks, open gets light
+// invitations, lukewarm gets give-first gestures only: never a pitch.
+const BY_INTEREST = {
+  eager: [
+    'Pitch a specific shoot date.',
+    'Send a mood board for the next idea.',
+    'Suggest two dates for a test or a coffee.',
+    'Send a one-page treatment for a shoot you could make together.',
+    'Ask what their next project needs, and offer a date.',
+  ],
+  open: [
+    "Share a new frame and mention you'd love to shoot again.",
+    'Send recent work with a light "if the timing ever works".',
+    'Share a project you just finished, and say it made you think of them.',
+    'Invite them to see new work, no pressure attached.',
+    "Mention you'll be near them soon, and would love a coffee if they're free.",
+  ],
+  lukewarm: [
+    'Send a print.',
+    'React to their recent work.',
+    'Share something relevant to their world.',
+    'Congratulate them on something they made.',
+    "Pass along an article or reference they'd enjoy.",
+    'Send a thank-you, with nothing asked in return.',
+  ],
+};
+
 export const IDEAS = GENERAL;
 
 export function ideasFor(person) {
+  // A known interest level leads; unknown falls back to relationship and role.
+  if (person && BY_INTEREST[person.interest]) return BY_INTEREST[person.interest];
   if (person && person.relationshipType === 'collaborator') return COLLABORATOR;
   const role = (person && person.role) || '';
   const own = BY_ROLE.filter((r) => r.match.test(role)).flatMap((r) => r.ideas);

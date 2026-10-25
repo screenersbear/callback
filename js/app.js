@@ -15,6 +15,7 @@ import { canPickContacts, pickContacts, parseVCards, parsePasted } from './conta
 import {
   TOUCH_TYPES, touchTypeLabel, RESPONDED, respondedLabel, ROLE_SUGGESTIONS, ORG_TYPES, orgTypeLabel,
   NEWS_SUGGESTIONS, RELATIONSHIP_TYPES, DEFAULT_RELATIONSHIP, relationshipInfo, LOOP_DIRECTIONS,
+  INTEREST_LEVELS, interestInfo,
 } from './model.js';
 import { openSheet, confirmSheet, choiceSheet, toast, closeAllSheets } from './ui.js';
 
@@ -44,7 +45,7 @@ const S = {
     collapsed: new Set(),
     scroll: new Map(),
     backTo: null,
-    people: { q: '', sort: 'contact', sortOpen: false, warmth: new Set(), rel: new Set(), loops: false, dream: false, role: '', tag: '', org: '', showParked: false, filtersOpen: false },
+    people: { q: '', sort: 'contact', sortOpen: false, warmth: new Set(), rel: new Set(), interest: new Set(), loops: false, dream: false, role: '', tag: '', org: '', showParked: false, filtersOpen: false },
     orgsQ: '',
   },
 };
@@ -160,6 +161,23 @@ function loopIcon(kind) {
 
 function loopCountBadge(n) {
   return n ? `<span class="loop-count" title="${plural(n, 'open loop')}">${loopIcon('count')}<span>${n}</span><span class="visually-hidden"> open ${n === 1 ? 'loop' : 'loops'}</span></span>` : '';
+}
+
+// Interest: an icon and a word, like relationship type.
+const INTEREST_SVG = {
+  eager: '<path d="M8 14V3M3.5 7.5L8 3l4.5 4.5" fill="none" stroke="currentColor" stroke-width="2"/>',
+  open: '<path d="M2 8h11M8.5 3.5L13 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="2"/>',
+  lukewarm: '<path d="M1.5 9c1.6-2.6 3.1-2.6 4.4 0s2.8 2.6 4.2 0 2.8-2.6 4.4 0" fill="none" stroke="currentColor" stroke-width="2"/>',
+  unknown: '<path d="M5.4 5.6a2.6 2.6 0 1 1 3.7 2.3c-.8.4-1.1.9-1.1 1.8v.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8" cy="13.2" r="1.2" fill="currentColor"/>',
+};
+
+function interestIcon(k) {
+  return `<svg class="rel-icon" viewBox="0 0 16 16" aria-hidden="true">${INTEREST_SVG[k] || INTEREST_SVG.unknown}</svg>`;
+}
+
+function interestLabel(k, { prefix = false } = {}) {
+  const info = interestInfo(k);
+  return `<span class="rel interest interest-${esc(info.key)}">${interestIcon(info.key)}<span>${prefix ? 'Interest: ' : ''}${esc(info.label)}</span></span>`;
 }
 
 const DREAM_STAR = '<svg class="warmth-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.4l2 4.3 4.6.6-3.4 3.2.9 4.6L8 11.8 3.9 14.1l.9-4.6L1.4 6.3 6 5.7z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>';
@@ -516,6 +534,7 @@ function filteredPeople() {
   let list = S.people.filter((p) => f.showParked || p.warmth !== 'parked');
   if (f.warmth.size) list = list.filter((p) => f.warmth.has(p.warmth));
   if (f.rel.size) list = list.filter((p) => f.rel.has(p.relationshipType));
+  if (f.interest.size) list = list.filter((p) => f.interest.has(p.interest));
   if (f.loops) list = list.filter((p) => openLoopsOf(p.id).length);
   if (f.dream) list = list.filter((p) => p.dreamList);
   if (f.role) list = list.filter((p) => (p.role || '').toLowerCase() === f.role.toLowerCase());
@@ -544,7 +563,7 @@ function filteredPeople() {
 
 function activeFilterCount() {
   const f = S.ui.people;
-  return f.warmth.size + f.rel.size + (f.loops ? 1 : 0) + (f.dream ? 1 : 0) + (f.role ? 1 : 0) + (f.tag ? 1 : 0) + (f.org ? 1 : 0);
+  return f.warmth.size + f.rel.size + f.interest.size + (f.loops ? 1 : 0) + (f.dream ? 1 : 0) + (f.role ? 1 : 0) + (f.tag ? 1 : 0) + (f.org ? 1 : 0);
 }
 
 function peopleListHTML() {
@@ -587,6 +606,10 @@ function filtersHTML() {
     <p class="filter-label">Relationship</p>
     <div class="filters">
       ${RELATIONSHIP_TYPES.map((r) => `<button type="button" class="chip${f.rel.has(r.key) ? ' active' : ''}" data-action="filter-rel" data-r="${r.key}" aria-pressed="${f.rel.has(r.key)}">${relIcon(r.key)}${esc(r.label)}</button>`).join('')}
+    </div>
+    <p class="filter-label">Interest</p>
+    <div class="filters">
+      ${INTEREST_LEVELS.map((i) => `<button type="button" class="chip${f.interest.has(i.key) ? ' active' : ''}" data-action="filter-interest" data-i="${i.key}" aria-pressed="${f.interest.has(i.key)}">${interestIcon(i.key)}${esc(i.label)}</button>`).join('')}
     </div>
     <p class="filter-label">Show only</p>
     <div class="filters">
@@ -676,6 +699,8 @@ function renderPerson(id) {
           ${warmthBadge(p.warmth)}<span class="warmth-btn-hint">Change</span></button>
         <button type="button" class="warmth-btn" data-action="change-rel" data-id="${pid}" aria-label="Change relationship, now ${esc(relationshipInfo(p.relationshipType).label)}">
           ${relLabel(p.relationshipType)}<span class="warmth-btn-hint">Change</span></button>
+        <button type="button" class="warmth-btn" data-action="change-interest" data-id="${pid}" aria-label="Change interest, now ${esc(interestInfo(p.interest).label)}">
+          ${interestLabel(p.interest, { prefix: true })}<span class="warmth-btn-hint">Change</span></button>
         ${p.dreamList ? dreamBadge() : ''}
       </div>
     </header>
@@ -1172,7 +1197,7 @@ function timelineHTML(p, tps) {
       (t) => `<li class="tl-item">
         <span class="tl-node" aria-hidden="true"></span>
         <div class="tl-body">
-          <p class="tl-head"><span class="tl-date">${esc(fmtDate(t.date))}</span><span class="tl-type">${esc(touchTypeLabel(t.type))}</span></p>
+          <p class="tl-head"><span class="tl-date">${esc(fmtDate(t.date))}</span><span class="tl-type">${esc(touchTypeLabel(t.type))}</span>${t.interest ? interestLabel(t.interest) : ''}</p>
           ${t.note ? `<p class="tl-note">${esc(t.note)}</p>` : ''}
           <div class="tl-foot">
             <button type="button" class="resp resp-${esc(t.responded || 'pending')}" data-action="set-response" data-id="${esc(t.id)}" aria-label="Reply status: ${esc(respondedLabel(t.responded))}. Change">${esc(respondedLabel(t.responded))}</button>
@@ -1830,6 +1855,10 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '' } = {}) {
       <fieldset class="field"><legend class="field-label">Did they reply?</legend>
         <div class="seg">${RESPONDED.map((r) => `<label class="seg-option"><input type="radio" name="responded" value="${r.key}"${(v.responded || 'pending') === r.key ? ' checked' : ''}><span>${esc(r.label)}</span></label>`).join('')}</div>
       </fieldset>
+      <fieldset class="field"><legend class="field-label">How did they seem? (optional)</legend>
+        <input type="hidden" name="interest" value="${esc(v.interest || '')}">
+        <div class="interest-picks">${INTEREST_LEVELS.map((i) => `<button type="button" class="interest-pick${v.interest === i.key ? ' is-on' : ''}" data-interest="${i.key}" aria-pressed="${v.interest === i.key}">${interestIcon(i.key)}<span>${esc(i.label)}</span></button>`).join('')}</div>
+      </fieldset>
       ${editing ? '' : `<div class="field promise-field">
         <label class="field"><span class="field-label">Anything promised? (optional)</span>
           <input name="promise" maxlength="140" autocomplete="off" placeholder="Send her a print of the window frame"></label>
@@ -1843,6 +1872,17 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '' } = {}) {
     </form>`,
   });
   const form = s.body.querySelector('form');
+  form.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-interest]');
+    if (!b) return;
+    const field = form.querySelector('[name="interest"]');
+    field.value = field.value === b.dataset.interest ? '' : b.dataset.interest;
+    form.querySelectorAll('[data-interest]').forEach((x) => {
+      const on = x.dataset.interest === field.value;
+      x.classList.toggle('is-on', on);
+      x.setAttribute('aria-pressed', String(on));
+    });
+  });
   const promise = form.querySelector('[name="promise"]');
   if (promise) {
     promise.addEventListener('input', () => {
@@ -1869,6 +1909,7 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '' } = {}) {
       note: String(fd.get('note') || '').trim(),
       responded,
       respondedAt,
+      interest: String(fd.get('interest') || '') || null,
     });
     const all = sortTouchpoints([...before.filter((t) => t.id !== tp.id), tp]);
     // A new touchpoint always resets the schedule. An edit only does when it
@@ -1877,7 +1918,9 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '' } = {}) {
     const next = touchesLatest ? computeNextDate(p, all, S.settings, today) : p.nextTouchpointDate;
     // Logging a new touchpoint uses up a typed idea; fixing an old one doesn't.
     const clearedIdea = !editing && !!(p.customIdea || '').trim();
-    const person = await db.savePerson({ ...p, nextTouchpointDate: next, ...(clearedIdea ? { customIdea: '' } : {}) });
+    // How they seemed at their latest touchpoint becomes their current interest.
+    const interest = tp.interest && (!editing || all[0].id === tp.id) ? { interest: tp.interest } : {};
+    const person = await db.savePerson({ ...p, nextTouchpointDate: next, ...(clearedIdea ? { customIdea: '' } : {}), ...interest });
     if (newsItem) await db.saveNews({ ...newsItem, dismissedAt: nowISO() });
     // "Anything promised?" becomes an open loop alongside the touchpoint.
     const promised = String(fd.get('promise') || '').trim();
@@ -2084,6 +2127,27 @@ async function setWarmth(p, warmth, { quiet = false } = {}) {
       label: 'Undo',
       run: async () => {
         await db.savePerson({ ...p });
+        await refresh();
+      },
+    },
+  });
+}
+
+async function interestSheet(p) {
+  if (!p) return;
+  const key = await choiceSheet({
+    title: 'How engaged do they seem?',
+    message: 'This shapes the touchpoint ideas. How often you reach out still follows their warmth.',
+    options: INTEREST_LEVELS.map((i) => ({ key: i.key, label: i.label, detail: i.blurb, icon: interestIcon(i.key), current: p.interest === i.key })),
+  });
+  if (!key || key === p.interest) return;
+  await db.savePerson({ ...p, interest: key });
+  await refresh();
+  toast(`${firstName(p)} seems ${interestInfo(key).label.toLowerCase()} now.`, {
+    action: {
+      label: 'Undo',
+      run: async () => {
+        await db.savePerson({ ...S.personById.get(p.id), interest: p.interest });
         await refresh();
       },
     },
@@ -2616,6 +2680,7 @@ const ACTIONS = {
   },
   'change-warmth': (el) => warmthSheet(person(el)),
   'change-rel': (el) => relationshipSheet(person(el)),
+  'change-interest': (el) => interestSheet(person(el)),
   park: (el) => setWarmth(person(el), 'parked'),
   'make-warm': (el) => setWarmth(person(el), 'warm'),
   unpark: (el) => unpark(person(el)),
@@ -2716,6 +2781,12 @@ const ACTIONS = {
     S.ui.people.filtersOpen = !S.ui.people.filtersOpen;
     render();
   },
+  'filter-interest': (el) => {
+    const set = S.ui.people.interest;
+    if (set.has(el.dataset.i)) set.delete(el.dataset.i);
+    else set.add(el.dataset.i);
+    render();
+  },
   'filter-dream': () => {
     S.ui.people.dream = !S.ui.people.dream;
     render();
@@ -2738,7 +2809,7 @@ const ACTIONS = {
     render();
   },
   'clear-filters': () => {
-    Object.assign(S.ui.people, { q: '', warmth: new Set(), rel: new Set(), loops: false, dream: false, role: '', tag: '', org: '' });
+    Object.assign(S.ui.people, { q: '', warmth: new Set(), rel: new Set(), interest: new Set(), loops: false, dream: false, role: '', tag: '', org: '' });
     render();
   },
   'edit-reflection': (el) => reflectionSheet(el.dataset.week),
