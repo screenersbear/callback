@@ -188,6 +188,11 @@ export function yearlyWindow(n, tps, today = todayStr()) {
   return ahead === 0 ? 'today' : occ;
 }
 
+// On the dream list and not reached out to yet: no cadence, never due.
+export function isDreamOnly(person, tps) {
+  return !!person.dreamList && !tps.length;
+}
+
 // Everything the Today screen lists, already sorted.
 // news: their-news items from the last week that nobody has acted on yet
 // (no touchpoint for that person since the news date, not dismissed).
@@ -196,6 +201,9 @@ export function buildToday({ people, touchpointsByPerson, news, loops = [] }, to
   const due = [];
   const resurfaced = [];
   for (const p of people) {
+    // Dream list people are aspirations, not follow-ups, until the first
+    // touchpoint starts their rhythm.
+    if (isDreamOnly(p, touchpointsByPerson.get(p.id) || [])) continue;
     const next = p.nextTouchpointDate || today;
     if (p.warmth === 'parked') {
       if (next <= today) resurfaced.push(p);

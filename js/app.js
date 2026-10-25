@@ -7,7 +7,7 @@ import {
 } from './util.js';
 import {
   WARMTH, WARMTH_INFO, COLD_STEPS, computeNextDate, warmthChangeFields, cadenceLabel, needsParkPrompt,
-  needsWarmPrompt, SNOOZE_OPTIONS, snoozeDate, buildToday, coldState, sortTouchpoints, nextYearly,
+  needsWarmPrompt, SNOOZE_OPTIONS, snoozeDate, buildToday, coldState, sortTouchpoints, nextYearly, isDreamOnly,
 } from './cadence.js';
 import { pickIdea, yearlyIdea } from './ideas.js';
 import { upcomingEvents, buildCalendar } from './ics.js';
@@ -44,7 +44,7 @@ const S = {
     collapsed: new Set(),
     scroll: new Map(),
     backTo: null,
-    people: { q: '', sort: 'contact', sortOpen: false, warmth: new Set(), rel: new Set(), loops: false, role: '', tag: '', org: '', showParked: false, filtersOpen: false },
+    people: { q: '', sort: 'contact', sortOpen: false, warmth: new Set(), rel: new Set(), loops: false, dream: false, role: '', tag: '', org: '', showParked: false, filtersOpen: false },
     orgsQ: '',
   },
 };
@@ -161,6 +161,16 @@ function loopIcon(kind) {
 function loopCountBadge(n) {
   return n ? `<span class="loop-count" title="${plural(n, 'open loop')}">${loopIcon('count')}<span>${n}</span><span class="visually-hidden"> open ${n === 1 ? 'loop' : 'loops'}</span></span>` : '';
 }
+
+const DREAM_STAR = '<svg class="warmth-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.4l2 4.3 4.6.6-3.4 3.2.9 4.6L8 11.8 3.9 14.1l.9-4.6L1.4 6.3 6 5.7z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>';
+
+function dreamBadge() {
+  return `<span class="dream-badge">${DREAM_STAR}<span>Dream list</span></span>`;
+}
+
+const dreamOnly = (p) => isDreamOnly(p, tpsOf(p.id));
+// People who list `id` among those they could introduce you to.
+const pathsTo = (id) => S.people.filter((c) => c.id !== id && (c.canIntroduceToIds || []).includes(id));
 
 // Their news dates still ahead, soonest first.
 function upcomingNews(p, today = todayStr()) {
@@ -329,7 +339,7 @@ function firstRunHTML() {
 
 function caughtUpHTML(today) {
   const upcoming = S.people
-    .filter((p) => p.warmth !== 'parked' && (p.nextTouchpointDate || today) > today)
+    .filter((p) => p.warmth !== 'parked' && !dreamOnly(p) && (p.nextTouchpointDate || today) > today)
     .sort((a, b) => a.nextTouchpointDate.localeCompare(b.nextTouchpointDate))
     .slice(0, 4);
   return `<div class="caught-up">
@@ -484,7 +494,8 @@ function personRow(p) {
   const next = p.nextTouchpointDate || today;
   const sub = subLine(p);
   let nextText;
-  if (p.warmth === 'parked') nextText = `Back ${esc(fmtDate(next, { weekday: false }))}`;
+  if (dreamOnly(p)) nextText = 'Not reached out yet';
+  else if (p.warmth === 'parked') nextText = `Back ${esc(fmtDate(next, { weekday: false }))}`;
   else if (next < today) nextText = `<b>${esc(nextRelText(next, today))}</b>`;
   else if (next === today) nextText = '<b>Due today</b>';
   else nextText = `Next ${esc(fmtDate(next, { weekday: false }))}`;
@@ -492,9 +503,9 @@ function personRow(p) {
     <span class="row-main">
       <span class="row-name">${esc(p.name)}</span>
       ${sub ? `<span class="row-sub">${sub}</span>` : ''}
-      <span class="row-meta"><span class="nowrap">${esc(sinceText(p, today))}</span> <span class="dot">·</span> <span class="nowrap">${nextText}</span></span>
+      <span class="row-meta">${dreamOnly(p) ? `<span class="nowrap">${nextText}</span>` : `<span class="nowrap">${esc(sinceText(p, today))}</span> <span class="dot">·</span> <span class="nowrap">${nextText}</span>`}</span>
     </span>
-    <span class="row-badges">${warmthBadge(p.warmth)}${loopCountBadge(openLoopsOf(p.id).length)}</span>
+    <span class="row-badges">${warmthBadge(p.warmth)}${p.dreamList ? `<span class="dream-mark" title="Dream list">${DREAM_STAR}<span class="visually-hidden">Dream list</span></span>` : ''}${loopCountBadge(openLoopsOf(p.id).length)}</span>
   </a>`;
 }
 
@@ -506,6 +517,7 @@ function filteredPeople() {
   if (f.warmth.size) list = list.filter((p) => f.warmth.has(p.warmth));
   if (f.rel.size) list = list.filter((p) => f.rel.has(p.relationshipType));
   if (f.loops) list = list.filter((p) => openLoopsOf(p.id).length);
+  if (f.dream) list = list.filter((p) => p.dreamList);
   if (f.role) list = list.filter((p) => (p.role || '').toLowerCase() === f.role.toLowerCase());
   if (f.tag) list = list.filter((p) => (p.tags || []).some((t) => t.toLowerCase() === f.tag.toLowerCase()));
   if (f.org) list = list.filter((p) => p.organizationId === f.org);
@@ -532,7 +544,7 @@ function filteredPeople() {
 
 function activeFilterCount() {
   const f = S.ui.people;
-  return f.warmth.size + f.rel.size + (f.loops ? 1 : 0) + (f.role ? 1 : 0) + (f.tag ? 1 : 0) + (f.org ? 1 : 0);
+  return f.warmth.size + f.rel.size + (f.loops ? 1 : 0) + (f.dream ? 1 : 0) + (f.role ? 1 : 0) + (f.tag ? 1 : 0) + (f.org ? 1 : 0);
 }
 
 function peopleListHTML() {
@@ -576,9 +588,10 @@ function filtersHTML() {
     <div class="filters">
       ${RELATIONSHIP_TYPES.map((r) => `<button type="button" class="chip${f.rel.has(r.key) ? ' active' : ''}" data-action="filter-rel" data-r="${r.key}" aria-pressed="${f.rel.has(r.key)}">${relIcon(r.key)}${esc(r.label)}</button>`).join('')}
     </div>
-    <p class="filter-label">Promises</p>
+    <p class="filter-label">Show only</p>
     <div class="filters">
       <button type="button" class="chip${f.loops ? ' active' : ''}" data-action="filter-loops" aria-pressed="${f.loops}">${loopIcon('count')}Has open loops</button>
+      <button type="button" class="chip${f.dream ? ' active' : ''}" data-action="filter-dream" aria-pressed="${f.dream}">${DREAM_STAR}Dream list</button>
     </div>
     <div class="filter-grid">
       <label class="field"><span class="field-label">Role</span>
@@ -596,7 +609,10 @@ function renderPeople() {
   const n = activeFilterCount();
   return `
     <header class="topbar"><h1>People</h1>
-      <button type="button" class="icon-btn" data-action="add-person" aria-label="Add person">+</button></header>
+      <span class="topbar-actions">
+        <a class="dream-link" href="#/dreams">${DREAM_STAR}Dream list</a>
+        <button type="button" class="icon-btn" data-action="add-person" aria-label="Add person">+</button>
+      </span></header>
     ${S.people.length ? `
     <input type="search" class="search" id="peopleSearch" placeholder="Search name, org, notes" value="${esc(f.q)}" autocomplete="off" aria-label="Search people">
     <div class="toolbar">
@@ -660,9 +676,14 @@ function renderPerson(id) {
           ${warmthBadge(p.warmth)}<span class="warmth-btn-hint">Change</span></button>
         <button type="button" class="warmth-btn" data-action="change-rel" data-id="${pid}" aria-label="Change relationship, now ${esc(relationshipInfo(p.relationshipType).label)}">
           ${relLabel(p.relationshipType)}<span class="warmth-btn-hint">Change</span></button>
+        ${p.dreamList ? dreamBadge() : ''}
       </div>
     </header>
-    <section class="next-panel${overdue ? ' is-overdue' : ''}">
+    ${dreamOnly(p) ? `<section class="next-panel">
+      <p class="next-label">On your dream list</p>
+      <p class="next-date">No rhythm yet</p>
+      <p class="next-rel">Log a first touchpoint when you reach out, and Callback starts one.</p>
+    </section>` : `<section class="next-panel${overdue ? ' is-overdue' : ''}">
       <p class="next-label">${p.warmth === 'parked' ? 'Comes back' : 'Next touchpoint'}</p>
       <p class="next-date">${esc(fmtDate(next))}</p>
       <p class="next-rel">${esc(nextRelText(next, today))} <span class="dot">·</span> ${esc(cadenceLabel(p, tps, S.settings))}</p>
@@ -670,12 +691,13 @@ function renderPerson(id) {
         <button type="button" class="btn on-ink" data-action="snooze" data-id="${pid}">Snooze</button>
         <button type="button" class="btn on-ink" data-action="change-date" data-id="${pid}">Change date</button>
       </div>
-    </section>
+    </section>`}
     ${prompt}
     <button type="button" class="hero-cta log-cta" data-action="log" data-id="${pid}">Log touchpoint</button>
     ${p.warmth === 'parked' ? '' : ideaHTML(p)}
     ${sectionBlock('details', 'Details', null, detailsHTML(p), 'navy')}
-    ${sectionBlock('personal', 'Personal', null, personalHTML(p), 'yellow')}`;
+    ${sectionBlock('personal', 'Personal', null, personalHTML(p), 'yellow')}
+    ${sectionBlock('connections', 'Connections', null, connectionsHTML(p), 'navy')}`;
 
   const right = `
     ${sectionBlock('news', 'Their news', newsOf(id).length, newsListHTML(p), 'yellow')}
@@ -713,6 +735,141 @@ function detailsHTML(p) {
   row('Added', esc(fmtTimestamp(p.createdAt)));
   const hint = rows.length <= 1 ? `<p class="hint">Add contact details, how you met and notes with <button type="button" class="text-btn inline" data-action="edit-person" data-id="${esc(p.id)}">Edit</button>.</p>` : '';
   return `<dl class="details">${rows.join('')}</dl>${hint}`;
+}
+
+// Introductions, both ways: who introduced you and who they introduced you
+// to; who they could introduce you to, and who could introduce you to them.
+function connectionsHTML(p) {
+  const link = (x) => `<a href="#/person/${esc(x.id)}">${esc(x.name)}</a>`;
+  const rows = [];
+  const row = (label, value) => rows.push(`<div class="detail-row"><dt>${esc(label)}</dt><dd>${value}</dd></div>`);
+  const by = p.introducedById && S.personById.get(p.introducedById);
+  if (by) row('Introduced by', link(by));
+  const introduced = S.people.filter((x) => x.introducedById === p.id);
+  if (introduced.length) row('Introduced you to', introduced.map(link).join('<br>'));
+  const could = (p.canIntroduceToIds || []).map((id) => S.personById.get(id)).filter(Boolean);
+  if (could.length) row('Could introduce you to', could.map((x) => `${link(x)}${x.dreamList ? ` ${DREAM_STAR}` : ''}`).join('<br>'));
+  const paths = pathsTo(p.id);
+  if (paths.length) row('Paths to them', paths.map((c) => `<span class="path-inline">${link(c)} ${warmthBadge(c.warmth)}</span>`).join(''));
+  return `${rows.length ? `<dl class="details">${rows.join('')}</dl>` : '<p class="hint">Who introduced you, who you met through them, and who they could put you in touch with.</p>'}
+    <button type="button" class="text-btn" data-action="edit-person" data-id="${esc(p.id)}">Edit connections</button>`;
+}
+
+// A sheet for picking people. Resolves with an id (single), a list of ids
+// (multiple), undefined for "No one", or null when closed.
+function peoplePicker({ title, multiple = false, selected = [], exclude = [] }) {
+  return new Promise((resolve) => {
+    let result = null;
+    const chosen = new Set(selected);
+    const list = S.people.filter((x) => !exclude.includes(x.id));
+    const sub = (x) => subLine(x) || '';
+    const s = openSheet({
+      title,
+      className: `sheet-wide${multiple ? ' has-footer' : ''}`,
+      body: `
+        ${list.length > 8 ? '<input type="search" class="search pick-search" data-q placeholder="Search people" autocomplete="off" aria-label="Search people">' : ''}
+        ${list.length ? '' : '<p class="hint">Add more people first, then link them here.</p>'}
+        <div class="pick-list">
+          ${multiple ? '' : `<button type="button" class="pick-row pick-one" data-none><span class="pick-box" aria-hidden="true"></span><span class="pick-main"><span class="pick-name">No one</span></span></button>`}
+          ${list.map((x) => multiple
+            ? `<label class="pick-row" data-find="${esc(x.name.toLowerCase())}"><input type="checkbox" data-pid="${esc(x.id)}"${chosen.has(x.id) ? ' checked' : ''}><span class="pick-main"><span class="pick-name">${esc(x.name)}${x.dreamList ? ` ${DREAM_STAR}` : ''}</span>${sub(x) ? `<span class="pick-sub">${sub(x)}</span>` : ''}</span></label>`
+            : `<button type="button" class="pick-row pick-one${chosen.has(x.id) ? ' is-current' : ''}" data-pid="${esc(x.id)}" data-find="${esc(x.name.toLowerCase())}"><span class="pick-main"><span class="pick-name">${esc(x.name)}</span>${sub(x) ? `<span class="pick-sub">${sub(x)}</span>` : ''}</span></button>`).join('')}
+        </div>
+        ${multiple ? '<div class="sheet-footer"><button type="button" class="modal-cta primary" data-done>Done</button></div>' : ''}`,
+      onClose: () => resolve(result),
+    });
+    s.body.addEventListener('input', (e) => {
+      if (!e.target.matches('[data-q]')) return;
+      const q = e.target.value.trim().toLowerCase();
+      s.body.querySelectorAll('[data-find]').forEach((r) => { r.hidden = !!q && !r.dataset.find.includes(q); });
+    });
+    s.body.addEventListener('change', (e) => {
+      const box = e.target.closest('[data-pid]');
+      if (!box || !multiple) return;
+      if (box.checked) chosen.add(box.dataset.pid);
+      else chosen.delete(box.dataset.pid);
+    });
+    s.body.addEventListener('click', (e) => {
+      if (multiple) {
+        if (e.target.closest('[data-done]')) {
+          result = [...chosen];
+          s.close();
+        }
+        return;
+      }
+      if (e.target.closest('[data-none]')) {
+        result = undefined;
+        s.close();
+        return;
+      }
+      const b = e.target.closest('[data-pid]');
+      if (b) {
+        result = b.dataset.pid;
+        s.close();
+      }
+    });
+  });
+}
+
+function namesOf(ids) {
+  return ids.map((id) => S.personById.get(id)).filter(Boolean).map((x) => x.name);
+}
+
+// The Dream List: people you'd love to work with someday, and the paths to
+// them through people you already know. Warm paths first.
+function renderDreams() {
+  const rank = { client: 0, active: 0, warm: 0, cold: 1, parked: 2 };
+  const best = (id) => Math.min(3, ...pathsTo(id).map((c) => rank[c.warmth] ?? 2));
+  const dreams = S.people
+    .filter((x) => x.dreamList)
+    .map((x) => ({ x, best: best(x.id) }))
+    .sort((a, b) => a.best - b.best || a.x.name.localeCompare(b.x.name));
+  const card = ({ x }) => {
+    const id = esc(x.id);
+    const paths = pathsTo(x.id).sort((a, b) => (rank[a.warmth] ?? 2) - (rank[b.warmth] ?? 2));
+    const sub = subLine(x);
+    return `<article class="item-card dream-card">
+      <a class="item-head" href="#/person/${id}">
+        <span class="item-who"><span class="item-name">${esc(x.name)}</span>${sub ? `<span class="item-sub">${sub}</span>` : ''}</span>
+        ${dreamBadge()}
+      </a>
+      ${dreamOnly(x) ? '' : `<p class="item-facts">${esc(sinceText(x))}</p>`}
+      ${x.notes ? `<p class="dream-notes pre">${esc(x.notes)}</p>` : ''}
+      ${paths.length
+        ? `<div class="paths"><p class="paths-label">Paths</p>${paths.map((c) => `<a class="path-row" href="#/person/${esc(c.id)}">${warmthBadge(c.warmth)}<span><b>${esc(c.name)}</b> could introduce you</span></a>`).join('')}</div>`
+        : promptBox('No path yet. How might you reach them? A mutual friend, an event you could both be at, their agent.',
+          `<button type="button" class="btn primary" data-action="dream-notes" data-id="${id}">${x.notes ? 'Edit notes' : 'Add a note'}</button>`)}
+    </article>`;
+  };
+  return `
+    <div class="detail-top">${backButton('#/people', 'People')}</div>
+    <header class="topbar"><h1>Dream list</h1>
+      <button type="button" class="icon-btn" data-action="add-person" data-dream="1" aria-label="Add to dream list">+</button></header>
+    <p class="hint">People you'd love to work with someday. They don't get reminders until you first reach out. When someone you know could introduce you, set it on their page under "Could introduce me to" and the path shows here.</p>
+    ${dreams.length
+      ? `<div class="card-list">${dreams.map(card).join('')}</div>`
+      : `<div class="empty"><p class="empty-title">Nobody here yet.</p><p>Add the actors, performers and cultural figures you'd love to photograph. A name is enough to start.</p>
+          <button type="button" class="hero-cta" data-action="add-person" data-dream="1">Add to dream list</button></div>`}`;
+}
+
+function notesSheet(p) {
+  if (!p) return;
+  const s = openSheet({
+    title: `Notes on ${firstName(p)}`,
+    className: 'sheet-small',
+    body: `<form class="form">
+      <label class="field"><span class="field-label">How might you reach them?</span>
+        <textarea name="notes" rows="5" placeholder="Sam knows her agent. She's at the Rialto festival in March.">${esc(p.notes || '')}</textarea></label>
+      <button type="submit" class="modal-cta primary">Save notes</button>
+    </form>`,
+  });
+  s.body.querySelector('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await db.savePerson({ ...p, notes: String(new FormData(e.target).get('notes') || '').trim() });
+    s.close();
+    await refresh();
+    toast('Notes saved');
+  });
 }
 
 const MONTHS = Array.from({ length: 12 }, (_, i) => new Date(2000, i, 1).toLocaleDateString(undefined, { month: 'long' }));
@@ -1333,9 +1490,10 @@ const ROUTES = {
   org: (id) => renderOrg(id),
   week: () => renderWeek(),
   settings: () => renderSettings(),
+  dreams: () => renderDreams(),
 };
-const TAB_FOR = { person: 'people', org: 'orgs' };
-const TITLES = { today: 'Today', people: 'People', person: 'Person', orgs: 'Organizations', org: 'Organization', week: 'Weekly review', settings: 'Settings' };
+const TAB_FOR = { person: 'people', org: 'orgs', dreams: 'people' };
+const TITLES = { today: 'Today', people: 'People', person: 'Person', orgs: 'Organizations', org: 'Organization', week: 'Weekly review', settings: 'Settings', dreams: 'Dream list' };
 
 function parseRoute() {
   const [name, id] = location.hash.replace(/^#\/?/, '').split('/');
@@ -1488,6 +1646,14 @@ function personForm(p, preset = {}) {
       <label class="field"><span class="field-label">Next touchpoint</span>
         <input type="date" name="next" value="${esc(v.nextTouchpointDate || todayStr())}">
         <span class="field-hint">${isNew ? 'Today puts them on your Today list right away.' : 'Logging a touchpoint sets this for you.'}</span></label>
+      <fieldset class="field connections-field"><legend class="field-label">Dream list and introductions</legend>
+        <label class="check"><input type="checkbox" name="dreamList"${v.dreamList ? ' checked' : ''}> ${DREAM_STAR} On my dream list</label>
+        <span class="field-hint">Someone you'd love to work with someday. No reminders until you first reach out, and a name is enough.</span>
+        <div class="picker-row"><span class="field-label">Introduced by</span>
+          <button type="button" class="picker-btn" data-pick="by"></button></div>
+        <div class="picker-row"><span class="field-label">Could introduce me to</span>
+          <button type="button" class="picker-btn" data-pick="could"></button></div>
+      </fieldset>
       <details class="more"${isNew ? '' : ' open'}>
         <summary>Contact details and notes</summary>
         ${field('email', 'Email', v.email, 'type="email" autocomplete="off" inputmode="email"')}
@@ -1507,6 +1673,31 @@ function personForm(p, preset = {}) {
   });
   const form = s.body.querySelector('form');
   if (isNew) wirePasteBox(form);
+  // Introductions are picked in their own sheet and kept here until save.
+  let introducedById = v.introducedById || null;
+  let canIntroduceToIds = [...(v.canIntroduceToIds || [])];
+  const self = p ? [p.id] : [];
+  const showPicks = () => {
+    const by = introducedById && S.personById.get(introducedById);
+    form.querySelector('[data-pick="by"]').textContent = by ? by.name : 'Choose someone';
+    const names = namesOf(canIntroduceToIds);
+    form.querySelector('[data-pick="could"]').textContent = names.length ? joinWords(names) : 'Choose people';
+  };
+  showPicks();
+  form.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-pick]');
+    if (!b) return;
+    if (b.dataset.pick === 'by') {
+      const id = await peoplePicker({ title: 'Introduced by', selected: introducedById ? [introducedById] : [], exclude: self });
+      if (id === null) return;
+      introducedById = id || null;
+    } else {
+      const ids = await peoplePicker({ title: 'Could introduce me to', multiple: true, selected: canIntroduceToIds, exclude: self });
+      if (ids === null) return;
+      canIntroduceToIds = ids;
+    }
+    showPicks();
+  });
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1541,6 +1732,9 @@ function personForm(p, preset = {}) {
       notes: get('notes'),
       cadenceOverrideDays: override > 0 ? override : null,
       relationshipType: get('relationshipType') || DEFAULT_RELATIONSHIP,
+      dreamList: !!fd.get('dreamList'),
+      introducedById,
+      canIntroduceToIds,
     };
     const warmth = get('warmth') || 'cold';
     const nextInput = /^\d{4}-\d{2}-\d{2}$/.test(get('next')) ? get('next') : '';
@@ -2408,7 +2602,11 @@ async function exportICS() {
 const person = (el) => S.personById.get(el.dataset.id);
 
 const ACTIONS = {
-  'add-person': (el) => personForm(null, el.dataset.org ? { organizationId: el.dataset.org } : {}),
+  'add-person': (el) => personForm(null, {
+    ...(el.dataset.org ? { organizationId: el.dataset.org } : {}),
+    ...(el.dataset.dream ? { dreamList: true } : {}),
+  }),
+  'dream-notes': (el) => notesSheet(person(el)),
   'edit-person': (el) => personForm(person(el)),
   log: (el) => logSheet(person(el), { newsItem: el.dataset.news ? S.news.find((n) => n.id === el.dataset.news) : null }),
   snooze: (el) => snoozeSheet(person(el)),
@@ -2518,6 +2716,10 @@ const ACTIONS = {
     S.ui.people.filtersOpen = !S.ui.people.filtersOpen;
     render();
   },
+  'filter-dream': () => {
+    S.ui.people.dream = !S.ui.people.dream;
+    render();
+  },
   'filter-loops': () => {
     S.ui.people.loops = !S.ui.people.loops;
     render();
@@ -2536,7 +2738,7 @@ const ACTIONS = {
     render();
   },
   'clear-filters': () => {
-    Object.assign(S.ui.people, { q: '', warmth: new Set(), rel: new Set(), loops: false, role: '', tag: '', org: '' });
+    Object.assign(S.ui.people, { q: '', warmth: new Set(), rel: new Set(), loops: false, dream: false, role: '', tag: '', org: '' });
     render();
   },
   'edit-reflection': (el) => reflectionSheet(el.dataset.week),

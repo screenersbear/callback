@@ -2,7 +2,7 @@
 // reuse it unchanged if Callback ever gets a server: give it the data, get
 // back calendar text.
 import { addDays, todayStr } from './util.js';
-import { lastTouchpoint, WARMTH_INFO, nextYearly } from './cadence.js';
+import { lastTouchpoint, WARMTH_INFO, nextYearly, isDreamOnly } from './cadence.js';
 import { pickIdea } from './ideas.js';
 import { touchTypeLabel } from './model.js';
 
@@ -29,6 +29,7 @@ export function upcomingEvents(
   const events = [];
 
   for (const p of people) {
+    if (isDreamOnly(p, touchpointsByPerson.get(p.id) || [])) continue;
     const scheduled = p.nextTouchpointDate || today;
     const date = scheduled < today ? today : scheduled;
     if (date > end) continue;

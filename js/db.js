@@ -22,6 +22,9 @@ export function withPersonDefaults(p) {
   if (!p.relationshipType) fill.relationshipType = DEFAULT_RELATIONSHIP;
   if (p.birthday === undefined) fill.birthday = null;
   if (!Array.isArray(p.details)) fill.details = [];
+  if (typeof p.dreamList !== 'boolean') fill.dreamList = false;
+  if (p.introducedById === undefined) fill.introducedById = null;
+  if (!Array.isArray(p.canIntroduceToIds)) fill.canIntroduceToIds = [];
   return Object.keys(fill).length ? { ...p, ...fill } : p;
 }
 
