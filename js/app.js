@@ -735,13 +735,32 @@ function renderPerson(id) {
     <div class="detail-cols"><div class="detail-col">${left}</div><div class="detail-col">${right}</div></div>`;
 }
 
+// Contact fields, each added or changed in its own small sheet from the
+// person page.
+const CONTACT_FIELDS = [
+  { key: 'email', label: 'Email', word: 'email', type: 'email', mode: 'email', placeholder: 'name@example.com' },
+  { key: 'phone', label: 'Phone', word: 'phone number', type: 'tel', mode: 'tel', placeholder: '+1 212 555 0101' },
+  { key: 'instagram', label: 'Instagram', word: 'Instagram', type: 'text', mode: 'text', placeholder: '@handle' },
+  { key: 'website', label: 'Website', word: 'website', type: 'text', mode: 'url', placeholder: 'example.com' },
+];
+
+function contactLink(p, key) {
+  const v = p[key];
+  if (key === 'email') return `<a href="mailto:${esc(v)}">${esc(v)}</a>`;
+  if (key === 'phone') return `<a href="tel:${esc(v.replace(/[^\d+]/g, ''))}">${esc(v)}</a>`;
+  if (key === 'instagram') return `<a href="${esc(instagramUrl(v))}" target="_blank" rel="noopener">${esc(v.startsWith('@') || /instagram\.com/i.test(v) ? v : `@${v}`)}</a>`;
+  return `<a href="${esc(normalizeUrl(v))}" target="_blank" rel="noopener">${esc(v.replace(/^https?:\/\//, ''))}</a>`;
+}
+
 function detailsHTML(p) {
   const rows = [];
   const row = (label, value) => rows.push(`<div class="detail-row"><dt>${esc(label)}</dt><dd>${value}</dd></div>`);
-  if (p.email) row('Email', `<a href="mailto:${esc(p.email)}">${esc(p.email)}</a>`);
-  if (p.phone) row('Phone', `<a href="tel:${esc(p.phone.replace(/[^\d+]/g, ''))}">${esc(p.phone)}</a>`);
-  if (p.instagram) row('Instagram', `<a href="${esc(instagramUrl(p.instagram))}" target="_blank" rel="noopener">${esc(p.instagram.startsWith('@') || /instagram\.com/i.test(p.instagram) ? p.instagram : `@${p.instagram}`)}</a>`);
-  if (p.website) row('Website', `<a href="${esc(normalizeUrl(p.website))}" target="_blank" rel="noopener">${esc(p.website.replace(/^https?:\/\//, ''))}</a>`);
+  for (const f of CONTACT_FIELDS) {
+    const btn = (text) => `<button type="button" class="text-btn inline contact-edit" data-action="edit-contact" data-id="${esc(p.id)}" data-field="${f.key}">${text}</button>`;
+    rows.push(`<div class="detail-row contact-row"><dt>${esc(f.label)}</dt><dd>${(p[f.key] || '').trim()
+      ? `<span class="contact-value">${contactLink(p, f.key)}</span>${btn('Edit')}`
+      : btn(`+ Add ${esc(f.word)}`)}</dd></div>`);
+  }
   if (p.howWeMet) row('How we met', `<span class="pre">${esc(p.howWeMet)}</span>`);
   if (p.tags && p.tags.length) row('Tags', `<span class="tags">${p.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</span>`);
   if (p.notes) row('Notes', `<span class="pre">${esc(p.notes)}</span>`);
@@ -758,7 +777,9 @@ function detailsHTML(p) {
       .join('<br>'));
   }
   row('Added', esc(fmtTimestamp(p.createdAt)));
-  const hint = rows.length <= 1 ? `<p class="hint">Add contact details, how you met and notes with <button type="button" class="text-btn inline" data-action="edit-person" data-id="${esc(p.id)}">Edit</button>.</p>` : '';
+  const hint = !p.howWeMet && !p.notes && !(p.tags || []).length
+    ? `<p class="hint">Add how you met, tags and notes with <button type="button" class="text-btn inline" data-action="edit-person" data-id="${esc(p.id)}">Edit</button>.</p>`
+    : '';
   return `<dl class="details">${rows.join('')}</dl>${hint}`;
 }
 
@@ -875,6 +896,54 @@ function renderDreams() {
       ? `<div class="card-list">${dreams.map(card).join('')}</div>`
       : `<div class="empty"><p class="empty-title">Nobody here yet.</p><p>Add the actors, performers and cultural figures you'd love to photograph. A name is enough to start.</p>
           <button type="button" class="hero-cta" data-action="add-person" data-dream="1">Add to dream list</button></div>`}`;
+}
+
+function contactSheet(p, key) {
+  const f = CONTACT_FIELDS.find((x) => x.key === key);
+  if (!p || !f) return;
+  const had = !!(p[key] || '').trim();
+  const s = openSheet({
+    title: `${had ? 'Change' : 'Add'} ${f.word}`,
+    className: 'sheet-small',
+    body: `<p class="sheet-person">${esc(p.name)}</p>
+    <form class="form" novalidate>
+      <label class="field"><span class="field-label">${esc(f.label)}</span>
+        <input name="value" type="${f.type}" inputmode="${f.mode}" value="${esc(p[key] || '')}" placeholder="${esc(f.placeholder)}" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+      <p class="field-error" data-error="value" hidden></p>
+      ${had ? `<button type="button" class="btn danger wide" data-delete>Remove ${esc(f.word)}</button>` : ''}
+      <button type="submit" class="modal-cta primary">Save</button>
+    </form>`,
+  });
+  const form = s.body.querySelector('form');
+  const error = form.querySelector('[data-error="value"]');
+  const save = async (value) => {
+    await db.savePerson({ ...p, [key]: value });
+    s.close();
+    await refresh();
+    toast(value ? `${f.label} saved` : `${f.label} removed`);
+  };
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const value = String(new FormData(form).get('value') || '').trim();
+    if (!value) {
+      if (had) await save('');
+      else s.close();
+      return;
+    }
+    if (key === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      error.textContent = "That doesn't look like an email address.";
+      error.hidden = false;
+      return;
+    }
+    if (key === 'phone' && (value.match(/\d/g) || []).length < 5) {
+      error.textContent = 'That looks too short for a phone number.';
+      error.hidden = false;
+      return;
+    }
+    await save(value);
+  });
+  const del = s.body.querySelector('[data-delete]');
+  if (del) del.addEventListener('click', () => save(''));
 }
 
 function notesSheet(p) {
@@ -2671,6 +2740,7 @@ const ACTIONS = {
     ...(el.dataset.dream ? { dreamList: true } : {}),
   }),
   'dream-notes': (el) => notesSheet(person(el)),
+  'edit-contact': (el) => contactSheet(person(el), el.dataset.field),
   'edit-person': (el) => personForm(person(el)),
   log: (el) => logSheet(person(el), { newsItem: el.dataset.news ? S.news.find((n) => n.id === el.dataset.news) : null }),
   snooze: (el) => snoozeSheet(person(el)),

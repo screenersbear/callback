@@ -363,6 +363,7 @@ button:active, .row-card:active, .stat-box:active, .item-head:active { opacity: 
 h2.collapsed .collapse-arrow { transform: rotate(-90deg); }
 
 .card-list { display: flex; flex-direction: column; gap: 10px; }
+.card-list > .text-btn { align-self: flex-start; }
 
 /* ---------- Today cards ---------- */
 
@@ -669,7 +670,9 @@ button.pick-row.is-current { background: var(--accent); color: var(--on-accent);
   border-bottom: 1px solid var(--line);
 }
 .pd-row:last-child { border-bottom: none; }
-.pd-birthday { grid-template-columns: 110px 1fr; }
+.pd-birthday { grid-template-columns: 110px 1fr; align-items: baseline; }
+.pd-birthday .text-btn { justify-self: start; text-align: left; padding: 6px 0; }
+.pd-birthday .pd-label-text { padding-top: 6px; }
 .pd-label-text, .pd-label {
   font-size: 13px;
   font-weight: 700;
@@ -1062,6 +1065,10 @@ details.loop-done[open] summary { margin-bottom: 8px; }
   padding-top: 2px;
 }
 .detail-row dd { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+.contact-row dd { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; }
+.contact-value { min-width: 0; overflow-wrap: anywhere; }
+.contact-edit { flex-shrink: 0; font-size: 14px; color: var(--text-dim); }
+.contact-row dd > .contact-edit:only-child { color: var(--text); }
 
 .tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .tag {
