@@ -131,6 +131,7 @@ function warmthBadge(w) {
 // Relationship type: an icon and a word, no box, so it never reads as a
 // second warmth badge.
 const REL_ICON = {
+  pastClient: '<rect x="1.8" y="5" width="12.4" height="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5.8 5V2.8h4.4V5M1.8 8.6h12.4" fill="none" stroke="currentColor" stroke-width="1.8"/>',
   prospect: '<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="8" cy="8" r="2.2" fill="currentColor"/>',
   collaborator: '<circle cx="5.7" cy="8" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="10.3" cy="8" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/>',
   industry: '<path d="M3 12.5L8 3.5L13 12.5H3" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="3" cy="12.5" r="2.1" fill="currentColor"/><circle cx="13" cy="12.5" r="2.1" fill="currentColor"/><circle cx="8" cy="3.5" r="2.1" fill="currentColor"/>',
@@ -791,6 +792,7 @@ function connectionsHTML(p) {
   const row = (label, value) => rows.push(`<div class="detail-row"><dt>${esc(label)}</dt><dd>${value}</dd></div>`);
   const by = p.introducedById && S.personById.get(p.introducedById);
   if (by) row('Introduced by', link(by));
+  else if (p.introducedByName) row('Introduced by', `${esc(p.introducedByName)} <span class="not-in">(not in Callback)</span>`);
   const introduced = S.people.filter((x) => x.introducedById === p.id);
   if (introduced.length) row('Introduced you to', introduced.map(link).join('<br>'));
   const could = (p.canIntroduceToIds || []).map((id) => S.personById.get(id)).filter(Boolean);
@@ -802,8 +804,9 @@ function connectionsHTML(p) {
 }
 
 // A sheet for picking people. Resolves with an id (single), a list of ids
-// (multiple), undefined for "No one", or null when closed.
-function peoplePicker({ title, multiple = false, selected = [], exclude = [] }) {
+// (multiple), undefined for "No one", or null when closed. With `allowName`,
+// the search box also takes a name that isn't in Callback: { name }.
+function peoplePicker({ title, multiple = false, selected = [], exclude = [], allowName = false, typedName = '' }) {
   return new Promise((resolve) => {
     let result = null;
     const chosen = new Set(selected);
@@ -813,9 +816,10 @@ function peoplePicker({ title, multiple = false, selected = [], exclude = [] }) 
       title,
       className: `sheet-wide${multiple ? ' has-footer' : ''}`,
       body: `
-        ${list.length > 8 ? '<input type="search" class="search pick-search" data-q placeholder="Search people" autocomplete="off" aria-label="Search people">' : ''}
-        ${list.length ? '' : '<p class="hint">Add more people first, then link them here.</p>'}
+        ${list.length > 8 || allowName ? `<input type="search" class="search pick-search" data-q placeholder="${allowName ? 'Search, or type a name' : 'Search people'}" value="${esc(typedName)}" autocomplete="off" aria-label="${allowName ? 'Search people, or type a name' : 'Search people'}">` : ''}
+        ${list.length || allowName ? '' : '<p class="hint">Add more people first, then link them here.</p>'}
         <div class="pick-list">
+          ${allowName ? '<button type="button" class="pick-row pick-one pick-typed" data-typed hidden></button>' : ''}
           ${multiple ? '' : `<button type="button" class="pick-row pick-one" data-none><span class="pick-box" aria-hidden="true"></span><span class="pick-main"><span class="pick-name">No one</span></span></button>`}
           ${list.map((x) => multiple
             ? `<label class="pick-row" data-find="${esc(x.name.toLowerCase())}"><input type="checkbox" data-pid="${esc(x.id)}"${chosen.has(x.id) ? ' checked' : ''}><span class="pick-main"><span class="pick-name">${esc(x.name)}${x.dreamList ? ` ${DREAM_STAR}` : ''}</span>${sub(x) ? `<span class="pick-sub">${sub(x)}</span>` : ''}</span></label>`
@@ -824,10 +828,25 @@ function peoplePicker({ title, multiple = false, selected = [], exclude = [] }) 
         ${multiple ? '<div class="sheet-footer"><button type="button" class="modal-cta primary" data-done>Done</button></div>' : ''}`,
       onClose: () => resolve(result),
     });
-    s.body.addEventListener('input', (e) => {
-      if (!e.target.matches('[data-q]')) return;
-      const q = e.target.value.trim().toLowerCase();
+    const typed = s.body.querySelector('[data-typed]');
+    const filter = (raw) => {
+      const q = raw.trim().toLowerCase();
       s.body.querySelectorAll('[data-find]').forEach((r) => { r.hidden = !!q && !r.dataset.find.includes(q); });
+      if (!typed) return;
+      // Offer the typed name itself unless it's exactly someone already here.
+      const exact = list.some((x) => x.name.trim().toLowerCase() === q);
+      typed.hidden = !q || exact;
+      typed.innerHTML = `<span class="pick-main"><span class="pick-name">Use \u201c${esc(raw.trim())}\u201d</span><span class="pick-sub">Not in your Callback contacts</span></span>`;
+    };
+    if (typedName) filter(typedName);
+    s.body.addEventListener('input', (e) => {
+      if (e.target.matches('[data-q]')) filter(e.target.value);
+    });
+    s.body.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.target.matches('[data-q]') && typed && !typed.hidden) {
+        e.preventDefault();
+        typed.click();
+      }
     });
     s.body.addEventListener('change', (e) => {
       const box = e.target.closest('[data-pid]');
@@ -845,6 +864,11 @@ function peoplePicker({ title, multiple = false, selected = [], exclude = [] }) 
       }
       if (e.target.closest('[data-none]')) {
         result = undefined;
+        s.close();
+        return;
+      }
+      if (e.target.closest('[data-typed]')) {
+        result = { name: s.body.querySelector('[data-q]').value.trim() };
         s.close();
         return;
       }
@@ -1769,22 +1793,47 @@ function personForm(p, preset = {}) {
   if (isNew) wirePasteBox(form);
   // Introductions are picked in their own sheet and kept here until save.
   let introducedById = v.introducedById || null;
+  let introducedByName = v.introducedByName || '';
   let canIntroduceToIds = [...(v.canIntroduceToIds || [])];
   const self = p ? [p.id] : [];
   const showPicks = () => {
     const by = introducedById && S.personById.get(introducedById);
-    form.querySelector('[data-pick="by"]').textContent = by ? by.name : 'Choose someone';
+    form.querySelector('[data-pick="by"]').textContent = by ? by.name : introducedByName ? `${introducedByName} (not in Callback)` : 'Choose someone, or type a name';
     const names = namesOf(canIntroduceToIds);
     form.querySelector('[data-pick="could"]').textContent = names.length ? joinWords(names) : 'Choose people';
   };
   showPicks();
+  // A new past client starts on Client warmth (every few months) rather than
+  // the cold sequence, unless a warmth was picked by hand.
+  if (isNew) {
+    let warmthTouched = false;
+    let autoClient = false;
+    form.addEventListener('change', (e) => {
+      if (e.target.name === 'warmth') {
+        warmthTouched = true;
+        autoClient = false;
+      } else if (e.target.name === 'relationshipType' && !warmthTouched) {
+        const past = e.target.value === 'pastClient';
+        if (past || autoClient) form.querySelector(`[name="warmth"][value="${past ? 'client' : v.warmth || 'cold'}"]`).checked = true;
+        autoClient = past;
+      }
+    });
+  }
   form.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-pick]');
     if (!b) return;
     if (b.dataset.pick === 'by') {
-      const id = await peoplePicker({ title: 'Introduced by', selected: introducedById ? [introducedById] : [], exclude: self });
+      const id = await peoplePicker({ title: 'Introduced by', selected: introducedById ? [introducedById] : [], exclude: self, allowName: true, typedName: introducedByName });
       if (id === null) return;
-      introducedById = id || null;
+      if (id && typeof id === 'object') {
+        // A typed name that matches someone already here links to them.
+        const match = S.people.find((x) => !self.includes(x.id) && x.name.trim().toLowerCase() === id.name.toLowerCase());
+        introducedById = match ? match.id : null;
+        introducedByName = match ? '' : id.name;
+      } else {
+        introducedById = id || null;
+        introducedByName = '';
+      }
     } else {
       const ids = await peoplePicker({ title: 'Could introduce me to', multiple: true, selected: canIntroduceToIds, exclude: self });
       if (ids === null) return;
@@ -1828,6 +1877,7 @@ function personForm(p, preset = {}) {
       relationshipType: get('relationshipType') || DEFAULT_RELATIONSHIP,
       dreamList: !!fd.get('dreamList'),
       introducedById,
+      introducedByName,
       canIntroduceToIds,
     };
     const warmth = get('warmth') || 'cold';

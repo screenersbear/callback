@@ -67,6 +67,7 @@ export const NEWS_SUGGESTIONS = [
 // looks at this; it shapes the touchpoint ideas and helps filter.
 export const RELATIONSHIP_TYPES = [
   { key: 'prospect', label: 'Prospect', blurb: 'Someone who could hire you.' },
+  { key: 'pastClient', label: 'Past client', blurb: "Someone who's hired you. Stay in touch for the next job." },
   { key: 'collaborator', label: 'Collaborator', blurb: 'Someone you make work with: models, actors, artists.' },
   { key: 'industry', label: 'Industry', blurb: 'Someone who connects you to work: agents, bookers, editors, casting.' },
 ];

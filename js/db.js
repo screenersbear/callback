@@ -24,6 +24,7 @@ export function withPersonDefaults(p) {
   if (!Array.isArray(p.details)) fill.details = [];
   if (typeof p.dreamList !== 'boolean') fill.dreamList = false;
   if (p.introducedById === undefined) fill.introducedById = null;
+  if (typeof p.introducedByName !== 'string') fill.introducedByName = '';
   if (!Array.isArray(p.canIntroduceToIds)) fill.canIntroduceToIds = [];
   if (!p.interest) fill.interest = DEFAULT_INTEREST;
   return Object.keys(fill).length ? { ...p, ...fill } : p;

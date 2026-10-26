@@ -70,6 +70,17 @@ const BY_ROLE = [
   },
 ];
 
+// For past clients: they've hired you once, so the reason to reach out is
+// the work you made for them and what you could make next.
+const PAST_CLIENT = [
+  "Send a frame from their shoot they haven't seen yet.",
+  'Ask how the images worked for them.',
+  "Share what you've shot since you worked together.",
+  'Send a print from the work you made for them.',
+  'Let them know your availability for their next season.',
+  'Send a thank-you on the anniversary of your shoot together.',
+];
+
 // For collaborators: people you make work with, so the reason to reach out
 // is the work itself, not a pitch.
 const COLLABORATOR = [
@@ -116,6 +127,7 @@ export function ideasFor(person) {
   // A known interest level leads; unknown falls back to relationship and role.
   if (person && BY_INTEREST[person.interest]) return BY_INTEREST[person.interest];
   if (person && person.relationshipType === 'collaborator') return COLLABORATOR;
+  if (person && person.relationshipType === 'pastClient') return PAST_CLIENT;
   const role = (person && person.role) || '';
   const own = BY_ROLE.filter((r) => r.match.test(role)).flatMap((r) => r.ideas);
   return [...own, ...GENERAL];

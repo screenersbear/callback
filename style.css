@@ -643,6 +643,8 @@ h2.collapsed .collapse-arrow { transform: rotate(-90deg); }
 }
 button.pick-row { width: 100%; text-align: left; background: none; border: none; border-bottom: 1px solid var(--line); letter-spacing: 0; font-size: 16px; }
 button.pick-row.is-current { background: var(--accent); color: var(--on-accent); }
+button.pick-typed { border-bottom: 3px solid var(--ink); }
+.not-in { color: var(--text-dim); font-size: 14px; }
 .pick-name .warmth-icon { width: 14px; height: 14px; display: inline-block; vertical-align: -2px; }
 .dream-notes { margin: 0; font-size: 15px; border-left: 5px solid var(--accent); padding-left: 10px; }
 .paths { display: flex; flex-direction: column; gap: 6px; }
