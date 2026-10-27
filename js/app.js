@@ -240,13 +240,19 @@ function promptBox(text, buttons) {
   return `<div class="prompt"><p>${text}</p><div class="prompt-actions">${buttons}</div></div>`;
 }
 
+// The idea showing for a person right now: their typed one, a yearly date
+// or the rotating suggestion.
+function shownIdea(p) {
+  const own = (p.customIdea || '').trim();
+  const turn = S.ui.ideaTurn.get(p.id) || 0;
+  const yearly = own || turn ? null : yearlyIdea(newsOf(p.id), tpsOf(p.id));
+  return { own, yearly, text: own || yearly || pickIdea(p, todayStr(), turn) };
+}
+
 // The rotating suggestion, or the idea the person typed themselves.
 function ideaHTML(p) {
   const id = esc(p.id);
-  const own = (p.customIdea || '').trim();
-  const turn = S.ui.ideaTurn.get(p.id) || 0;
-  const yearly = turn ? null : yearlyIdea(newsOf(p.id), tpsOf(p.id));
-  const text = own || yearly || pickIdea(p, todayStr(), turn);
+  const { own, yearly, text } = shownIdea(p);
   const removable = own || !yearly;
   return `<div class="idea${own ? ' is-own' : ''}">
     ${removable ? `<button type="button" class="idea-remove" data-action="hide-idea" data-id="${id}"${own ? ' data-typed="1"' : ''} aria-label="Remove this suggestion for good">${X_ICON_SMALL}</button>` : ''}
@@ -2023,22 +2029,31 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '' } = {}) {
   if (!p) return;
   const editing = !!touchpoint;
   const today = todayStr();
+  // A typed idea is what you said you'd do, so it fills in what you did.
+  // Any other idea is offered with "Use it" instead.
+  const idea = editing ? null : shownIdea(p);
+  const preset = note || (newsItem ? `Their news: ${newsItem.description}` : '');
   const v = touchpoint || {
     type: S.meta.lastLogType || 'email',
     date: today,
-    note: note || (newsItem ? `Their news: ${newsItem.description}` : ''),
+    note: preset || (idea.own ? idea.own : ''),
     responded: 'pending',
   };
+  const offer = idea && idea.text && idea.text !== v.note ? idea.text : '';
   const s = openSheet({
     title: editing ? 'Edit touchpoint' : 'Log touchpoint',
     className: 'log-sheet',
     body: `<p class="sheet-person">${esc(p.name)}</p>
     <form class="form" novalidate>
-      <fieldset class="field"><legend class="field-label">What did you do?</legend>
+      <fieldset class="field"><legend class="field-label">How did you reach out?</legend>
         <div class="chip-choices">${TOUCH_TYPES.map((t) => `<label class="chip-choice"><input type="radio" name="type" value="${t.key}"${v.type === t.key ? ' checked' : ''}><span>${esc(t.label)}</span></label>`).join('')}</div>
       </fieldset>
       <label class="field"><span class="field-label">When</span><input type="date" name="date" value="${esc(v.date)}" required></label>
-      <label class="field"><span class="field-label">Note</span><input name="note" value="${esc(v.note || '')}" maxlength="280" autocomplete="off" placeholder="Sent three frames from the beach test"></label>
+      <div class="field">
+        <label class="field"><span class="field-label">What you sent or said</span>
+          <textarea name="note" class="log-note" rows="1" maxlength="280" enterkeyhint="done" placeholder="Sent three frames from the beach test">${esc(v.note || '')}</textarea></label>
+        ${offer ? `<p class="field-hint log-idea"><span>${idea.own ? 'Your idea' : 'Idea'}: ${esc(offer)}</span> <button type="button" class="text-btn inline" data-use-idea>Use it</button></p>` : ''}
+      </div>
       <fieldset class="field"><legend class="field-label">Did they reply?</legend>
         <div class="seg">${RESPONDED.map((r) => `<label class="seg-option"><input type="radio" name="responded" value="${r.key}"${(v.responded || 'pending') === r.key ? ' checked' : ''}><span>${esc(r.label)}</span></label>`).join('')}</div>
       </fieldset>
@@ -2059,7 +2074,24 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '' } = {}) {
     </form>`,
   });
   const form = s.body.querySelector('form');
+  const noteField = form.querySelector('[name="note"]');
+  fitHeight(noteField);
+  noteField.addEventListener('keydown', (e) => {
+    // It wraps to fit, but stays one line of text: Enter just closes the keyboard.
+    if (e.key === 'Enter' && !e.isComposing) {
+      e.preventDefault();
+      noteField.blur();
+    }
+  });
   form.addEventListener('click', (e) => {
+    if (e.target.closest('[data-use-idea]')) {
+      const cur = noteField.value.trim();
+      noteField.value = (cur ? `${cur.replace(/[\s.]+$/, '')}. ${offer}` : offer).slice(0, 280);
+      e.target.closest('.log-idea').remove();
+      fitHeight(noteField);
+      noteField.focus();
+      return;
+    }
     const b = e.target.closest('[data-interest]');
     if (!b) return;
     const field = form.querySelector('[name="interest"]');
@@ -2093,7 +2125,7 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '' } = {}) {
       personId: p.id,
       type,
       date,
-      note: String(fd.get('note') || '').trim(),
+      note: String(fd.get('note') || '').replace(/\s*\n+\s*/g, ' ').trim(),
       responded,
       respondedAt,
       interest: String(fd.get('interest') || '') || null,
@@ -3119,7 +3151,7 @@ document.addEventListener('keydown', (e) => {
 
 document.addEventListener('input', (e) => {
   const t = e.target;
-  if (t.matches && t.matches('textarea.pd-value')) fitHeight(t);
+  if (t.matches && t.matches('textarea.pd-value, textarea.log-note')) fitHeight(t);
   if (t.id === 'peopleSearch') {
     S.ui.people.q = t.value;
     updatePeopleList();

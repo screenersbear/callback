@@ -1713,3 +1713,8 @@ details.more > .field + .field { margin-top: 14px; }
 :root[data-theme="dark"] .filter-toggle.is-on,
 :root[data-theme="dark"] .stat-box,
 :root[data-theme="dark"] .next-panel { box-shadow: inset 0 0 0 2px var(--ink); }
+
+/* What you sent or said: wraps to fit, with the idea offered underneath. */
+.field textarea.log-note { resize: none; overflow: hidden; }
+.log-idea { overflow-wrap: anywhere; }
+.log-idea .text-btn { color: var(--text); white-space: nowrap; margin-left: 4px; }
