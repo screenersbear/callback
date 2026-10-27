@@ -10,7 +10,7 @@ import { withDefaults } from './cadence.js';
 import { DEFAULT_RELATIONSHIP, DEFAULT_INTEREST } from './model.js';
 
 const DB_NAME = 'callback';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 // Export format version. Still 1: later database versions only added
 // optional fields and stores, and files without them read fine (see readExport).
 export const SCHEMA_VERSION = 1;
@@ -35,7 +35,7 @@ export function withNewsDefaults(n) {
 }
 
 // Stores that travel in exports, imports and (one day) sync.
-const SYNCED = ['people', 'organizations', 'touchpoints', 'news', 'openLoops', 'weeks', 'settings', 'tombstones'];
+const SYNCED = ['people', 'organizations', 'touchpoints', 'news', 'openLoops', 'ideas', 'weeks', 'settings', 'tombstones'];
 // settings holds one record, id 'settings', so two devices merge into the
 // same record instead of each keeping its own.
 const SETTINGS_ID = 'settings';
@@ -60,6 +60,7 @@ function open() {
       store('touchpoints', 'id', ['personId']);
       store('news', 'id', ['personId']);
       store('openLoops', 'id', ['personId']);
+      store('ideas', 'id');
       store('weeks', 'id', ['weekStart']);
       store('settings', 'id');
       store('tombstones', 'id');
@@ -210,6 +211,17 @@ export const deleteNews = (id) => remove('news', id);
 export const getOpenLoops = () => getAll('openLoops');
 export const saveOpenLoop = (l) => save('openLoops', l);
 export const deleteOpenLoop = (id) => remove('openLoops', id);
+
+// ---- Touchpoint idea library ----
+// Your own suggestions (source 'own') and built-in ones you removed (source
+// 'builtin', id from the text so two devices removing the same one agree).
+export const getIdeas = () => getAll('ideas');
+export const saveIdea = (r) => save('ideas', r);
+export async function saveIdeas(list) {
+  const recs = list.map(stamp);
+  await write(['ideas'], (st) => recs.forEach((r) => st('ideas').put(r)));
+  return recs;
+}
 
 // ---- Weekly reflections (one record per week, keyed by its Monday) ----
 export const getWeeks = () => getAll('weeks');

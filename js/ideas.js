@@ -123,7 +123,33 @@ const BY_INTEREST = {
 
 export const IDEAS = GENERAL;
 
+// Your own suggestions and the ones you removed for good. The app sets this
+// after every load, so each pick, on screen and in the calendar file, uses it.
+let library = { own: [], ownKeys: new Set(), hidden: new Set() };
+
+export function setIdeaLibrary(records) {
+  const own = records.filter((r) => r.source === 'own' && !r.hidden).map((r) => r.text);
+  library = {
+    own,
+    ownKeys: new Set(own.map((t) => t.toLowerCase())),
+    hidden: new Set(records.filter((r) => r.source === 'builtin' && r.hidden).map((r) => r.text.toLowerCase())),
+  };
+}
+
+export const isOwnIdea = (text) => library.ownKeys.has(String(text).toLowerCase());
+
+// Shown only if every suggestion that fits someone has been removed.
+export const FALLBACK_IDEA = 'Reach out with something that gives: a frame, a print or a thank-you.';
+
 export function ideasFor(person) {
+  const base = builtInIdeasFor(person).filter((t) => !library.hidden.has(t.toLowerCase()));
+  // Your own ideas join every pool except lukewarm, which stays give-first.
+  const own = person && person.interest === 'lukewarm' ? [] : library.own;
+  const list = [...base, ...own];
+  return list.length ? list : [FALLBACK_IDEA];
+}
+
+function builtInIdeasFor(person) {
   // A known interest level leads; unknown falls back to relationship and role.
   if (person && BY_INTEREST[person.interest]) return BY_INTEREST[person.interest];
   if (person && person.relationshipType === 'collaborator') return COLLABORATOR;

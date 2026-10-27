@@ -3,13 +3,13 @@
 import * as db from './db.js';
 import {
   todayStr, addDays, daysBetween, fmtDate, fmtLongDate, fmtTimestamp, relDay, span, plural, esc,
-  debounce, weekStartStr, toDateStr, parseDate, normalizeUrl, instagramUrl, saveFile, readFileText, nowISO, uuid,
+  debounce, weekStartStr, toDateStr, parseDate, normalizeUrl, instagramUrl, saveFile, readFileText, nowISO, uuid, hash,
 } from './util.js';
 import {
   WARMTH, WARMTH_INFO, COLD_STEPS, computeNextDate, warmthChangeFields, cadenceLabel, needsParkPrompt,
   needsWarmPrompt, SNOOZE_OPTIONS, snoozeDate, buildToday, coldState, sortTouchpoints, nextYearly, isDreamOnly,
 } from './cadence.js';
-import { pickIdea, yearlyIdea } from './ideas.js';
+import { pickIdea, yearlyIdea, setIdeaLibrary, isOwnIdea } from './ideas.js';
 import { upcomingEvents, buildCalendar } from './ics.js';
 import { canPickContacts, pickContacts, parseVCards, parsePasted } from './contacts.js';
 import {
@@ -31,6 +31,7 @@ const S = {
   tps: [],
   news: [],
   loops: [],
+  ideas: [],
   weeks: [],
   personById: new Map(),
   orgById: new Map(),
@@ -60,9 +61,9 @@ function groupBy(list, key) {
 }
 
 async function load() {
-  const [people, orgs, tps, news, loops, weeks, settings, lastExportAt, installedAt, reminderUntil, lastLogType] =
+  const [people, orgs, tps, news, loops, ideas, weeks, settings, lastExportAt, installedAt, reminderUntil, lastLogType] =
     await Promise.all([
-      db.getPeople(), db.getOrganizations(), db.getTouchpoints(), db.getNews(), db.getOpenLoops(), db.getWeeks(), db.getSettings(),
+      db.getPeople(), db.getOrganizations(), db.getTouchpoints(), db.getNews(), db.getOpenLoops(), db.getIdeas(), db.getWeeks(), db.getSettings(),
       db.getMeta('lastExportAt'), db.getMeta('installedAt'), db.getMeta('exportReminderUntil'), db.getMeta('lastLogType'),
     ]);
   S.people = people.sort((a, b) => a.name.localeCompare(b.name));
@@ -77,6 +78,8 @@ async function load() {
   for (const [k, list] of S.tpsByPerson) S.tpsByPerson.set(k, sortTouchpoints(list));
   S.newsByPerson = groupBy(news, 'personId');
   S.loops = loops;
+  S.ideas = ideas;
+  setIdeaLibrary(ideas);
   S.loopsByPerson = groupBy(loops, 'personId');
   S.meta = { lastExportAt, installedAt, reminderUntil, lastLogType };
 }
@@ -244,7 +247,9 @@ function ideaHTML(p) {
   const turn = S.ui.ideaTurn.get(p.id) || 0;
   const yearly = turn ? null : yearlyIdea(newsOf(p.id), tpsOf(p.id));
   const text = own || yearly || pickIdea(p, todayStr(), turn);
+  const removable = own || !yearly;
   return `<div class="idea${own ? ' is-own' : ''}">
+    ${removable ? `<button type="button" class="idea-remove" data-action="hide-idea" data-id="${id}"${own ? ' data-typed="1"' : ''} aria-label="Remove this suggestion for good">${X_ICON_SMALL}</button>` : ''}
     <span class="idea-label">${own ? 'Your idea' : 'Idea'}</span>
     <p class="idea-text">${esc(text)}</p>
     <div class="idea-tools">
@@ -252,6 +257,49 @@ function ideaHTML(p) {
       <button type="button" class="idea-next" data-action="type-idea" data-id="${id}">${own ? 'Edit your idea' : 'Type idea'}</button>
     </div>
   </div>`;
+}
+
+// Adds an idea to your suggestions, or brings it back if it was removed.
+async function addOwnIdea(text) {
+  const key = text.trim().toLowerCase();
+  const found = S.ideas.find((r) => r.source === 'own' && r.text.trim().toLowerCase() === key);
+  if (found && !found.hidden) return;
+  await db.saveIdea(found ? { ...found, hidden: false } : { source: 'own', text: text.trim(), hidden: false });
+}
+
+// Removes a suggestion for good: your own ones are marked hidden, built-in
+// ones get a hidden record keyed by their text. Bring back undoes both.
+async function removeSuggestion(text) {
+  const key = text.trim().toLowerCase();
+  const own = S.ideas.find((r) => r.source === 'own' && r.text.trim().toLowerCase() === key);
+  if (own) {
+    await db.saveIdea({ ...own, hidden: true });
+    return;
+  }
+  const id = `builtin-${hash(key)}`;
+  const existing = S.ideas.find((r) => r.id === id);
+  await db.saveIdea({ ...(existing || { id, source: 'builtin', text: text.trim() }), hidden: true });
+}
+
+function suggestionSheet() {
+  const s = openSheet({
+    title: 'Add a suggestion',
+    className: 'sheet-small',
+    body: `<form class="form" novalidate>
+      <label class="field"><span class="field-label">An idea Callback can suggest for anyone</span>
+        <textarea name="idea" rows="3" maxlength="280" placeholder="Send a still from your latest short film"></textarea></label>
+      <button type="submit" class="modal-cta primary">Add suggestion</button>
+    </form>`,
+  });
+  s.body.querySelector('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const idea = String(new FormData(e.target).get('idea') || '').trim();
+    if (!idea) return;
+    await addOwnIdea(idea);
+    s.close();
+    await refresh();
+    toast('Suggestion added');
+  });
 }
 
 function ideaSheet(p) {
@@ -264,16 +312,19 @@ function ideaSheet(p) {
       <label class="field"><span class="field-label">What will you reach out with?</span>
         <textarea name="idea" rows="3" maxlength="280" placeholder="Send the prints from Friday's test">${esc(p.customIdea || '')}</textarea>
         <span class="field-hint">It shows in place of the suggestions until you log your next touchpoint with ${esc(firstName(p))}.</span></label>
+      <label class="check"><input type="checkbox" name="keep" checked> Also add it to my suggestions, for anyone</label>
       <button type="submit" class="modal-cta primary">Save idea</button>
     </form>`,
   });
   s.body.querySelector('form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const idea = String(new FormData(e.target).get('idea') || '').trim();
+    const fd = new FormData(e.target);
+    const idea = String(fd.get('idea') || '').trim();
     if (!idea && !had) {
       s.close();
       return;
     }
+    if (idea && fd.get('keep')) await addOwnIdea(idea);
     await db.savePerson({ ...p, customIdea: idea });
     s.close();
     await refresh();
@@ -1524,12 +1575,14 @@ function renderSettings() {
       ${numField('goals.touchpoints', g.touchpoints, 'Touchpoints')}
       ${numField('goals.newPeople', g.newPeople, 'New people')}`, 'navy')}
 
+    ${sectionBlock('set-ideas', 'Touchpoint ideas', null, ideasSettingsHTML(), 'yellow')}
+
     ${sectionBlock('set-look', 'Appearance', null, `
       <div class="seg" role="radiogroup" aria-label="Appearance">
         ${[['system', 'Match device'], ['light', 'Light'], ['dark', 'Dark']]
           .map(([k, label]) => `<label class="seg-option"><input type="radio" name="appearance" value="${k}"${appearance === k ? ' checked' : ''}><span>${label}</span></label>`)
           .join('')}
-      </div>`, 'yellow')}
+      </div>`, 'navy')}
 
     ${sectionBlock('set-data', 'Your data', null, `
       <p>Everything lives on this device, in this browser. Nothing is sent anywhere. Export a backup now and then so it's safe, and to move to another device.</p>
@@ -1538,19 +1591,34 @@ function renderSettings() {
         <button type="button" class="primary small-btn" data-action="export-json">Export backup (JSON)</button>
         <button type="button" class="secondary small-btn" data-action="import-json">Import backup</button>
         <button type="button" class="secondary small-btn" data-action="import-contacts">Add people from your contacts</button>
-      </div>`, 'navy')}
+      </div>`, 'yellow')}
 
     ${sectionBlock('set-cal', 'Calendar', null, `
       <p>Download your next 90 days of touchpoints as a calendar file, one all-day event per person. ${events.length ? `Right now that's ${plural(events.length, 'event')}.` : 'Nothing is scheduled in the next 90 days yet.'}</p>
       <p class="tip"><b>Tip:</b> import it into its own calendar named Callback. When you want fresh dates, delete that calendar, make it again, and import the new file. In Google Calendar on a computer: Settings, Add calendar, Create new calendar, then Import and pick Callback.</p>
-      <button type="button" class="primary small-btn" data-action="export-ics"${events.length ? '' : ' disabled'}>Download calendar file (.ics)</button>`, 'yellow')}
+      <button type="button" class="primary small-btn" data-action="export-ics"${events.length ? '' : ' disabled'}>Download calendar file (.ics)</button>`, 'navy')}
 
-    ${sectionBlock('set-install', 'Install', null, installHTML(), 'navy')}
+    ${sectionBlock('set-install', 'Install', null, installHTML(), 'yellow')}
 
     ${sectionBlock('set-about', 'About', null, `
       <p>Callback is part of a set of free photography apps for Patreon members, alongside Documenting Fictions and Ref.</p>
       <p class="set-fact">Version ${APP_VERSION}</p>
-      <button type="button" class="btn danger" data-action="erase-all">Erase everything on this device</button>`, 'yellow')}`;
+      <button type="button" class="btn danger" data-action="erase-all">Erase everything on this device</button>`, 'navy')}`;
+}
+
+function ideasSettingsHTML() {
+  const own = S.ideas.filter((r) => r.source === 'own' && !r.hidden).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const removed = S.ideas.filter((r) => r.hidden).length;
+  return `
+    <p class="hint">Callback mixes your own ideas in with its suggestions for everyone, except lukewarm contacts, who only get give-first ideas. Remove any suggestion with the x on it.</p>
+    <p class="set-group-title">Your suggestions (${own.length})</p>
+    ${own.length
+      ? `<ul class="own-ideas">${own.map((r) => `<li><span>${esc(r.text)}</span><button type="button" class="pd-remove" data-action="remove-own-idea" data-id="${esc(r.id)}" aria-label="Remove this suggestion for good">${X_ICON_SMALL}</button></li>`).join('')}</ul>`
+      : '<p class="hint">None yet. Ideas you type for someone can join them, or add one here.</p>'}
+    <div class="button-stack">
+      <button type="button" class="primary small-btn" data-action="add-suggestion">+ Add a suggestion</button>
+      <button type="button" class="secondary small-btn" data-action="restore-ideas"${removed ? '' : ' disabled'}>Bring back removed suggestions${removed ? ` (${removed})` : ''}</button>
+    </div>`;
 }
 
 function calendarEvents() {
@@ -2824,6 +2892,51 @@ const ACTIONS = {
     el.closest('.idea').querySelector('.idea-text').textContent = pickIdea(p, todayStr(), S.ui.ideaTurn.get(p.id));
   },
   'type-idea': (el) => ideaSheet(person(el)),
+  'hide-idea': async (el) => {
+    const p = person(el);
+    const text = el.closest('.idea').querySelector('.idea-text').textContent;
+    const typed = el.dataset.typed === '1';
+    const ok = await confirmSheet({
+      title: 'Remove this suggestion for good?',
+      message: `\u201c${esc(text)}\u201d won't be suggested again. You can bring removed suggestions back in Settings.`,
+      confirmLabel: 'Remove',
+      danger: true,
+    });
+    if (!ok) return;
+    // A typed idea only joins the library if it was saved there.
+    if (!typed || isOwnIdea(text)) await removeSuggestion(text);
+    if (typed) await db.savePerson({ ...p, customIdea: '' });
+    await refresh();
+    toast('Suggestion removed');
+  },
+  'remove-own-idea': async (el) => {
+    const r = S.ideas.find((x) => x.id === el.dataset.id);
+    if (!r) return;
+    const ok = await confirmSheet({
+      title: 'Remove this suggestion for good?',
+      message: `\u201c${esc(r.text)}\u201d won't be suggested again. You can bring it back below.`,
+      confirmLabel: 'Remove',
+      danger: true,
+    });
+    if (!ok) return;
+    await db.saveIdea({ ...r, hidden: true });
+    await refresh();
+    toast('Suggestion removed');
+  },
+  'add-suggestion': () => suggestionSheet(),
+  'restore-ideas': async () => {
+    const hidden = S.ideas.filter((r) => r.hidden);
+    if (!hidden.length) return;
+    const ok = await confirmSheet({
+      title: 'Bring back removed suggestions?',
+      message: `${plural(hidden.length, 'suggestion')} you removed will show up again.`,
+      confirmLabel: 'Bring them back',
+    });
+    if (!ok) return;
+    await db.saveIdeas(hidden.map((r) => ({ ...r, hidden: false })));
+    await refresh();
+    toast(`${plural(hidden.length, 'suggestion')} back`);
+  },
   'edit-birthday': (el) => birthdaySheet(person(el)),
   'add-detail': (el) => detailSheet(person(el)),
   'remove-detail': async (el) => {
