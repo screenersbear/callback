@@ -2,6 +2,7 @@
 
 export const TOUCH_TYPES = [
   { key: 'email', label: 'Email' },
+  { key: 'text', label: 'Text message' },
   { key: 'dm', label: 'DM' },
   { key: 'call', label: 'Call' },
   { key: 'meeting', label: 'Meeting' },
