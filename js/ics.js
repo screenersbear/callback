@@ -2,7 +2,7 @@
 // reuse it unchanged if Callback ever gets a server: give it the data, get
 // back calendar text.
 import { addDays, todayStr } from './util.js';
-import { lastTouchpoint, WARMTH_INFO, nextYearly, isDreamOnly } from './cadence.js';
+import { lastTouchpoint, WARMTH_INFO, nextYearly, isDreamOnly, firstContactStage } from './cadence.js';
 import { pickIdea } from './ideas.js';
 import { touchTypeLabel } from './model.js';
 
@@ -44,7 +44,8 @@ export function upcomingEvents(
     } else {
       lines.push('No touchpoints yet.');
     }
-    lines.push(`Idea: ${(p.customIdea || '').trim() || pickIdea(p, date)}`);
+    const firstContact = firstContactStage(p, touchpointsByPerson.get(p.id) || []);
+    lines.push(`Idea: ${(p.customIdea || '').trim() || pickIdea(p, date, 0, { firstContact })}`);
     if (appUrl) lines.push(`${appUrl}#/person/${p.id}`);
     events.push({
       uid: `${p.id}-${compact(scheduled)}@${UID_HOST}`,

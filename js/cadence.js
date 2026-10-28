@@ -193,17 +193,35 @@ export function isDreamOnly(person, tps) {
   return !!person.dreamList && !tps.length;
 }
 
+// How someone was added sets their first touchpoint: just met (a quick
+// follow-up, within JUST_MET_DAYS), reach out now, or a picked date. Someday
+// is the dream list instead. Only counts until the first touchpoint, and
+// people added before this existed have none.
+export const JUST_MET_DAYS = 2;
+const FIRST_STAGES = ['justMet', 'reachOutNow', 'pickDate'];
+export function firstContactStage(person, tps) {
+  return !tps.length && FIRST_STAGES.includes(person.firstContact) ? person.firstContact : null;
+}
+
 // Everything the Today screen lists, already sorted.
 // news: their-news items from the last week that nobody has acted on yet
 // (no touchpoint for that person since the news date, not dismissed).
 export function buildToday({ people, touchpointsByPerson, news, loops = [] }, today = todayStr()) {
+  const justMet = [];
   const overdue = [];
   const due = [];
   const resurfaced = [];
   for (const p of people) {
+    const tps = touchpointsByPerson.get(p.id) || [];
+    // Someone you just met has their own section until the first touchpoint,
+    // however close the follow-up deadline is.
+    if (firstContactStage(p, tps) === 'justMet' && p.warmth !== 'parked') {
+      justMet.push(p);
+      continue;
+    }
     // Dream list people are aspirations, not follow-ups, until the first
     // touchpoint starts their rhythm.
-    if (isDreamOnly(p, touchpointsByPerson.get(p.id) || [])) continue;
+    if (isDreamOnly(p, tps)) continue;
     const next = p.nextTouchpointDate || today;
     if (p.warmth === 'parked') {
       if (next <= today) resurfaced.push(p);
@@ -214,6 +232,7 @@ export function buildToday({ people, touchpointsByPerson, news, loops = [] }, to
   overdue.sort(byNext);
   resurfaced.sort(byNext);
   due.sort((a, b) => a.name.localeCompare(b.name));
+  justMet.sort((a, b) => (a.firstContactDeadline || today).localeCompare(b.firstContactDeadline || today) || a.name.localeCompare(b.name));
 
   const ids = new Set(people.map((p) => p.id));
   const newsToday = [];
@@ -235,7 +254,7 @@ export function buildToday({ people, touchpointsByPerson, news, loops = [] }, to
   // Someone due today whose news is today too (often because their next
   // touchpoint was set to that news date) gets one card, not two: the news
   // rides along on their due card.
-  const dueIds = new Set([...overdue, ...due].map((p) => p.id));
+  const dueIds = new Set([...justMet, ...overdue, ...due].map((p) => p.id));
   const dueNews = new Map();
   for (const n of newsToday) if (dueIds.has(n.personId) && !dueNews.has(n.personId)) dueNews.set(n.personId, n);
 
@@ -246,5 +265,5 @@ export function buildToday({ people, touchpointsByPerson, news, loops = [] }, to
     .filter((l) => (l.direction === 'theyOwe' ? l.dueDate < today : l.dueDate <= today))
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || (a.direction === 'iOwe' ? -1 : 1));
 
-  return { overdue, due, news: newsToday.filter((n) => !dueIds.has(n.personId)), dueNews, comingUp, resurfaced, loops: loopsToday };
+  return { justMet, overdue, due, news: newsToday.filter((n) => !dueIds.has(n.personId)), dueNews, comingUp, resurfaced, loops: loopsToday };
 }

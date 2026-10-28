@@ -28,6 +28,9 @@ export function withPersonDefaults(p) {
   if (!Array.isArray(p.canIntroduceToIds)) fill.canIntroduceToIds = [];
   if (!p.interest) fill.interest = DEFAULT_INTEREST;
   if (!Array.isArray(p.circleIds)) fill.circleIds = [];
+  // Left empty for people added before first contact timing: they behave as before.
+  if (p.firstContact === undefined) fill.firstContact = null;
+  if (p.firstContactDeadline === undefined) fill.firstContactDeadline = null;
   return Object.keys(fill).length ? { ...p, ...fill } : p;
 }
 

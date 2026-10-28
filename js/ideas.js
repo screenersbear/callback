@@ -123,6 +123,16 @@ const BY_INTEREST = {
 
 export const IDEAS = GENERAL;
 
+// Before the first touchpoint, ideas fit how you came across them.
+const FIRST_CONTACT = {
+  justMet: ["Send a quick note while it's fresh.", 'Share the frame or idea you talked about.'],
+  reachOutNow: [
+    'Introduce yourself and share one piece of work that fits what they do.',
+    'Reference something specific about their work or roster.',
+  ],
+};
+FIRST_CONTACT.pickDate = FIRST_CONTACT.reachOutNow;
+
 // Your own suggestions and the ones you removed for good. The app sets this
 // after every load, so each pick, on screen and in the calendar file, uses it.
 let library = { own: [], ownKeys: new Set(), hidden: new Set() };
@@ -141,7 +151,9 @@ export const isOwnIdea = (text) => library.ownKeys.has(String(text).toLowerCase(
 // Shown only if every suggestion that fits someone has been removed.
 export const FALLBACK_IDEA = 'Reach out with something that gives: a frame, a print or a thank-you.';
 
-export function ideasFor(person) {
+export function ideasFor(person, { firstContact = null } = {}) {
+  const first = (FIRST_CONTACT[firstContact] || []).filter((t) => !library.hidden.has(t.toLowerCase()));
+  if (first.length) return first;
   const base = builtInIdeasFor(person).filter((t) => !library.hidden.has(t.toLowerCase()));
   // Your own ideas join every pool except lukewarm, which stays give-first.
   const own = person && person.interest === 'lukewarm' ? [] : library.own;
@@ -160,8 +172,9 @@ function builtInIdeasFor(person) {
 }
 
 // Same idea all day for the same person; `turn` steps to the next one.
-export function pickIdea(person, dateStr, turn = 0) {
-  const list = ideasFor(person);
+// `firstContact` is the person's first contact stage, if any.
+export function pickIdea(person, dateStr, turn = 0, { firstContact = null } = {}) {
+  const list = ideasFor(person, { firstContact });
   return list[(hash(`${person.id}|${dateStr}`) + turn) % list.length];
 }
 

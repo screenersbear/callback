@@ -64,6 +64,15 @@ export const NEWS_SUGGESTIONS = [
   'Birthday',
 ];
 
+// "When should you first reach out?" when adding someone.
+export const FIRST_CONTACT_OPTIONS = [
+  { key: 'justMet', label: 'Just met', blurb: "Follow up while it's fresh." },
+  { key: 'reachOutNow', label: 'Reach out now', blurb: "You found them and you're ready." },
+  { key: 'pickDate', label: 'Pick a date', blurb: 'Choose the day of the first touchpoint.' },
+  { key: 'someday', label: 'Someday', blurb: 'Not yet, but you want to remember them.' },
+];
+export const DEFAULT_FIRST_CONTACT = 'reachOutNow';
+
 // Offered when starting a circle, to get going.
 export const CIRCLE_SUGGESTIONS = ['Actors', 'Models', 'Stylists', 'Hair and makeup', 'Directors'];
 

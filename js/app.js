@@ -8,6 +8,7 @@ import {
 import {
   WARMTH, WARMTH_INFO, COLD_STEPS, computeNextDate, warmthChangeFields, cadenceLabel, needsParkPrompt,
   needsWarmPrompt, SNOOZE_OPTIONS, snoozeDate, buildToday, coldState, sortTouchpoints, nextYearly, isDreamOnly,
+  firstContactStage, JUST_MET_DAYS,
 } from './cadence.js';
 import { pickIdea, yearlyIdea, setIdeaLibrary, isOwnIdea } from './ideas.js';
 import { upcomingEvents, buildCalendar } from './ics.js';
@@ -15,7 +16,7 @@ import { canPickContacts, pickContacts, parseVCards, parsePasted } from './conta
 import {
   TOUCH_TYPES, touchTypeLabel, RESPONDED, respondedLabel, ROLE_SUGGESTIONS, ORG_TYPES, orgTypeLabel,
   NEWS_SUGGESTIONS, RELATIONSHIP_TYPES, DEFAULT_RELATIONSHIP, relationshipInfo, LOOP_DIRECTIONS,
-  INTEREST_LEVELS, interestInfo, CIRCLE_SUGGESTIONS,
+  INTEREST_LEVELS, interestInfo, CIRCLE_SUGGESTIONS, FIRST_CONTACT_OPTIONS, DEFAULT_FIRST_CONTACT,
 } from './model.js';
 import { openSheet, confirmSheet, choiceSheet, toast, closeAllSheets } from './ui.js';
 
@@ -200,6 +201,20 @@ function dreamBadge() {
 }
 
 const dreamOnly = (p) => isDreamOnly(p, tpsOf(p.id));
+const firstStage = (p) => firstContactStage(p, tpsOf(p.id));
+
+// "today", "tomorrow" or the weekday: the just-met deadline is never far off.
+function byDay(d, today = todayStr()) {
+  const n = daysBetween(today, d);
+  if (n <= 1) return relDay(d, today);
+  return n < 7 ? parseDate(d).toLocaleDateString(undefined, { weekday: 'long' }) : fmtDate(d, { weekday: false });
+}
+
+// Someone you just met: "Follow up by Friday", or late once that's passed.
+function followUpText(p, today = todayStr()) {
+  const by = p.firstContactDeadline || today;
+  return by < today ? 'Follow-up is late' : `Follow up by ${byDay(by, today)}`;
+}
 // Circles: a dashed ring drawn around a few people. (Overlapping rings are
 // already Collaborator.)
 const CIRCLE_ICON = '<svg class="circle-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.4 1.6"/><circle cx="8" cy="5.6" r="1.5" fill="currentColor"/><circle cx="5.6" cy="9.7" r="1.5" fill="currentColor"/><circle cx="10.4" cy="9.7" r="1.5" fill="currentColor"/></svg>';
@@ -270,8 +285,9 @@ function promptBox(text, buttons) {
 function shownIdea(p) {
   const own = (p.customIdea || '').trim();
   const turn = S.ui.ideaTurn.get(p.id) || 0;
-  const yearly = own || turn ? null : yearlyIdea(newsOf(p.id), tpsOf(p.id));
-  return { own, yearly, text: own || yearly || pickIdea(p, todayStr(), turn) };
+  const firstContact = firstStage(p);
+  const yearly = own || turn || firstContact ? null : yearlyIdea(newsOf(p.id), tpsOf(p.id));
+  return { own, yearly, text: own || yearly || pickIdea(p, todayStr(), turn, { firstContact }) };
 }
 
 // The rotating suggestion, or the idea the person typed themselves.
@@ -398,7 +414,7 @@ function renderToday() {
   const week = weekStats(weekStartStr(today));
   const g = S.settings.goals;
   html += `<div class="stats-row">
-    ${statBox(t.overdue.length + t.due.length, 'To reach out', null, 'reach')}
+    ${statBox(t.justMet.length + t.overdue.length + t.due.length, 'To reach out', null, 'reach')}
     ${statBox(`${week.tps.length}<small>/${g.touchpoints}</small>`, 'Touchpoints this week', null, 'touchpoints')}
     ${statBox(`${week.added.length}<small>/${g.newPeople}</small>`, 'New people this week', null, 'added')}
   </div>`;
@@ -406,6 +422,7 @@ function renderToday() {
 
   const sections = [];
   const card = (kind) => (p) => personCard(p, kind, t.dueNews.get(p.id));
+  if (t.justMet.length) sections.push(['justmet', 'Just met', t.justMet.length, t.justMet.map(card('justMet')).join('')]);
   if (t.overdue.length) sections.push(['overdue', 'Overdue', t.overdue.length, t.overdue.map(card('overdue')).join('')]);
   if (t.due.length) sections.push(['due', 'Due today', t.due.length, t.due.map(card('due')).join('')]);
   if (t.loops.length) sections.push(['loops', 'Open loops', t.loops.length, t.loops.map(loopCard).join('')]);
@@ -476,6 +493,7 @@ function personCard(p, kind, news = null) {
   const tps = tpsOf(p.id);
   const last = tps[0];
   const facts = [];
+  if (kind === 'justMet') facts.push(`<b>${esc(followUpText(p, today))}</b>`);
   if (kind === 'overdue') facts.push(`<b>Due ${esc(relDay(p.nextTouchpointDate, today))}</b>`);
   if (kind === 'due') facts.push('<b>Due today</b>');
   if (kind === 'resurfaced') facts.push(`<b>Parked ${p.parkedOn ? esc(relDay(p.parkedOn, today)) : 'a while ago'}</b>`);
@@ -500,9 +518,12 @@ function personCard(p, kind, news = null) {
     prompt = promptBox(`${name} replied. Move them to Warm?`, `<button type="button" class="btn primary" data-action="make-warm" data-id="${id}">Move to Warm</button>`);
   }
 
+  const logBtn = `<button type="button" class="btn primary" data-action="log" data-id="${id}"${news ? ` data-news="${esc(news.id)}"` : ''}>Log touchpoint</button>`;
+  const openBtn = `<button type="button" class="btn secondary" data-action="open-person" data-id="${id}">Open</button>`;
+  // Just met waits for the first touchpoint, not a date, so no snooze.
   const actions =
-    kind === 'resurfaced'
-      ? `<button type="button" class="btn secondary" data-action="open-person" data-id="${id}">Open</button>`
+    kind === 'resurfaced' ? openBtn
+      : kind === 'justMet' ? logBtn + openBtn
       : `<button type="button" class="btn primary" data-action="log" data-id="${id}"${news ? ` data-news="${esc(news.id)}"` : ''}>Log touchpoint</button>
          <button type="button" class="btn secondary" data-action="snooze" data-id="${id}">Snooze</button>
          <button type="button" class="btn secondary" data-action="open-person" data-id="${id}">Open</button>`;
@@ -512,8 +533,10 @@ function personCard(p, kind, news = null) {
   const idea = news && !news.repeatsYearly
     ? '<div class="idea"><span class="idea-label">Idea</span><p class="idea-text">Congratulate them, or send something that fits the moment.</p></div>'
     : ideaHTML(p);
-  return `<article class="item-card${kind === 'overdue' ? ' is-overdue' : ''}">
+  const stage = kind === 'justMet' ? null : firstStage(p);
+  return `<article class="item-card${kind === 'overdue' || (kind === 'justMet' && (p.firstContactDeadline || today) < today) ? ' is-overdue' : ''}">
     ${itemHead(p)}
+    ${stage ? '<p class="first-line"><span class="first-tag">First contact</span></p>' : ''}
     <p class="item-facts">${facts.join(' <span class="dot">·</span> ')}</p>
     ${newsLine}
     ${last && last.note ? `<p class="item-last"><span class="item-last-label">Last:</span> ${esc(last.note)}</p>` : ''}
@@ -609,7 +632,8 @@ function personRow(p) {
   const next = p.nextTouchpointDate || today;
   const sub = subLine(p);
   let nextText;
-  if (dreamOnly(p)) nextText = 'Not reached out yet';
+  if (firstStage(p) === 'justMet') nextText = `<b>${esc(followUpText(p, today))}</b>`;
+  else if (dreamOnly(p)) nextText = 'Not reached out yet';
   else if (p.warmth === 'parked') nextText = `Back ${esc(fmtDate(next, { weekday: false }))}`;
   else if (next < today) nextText = `<b>${esc(nextRelText(next, today))}</b>`;
   else if (next === today) nextText = '<b>Due today</b>';
@@ -796,7 +820,9 @@ function renderPerson(id) {
     prompt = promptBox(`${name} replied. Move them to Warm?`, `<button type="button" class="btn primary" data-action="make-warm" data-id="${pid}">Move to Warm</button>`);
   }
 
-  const overdue = p.warmth !== 'parked' && next < today;
+  const stage = p.warmth === 'parked' ? null : firstStage(p);
+  const deadline = p.firstContactDeadline || today;
+  const overdue = p.warmth !== 'parked' && (stage === 'justMet' ? deadline < today : next < today);
   const sub = subLine(p, { link: true });
   const left = `
     <header class="person-head">
@@ -818,8 +844,12 @@ function renderPerson(id) {
       <p class="next-label">On your dream list</p>
       <p class="next-date">No rhythm yet</p>
       <p class="next-rel">Log a first touchpoint when you reach out, and Callback starts one.</p>
+    </section>` : stage === 'justMet' ? `<section class="next-panel${overdue ? ' is-overdue' : ''}">
+      <p class="next-label">Just met. Follow up by</p>
+      <p class="next-date">${esc(fmtDate(deadline))}</p>
+      <p class="next-rel">${overdue ? 'Follow-up is late' : esc(cap(relDay(deadline, today)))} <span class="dot">·</span> A quick note while it's fresh</p>
     </section>` : `<section class="next-panel${overdue ? ' is-overdue' : ''}">
-      <p class="next-label">${p.warmth === 'parked' ? 'Comes back' : 'Next touchpoint'}</p>
+      <p class="next-label">${p.warmth === 'parked' ? 'Comes back' : stage ? 'First touchpoint' : 'Next touchpoint'}</p>
       <p class="next-date">${esc(fmtDate(next))}</p>
       <p class="next-rel">${esc(nextRelText(next, today))} <span class="dot">·</span> ${esc(cadenceLabel(p, tps, S.settings))}</p>
       <div class="next-actions">
@@ -1470,7 +1500,11 @@ function renderOrg(id) {
 // are where people work; circles cut across them, and someone can be in
 // several.
 
-const isOverdue = (p, today = todayStr()) => p.warmth !== 'parked' && !dreamOnly(p) && (p.nextTouchpointDate || today) < today;
+function isOverdue(p, today = todayStr()) {
+  if (p.warmth === 'parked') return false;
+  if (firstStage(p) === 'justMet') return (p.firstContactDeadline || today) < today;
+  return !dreamOnly(p) && (p.nextTouchpointDate || today) < today;
+}
 
 function renderCircles() {
   const today = todayStr();
@@ -1736,8 +1770,8 @@ function statSheet(kind) {
   if (kind === 'reach') {
     const t = buildToday({ people: S.people, touchpointsByPerson: S.tpsByPerson, news: S.news, loops: S.loops }, today);
     title = 'To reach out';
-    body = t.overdue.length + t.due.length
-      ? group('Overdue', t.overdue) + group('Due today', t.due)
+    body = t.justMet.length + t.overdue.length + t.due.length
+      ? group('Just met', t.justMet) + group('Overdue', t.overdue) + group('Due today', t.due)
       : "<p class=\"hint\">Nobody to reach out to today. You're all caught up.</p>";
   } else if (kind === 'touchpoints') {
     title = 'Touchpoints this week';
@@ -2122,6 +2156,8 @@ function wirePasteBox(form) {
 function personForm(p, preset = {}) {
   const isNew = !p;
   const v = p || { warmth: 'cold', nextTouchpointDate: todayStr(), ...preset };
+  // Adding from the dream list starts on Someday.
+  const firstDefault = preset.dreamList ? 'someday' : DEFAULT_FIRST_CONTACT;
   const org = orgOf(v);
   const c = S.settings.cadence;
   const field = (name, label, value, attrs = '') =>
@@ -2157,9 +2193,17 @@ function personForm(p, preset = {}) {
           <input type="radio" name="warmth" value="${w}"${v.warmth === w ? ' checked' : ''}>
           <span class="warmth-option-body">${warmthBadge(w)}<span class="warmth-option-blurb">${esc(WARMTH_INFO[w].blurb)}</span></span>
         </label>`).join('')}</div></fieldset>
-      <label class="field"><span class="field-label">Next touchpoint</span>
-        <input type="date" name="next" value="${esc(v.nextTouchpointDate || todayStr())}">
-        <span class="field-hint">${isNew ? 'Today puts them on your Today list right away.' : 'Logging a touchpoint sets this for you.'}</span></label>
+      ${isNew ? `<fieldset class="field"><legend class="field-label">When should you first reach out?</legend>
+        <div class="warmth-options first-options">${FIRST_CONTACT_OPTIONS.map((o) => `<label class="warmth-option">
+          <input type="radio" name="firstContact" value="${o.key}"${firstDefault === o.key ? ' checked' : ''}>
+          <span class="warmth-option-body"><span class="option-name">${esc(o.label)}</span><span class="warmth-option-blurb">${esc(o.blurb)}</span></span>
+        </label>`).join('')}</div>
+        <label class="field first-date"${firstDefault === 'pickDate' ? '' : ' hidden'}><span class="field-label">Date of the first touchpoint</span>
+          <input type="date" name="firstDate" min="${todayStr()}"></label>
+        <p class="field-error" data-error="firstDate" hidden>Pick a date for the first touchpoint.</p>
+      </fieldset>` : `<label class="field"><span class="field-label">Next touchpoint</span>
+        <input type="date" name="next" value="${esc(v.nextTouchpointDate || '')}">
+        <span class="field-hint">Logging a touchpoint sets this for you.</span></label>`}
       <fieldset class="field connections-field"><legend class="field-label">Dream list and introductions</legend>
         <label class="check"><input type="checkbox" name="dreamList"${v.dreamList ? ' checked' : ''}> ${DREAM_STAR} On my dream list</label>
         <span class="field-hint">Someone you'd love to work with someday. No reminders until you first reach out, and a name is enough.</span>
@@ -2207,7 +2251,23 @@ function personForm(p, preset = {}) {
   if (isNew) {
     let warmthTouched = false;
     let autoClient = false;
+    let autoDream = false;
     form.addEventListener('change', (e) => {
+      if (e.target.name === 'firstContact') {
+        const v2 = e.target.value;
+        form.querySelector('.first-date').hidden = v2 !== 'pickDate';
+        form.querySelector('[data-error="firstDate"]').hidden = true;
+        const dream = form.querySelector('[name="dreamList"]');
+        if (v2 === 'someday' && !dream.checked) {
+          dream.checked = true;
+          autoDream = true;
+        } else if (v2 !== 'someday' && autoDream) {
+          dream.checked = false;
+          autoDream = false;
+        }
+        return;
+      }
+      if (e.target.name === 'dreamList') autoDream = false;
       if (e.target.name === 'warmth') {
         warmthTouched = true;
         autoClient = false;
@@ -2289,7 +2349,25 @@ function personForm(p, preset = {}) {
 
     let rec;
     if (isNew) {
-      rec = { ...fields, ...warmthChangeFields({}, warmth, now, today), pastOrganizations: [], nextTouchpointDate: nextInput || today };
+      // When to first reach out decides the first date: today for just met
+      // (with a two-day deadline) and reach out now, the picked day, or none
+      // for someday, which joins the dream list.
+      const firstContact = get('firstContact') || DEFAULT_FIRST_CONTACT;
+      const firstDate = /^\d{4}-\d{2}-\d{2}$/.test(get('firstDate')) ? get('firstDate') : '';
+      if (firstContact === 'pickDate' && !firstDate) {
+        form.querySelector('[data-error="firstDate"]').hidden = false;
+        form.querySelector('[name="firstDate"]').focus();
+        return;
+      }
+      rec = {
+        ...fields,
+        ...warmthChangeFields({}, warmth, now, today),
+        pastOrganizations: [],
+        firstContact,
+        firstContactDeadline: firstContact === 'justMet' ? addDays(today, JUST_MET_DAYS) : null,
+        nextTouchpointDate: firstContact === 'someday' ? null : firstContact === 'pickDate' ? firstDate : today,
+      };
+      if (firstContact === 'someday') rec.dreamList = true;
       if (warmth === 'parked') rec.nextTouchpointDate = computeNextDate(rec, [], S.settings, today);
     } else {
       rec = { ...p, ...fields };
@@ -2309,7 +2387,9 @@ function personForm(p, preset = {}) {
     if (isNew) {
       location.hash = `#/person/${saved.id}`;
       await refresh();
-      toast(`${name} added. Next touchpoint ${relDay(saved.nextTouchpointDate)}.`);
+      if (saved.firstContact === 'justMet') toast(`${name} added. ${followUpText(saved)}.`);
+      else if (!saved.nextTouchpointDate) toast(`${name} added to your dream list.`);
+      else toast(`${name} added. First touchpoint ${relDay(saved.nextTouchpointDate)}.`);
     } else {
       await refresh();
       toast(rec.nextTouchpointDate !== p.nextTouchpointDate ? `Saved. Next touchpoint ${fmtDate(rec.nextTouchpointDate)}.` : 'Saved');
@@ -2524,6 +2604,8 @@ function showLogged(s, p, tps, { clearedIdea = false, loop = null } = {}) {
     prompt = promptBox(`${name} is still parked. Bring them back as ${WARMTH_INFO[back].label}?`, `<button type="button" class="btn primary" data-sheet-act="unpark">Bring back</button>`);
   } else if (needsWarmPrompt(p, tps)) {
     prompt = promptBox(`${name} replied. Move them to Warm?`, `<button type="button" class="btn primary" data-sheet-act="make-warm">Move to Warm</button>`);
+  } else if (p.firstContact === 'justMet' && p.warmth === 'cold' && tps.length === 1) {
+    prompt = promptBox(`You met ${name} in person, so they may be warmer than Cold. Move them to Warm?`, `<button type="button" class="btn primary" data-sheet-act="make-warm">Move to Warm</button>`);
   } else if (needsParkPrompt(p, tps) && tps.length && tps[0].responded === 'no') {
     prompt = promptBox(`No reply to any of the ${COLD_STEPS} notes. Park ${name} now?`, `<button type="button" class="btn primary" data-sheet-act="park">Park ${name}</button>`);
   }
@@ -3251,7 +3333,7 @@ const ACTIONS = {
       return;
     }
     S.ui.ideaTurn.set(p.id, (S.ui.ideaTurn.get(p.id) || 0) + 1);
-    el.closest('.idea').querySelector('.idea-text').textContent = pickIdea(p, todayStr(), S.ui.ideaTurn.get(p.id));
+    el.closest('.idea').querySelector('.idea-text').textContent = shownIdea(p).text;
   },
   'type-idea': (el) => ideaSheet(person(el)),
   'hide-idea': async (el) => {
