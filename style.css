@@ -732,7 +732,9 @@ button.pick-typed { border-bottom: 3px solid var(--ink); }
   padding: 6px;
 }
 .pd-remove svg { width: 100%; height: 100%; display: block; }
-.bday-grid { display: grid; grid-template-columns: 1.4fr 0.8fr 1fr; gap: 10px; }
+/* Room for September; the day and year only hold "31" and "1990". Boxes line
+   up along the bottom even if a label wraps. */
+.bday-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.75fr) minmax(0, 0.85fr); gap: 10px; align-items: end; }
 .yearly-tag {
   display: inline-block;
   border: 1px solid var(--ink);

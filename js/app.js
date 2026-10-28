@@ -1172,11 +1172,11 @@ function birthdaySheet(p) {
           <select name="month">${MONTHS.map((m, i) => `<option value="${i + 1}"${b.month === i + 1 ? ' selected' : ''}>${esc(m)}</option>`).join('')}</select></label>
         <label class="field"><span class="field-label">Day</span>
           <select name="day">${Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}"${b.day === i + 1 ? ' selected' : ''}>${i + 1}</option>`).join('')}</select></label>
-        <label class="field"><span class="field-label">Year (optional)</span>
-          <input name="year" type="number" inputmode="numeric" min="1900" max="2100" value="${esc(b.year || '')}" placeholder="Year"></label>
+        <label class="field"><span class="field-label">Year</span>
+          <input name="year" type="number" inputmode="numeric" min="1900" max="2100" value="${esc(b.year || '')}" aria-label="Year (optional)"></label>
       </div>
       <p class="field-error" data-error="day" hidden>That month doesn't have that many days.</p>
-      <p class="field-hint">It comes back every year: on Today a week early under Coming up, and again on the day.</p>
+      <p class="field-hint">The year is optional. A birthday comes back every year: on Today a week early under Coming up, and again on the day.</p>
       ${p.birthday ? '<button type="button" class="btn danger wide" data-delete>Remove birthday</button>' : ''}
       <button type="submit" class="modal-cta primary">Save birthday</button>
     </form>`,
