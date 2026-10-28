@@ -151,7 +151,7 @@ function relLabel(t) {
 
 const NEWS_ICON = '<svg class="warmth-icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="13" height="11.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M1.5 6.8h13M5 1v3.5M11 1v3.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
 
-// Open loops: an arrow out for what you owe, an hourglass for what you're
+// Open loops: an arrow out for your side, an hourglass for what you're
 // waiting on, and a circling arrow for the count on People.
 const LOOP_SVG = {
   iOwe: '<path d="M1.5 8h9M7.5 4.5L11 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M14 2.5v11" fill="none" stroke="currentColor" stroke-width="2"/>',
@@ -522,19 +522,30 @@ function newsCard(n, { coming = false } = {}) {
   </article>`;
 }
 
-// A loop on Today. What you owe reads as a promise to keep; what they owe
-// reads as a gentle follow-up.
+// "Beach dates" reads as "beach dates" mid-sentence, unless it starts with
+// someone's name.
+function midSentence(text) {
+  const t = text.trim().replace(/[.!\s]+$/, '');
+  const m = t.match(/^([A-Z])([a-z]+)(?:'s)?\b/);
+  if (!m) return t;
+  const word = (m[1] + m[2]).toLowerCase();
+  if (S.people.some((p) => firstName(p).toLowerCase() === word)) return t;
+  return t[0].toLowerCase() + t.slice(1);
+}
+
+// A loop on Today. One on your side reads as a promise to keep; one on their
+// side reads as a gentle follow-up.
 function loopCard(l) {
   const p = S.personById.get(l.personId);
   const today = todayStr();
   const pid = esc(p.id);
   const lid = esc(l.id);
   const n = daysBetween(l.dueDate, today);
-  const who = `<a href="#/person/${pid}">${esc(p.name)}</a>`;
+  const who = `<a href="#/person/${pid}">${esc(firstName(p))}</a>`;
   if (l.direction === 'theyOwe') {
     return `<article class="item-card loop-card is-theyowe">
-      <p class="loop-kicker">${loopIcon('theyOwe')}<span>Still waiting on ${who}</span></p>
-      <p class="loop-desc">${esc(l.description)}</p>
+      <p class="loop-kicker">${loopIcon('theyOwe')}<span>On their side</span></p>
+      <p class="loop-desc">Still waiting on ${esc(midSentence(l.description))} from ${who}.</p>
       <p class="item-facts"><b>Expected ${esc(fmtDate(l.dueDate))}</b> <span class="dot">·</span> ${esc(relDay(l.dueDate, today))}. A gentle nudge?</p>
       <div class="item-actions">
         <button type="button" class="btn primary" data-action="loop-follow-up" data-id="${lid}">Log follow-up</button>
@@ -544,8 +555,8 @@ function loopCard(l) {
     </article>`;
   }
   return `<article class="item-card loop-card is-iowe${n > 0 ? ' is-overdue' : ''}">
-    <p class="loop-kicker">${loopIcon('iOwe')}<span>You promised ${who}</span></p>
-    <p class="loop-desc">${esc(l.description)}</p>
+    <p class="loop-kicker">${loopIcon('iOwe')}<span>On your side</span></p>
+    <p class="loop-desc">You promised ${who}: ${esc(l.description)}</p>
     <p class="item-facts"><b>${n === 0 ? 'Due today' : `Due ${esc(relDay(l.dueDate, today))}`}</b></p>
     <div class="item-actions">
       <button type="button" class="btn primary" data-action="close-loop" data-id="${lid}">Done</button>
@@ -1235,7 +1246,7 @@ function loopRow(l, today) {
   </li>`;
 }
 
-// Open loops on the person page: what you owe and what they owe, with the
+// Open loops on the person page: on your side and on their side, with the
 // closed ones folded away under Done.
 function loopsHTML(p) {
   const today = todayStr();
@@ -1268,7 +1279,7 @@ function loopSheet(p, l = null) {
       <label class="field"><span class="field-label">What's the promise?</span>
         <input name="description" value="${esc(v.description)}" maxlength="140" autocomplete="off" placeholder="Send a print of the window frame" required></label>
       <p class="field-error" data-error="description" hidden>Say what was promised.</p>
-      <fieldset class="field"><legend class="field-label">Who owes it?</legend>
+      <fieldset class="field"><legend class="field-label">Whose side is it on?</legend>
         <div class="seg">${LOOP_DIRECTIONS.map((d) => `<label class="seg-option"><input type="radio" name="direction" value="${d.key}"${v.direction === d.key ? ' checked' : ''}><span>${esc(d.label)}</span></label>`).join('')}</div>
       </fieldset>
       <label class="field"><span class="field-label">By when? (optional)</span>
@@ -1312,7 +1323,7 @@ function loopSheet(p, l = null) {
   }
 }
 
-// Closing what you owe is often a touchpoint in itself, so offer to log it.
+// Closing a loop on your side is often a touchpoint in itself, so offer to log it.
 async function closeLoop(l) {
   if (!l || l.status === 'closed') return;
   await db.saveOpenLoop({ ...l, status: 'closed', closedAt: nowISO() });

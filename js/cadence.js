@@ -239,8 +239,8 @@ export function buildToday({ people, touchpointsByPerson, news, loops = [] }, to
   const dueNews = new Map();
   for (const n of newsToday) if (dueIds.has(n.personId) && !dueNews.has(n.personId)) dueNews.set(n.personId, n);
 
-  // Open loops: what you owe shows once it's due and stays until closed;
-  // what they owe shows once it's late, as a nudge. Undated loops never do.
+  // Open loops: one on your side shows once it's due and stays until closed;
+  // one on their side shows once it's late, as a nudge. Undated loops never do.
   const loopsToday = loops
     .filter((l) => ids.has(l.personId) && l.status !== 'closed' && l.dueDate)
     .filter((l) => (l.direction === 'theyOwe' ? l.dueDate < today : l.dueDate <= today))

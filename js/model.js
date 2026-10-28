@@ -81,8 +81,8 @@ export function relationshipInfo(key) {
 
 // Open loops: small promises, either way.
 export const LOOP_DIRECTIONS = [
-  { key: 'iOwe', label: 'You owe', blurb: 'Something you promised.' },
-  { key: 'theyOwe', label: 'They owe', blurb: "Something they promised, or you're waiting on." },
+  { key: 'iOwe', label: 'On your side', blurb: 'Something you promised.' },
+  { key: 'theyOwe', label: 'On their side', blurb: "Something they promised, or you're waiting on." },
 ];
 
 // How engaged someone seems. It shapes the touchpoint ideas; cadence never
