@@ -1426,7 +1426,7 @@ function timelineHTML(p, tps) {
   }
   return `<ol class="timeline">${tps
     .map(
-      (t) => `<li class="tl-item">
+      (t) => `<li class="tl-item" data-id="${esc(t.id)}">
         <span class="tl-node" aria-hidden="true"></span>
         <div class="tl-body">
           <p class="tl-head"><span class="tl-date">${esc(fmtDate(t.date))}</span><span class="tl-type">${esc(touchTypeLabel(t.type))}</span>${t.interest ? interestLabel(t.interest) : ''}</p>
@@ -1744,18 +1744,45 @@ function goalBar(label, n, goal) {
   </div>`;
 }
 
+// Tapping the row opens that touchpoint on the person's page; Edit opens it
+// right where you are.
 function logRow(t) {
   const p = S.personById.get(t.personId);
-  return `<a class="log-row" href="#/person/${esc(t.personId)}">
-    <span class="log-row-main"><span class="log-row-date">${esc(fmtDate(t.date))}</span>
-      <b>${esc(p ? p.name : 'Someone')}</b> <span class="dot">·</span> ${esc(touchTypeLabel(t.type))}${t.note ? `<span class="log-row-note">${esc(t.note)}</span>` : ''}</span>
-    <span class="resp resp-${esc(t.responded)}">${esc(respondedLabel(t.responded))}</span>
-  </a>`;
+  return `<div class="log-row">
+    <a class="log-row-main" href="#/person/${esc(t.personId)}/${esc(t.id)}"><span class="log-row-date">${esc(fmtDate(t.date))}</span>
+      <b>${esc(p ? p.name : 'Someone')}</b> <span class="dot">·</span> ${esc(touchTypeLabel(t.type))}${t.note ? `<span class="log-row-note">${esc(t.note)}</span>` : ''}</a>
+    <span class="log-row-side"><span class="resp resp-${esc(t.responded)}">${esc(respondedLabel(t.responded))}</span>
+      <button type="button" class="text-btn" data-action="edit-tp" data-id="${esc(t.id)}">Edit</button></span>
+  </div>`;
 }
 
 // The boxes on Today and Weekly review open a sheet with what they count.
 // Tapping a row opens that person; the sheet closes as the page changes.
 function statSheet(kind) {
+  const { title, body } = statContent(kind);
+  const s = openSheet({ title, body, className: 'stat-sheet' });
+  s.body.addEventListener('click', (e) => {
+    const go = e.target.closest('[data-go]');
+    if (go) location.hash = go.dataset.go;
+    if (e.target.closest('[data-add]')) {
+      s.close();
+      personForm(null);
+    }
+    // Editing a touchpoint opens over the list, which then shows the change.
+    const edit = e.target.closest('[data-action="edit-tp"]');
+    const t = edit && S.tps.find((x) => x.id === edit.dataset.id);
+    if (t) {
+      logSheet(S.personById.get(t.personId), {
+        touchpoint: t,
+        onClose: () => {
+          if (s.el.isConnected) s.body.innerHTML = statContent(kind).body;
+        },
+      });
+    }
+  });
+}
+
+function statContent(kind) {
   const today = todayStr();
   const ws = weekStartStr(today);
   const w = weekStats(ws);
@@ -1798,15 +1825,7 @@ function statSheet(kind) {
       <button type="button" class="primary small-btn stat-add" data-add>+ Add person</button>
       ${weekLink}`;
   }
-  const s = openSheet({ title, body, className: 'stat-sheet' });
-  s.body.addEventListener('click', (e) => {
-    const go = e.target.closest('[data-go]');
-    if (go) location.hash = go.dataset.go;
-    if (e.target.closest('[data-add]')) {
-      s.close();
-      personForm(null);
-    }
-  });
+  return { title, body };
 }
 
 function renderWeek() {
@@ -2040,9 +2059,10 @@ const ROUTES = {
 const TAB_FOR = { person: 'people', org: 'orgs', circle: 'circles', dreams: 'people' };
 const TITLES = { today: 'Today', people: 'People', person: 'Person', circles: 'Circles', circle: 'Circle', orgs: 'Organizations', org: 'Organization', week: 'Weekly review', settings: 'Settings', dreams: 'Dream list' };
 
+// #/person/<id>/<touchpoint id> opens a person's page at that touchpoint.
 function parseRoute() {
-  const [name, id] = location.hash.replace(/^#\/?/, '').split('/');
-  return { name: ROUTES[name] ? name : 'today', id: id ? decodeURIComponent(id) : null };
+  const [name, id, focus] = location.hash.replace(/^#\/?/, '').split('/');
+  return { name: ROUTES[name] ? name : 'today', id: id ? decodeURIComponent(id) : null, focus: focus ? decodeURIComponent(focus) : null };
 }
 
 let currentKey = '';
@@ -2052,6 +2072,8 @@ function render() {
   const key = `${r.name}/${r.id || ''}`;
   const same = key === currentKey;
   const y = window.scrollY;
+  const focus = !same && r.name === 'person' && r.focus;
+  if (focus) S.ui.collapsed.delete('timeline');
   view.innerHTML = ROUTES[r.name](r.id);
   view.dataset.route = r.name;
   view.querySelectorAll('textarea.pd-value').forEach(fitHeight);
@@ -2065,6 +2087,11 @@ function render() {
   document.title = r.name === 'today' ? 'Callback' : `${TITLES[r.name]} · Callback`;
   if (same) window.scrollTo(0, y);
   else window.scrollTo(0, S.ui.scroll.get(key) || 0);
+  const item = focus && [...view.querySelectorAll('.tl-item')].find((li) => li.dataset.id === focus);
+  if (item) {
+    item.scrollIntoView({ block: 'center' });
+    item.classList.add('is-focus');
+  }
   currentKey = key;
 }
 
@@ -2435,7 +2462,7 @@ function whyText(p, tps, next) {
   return `${cap(span(c[p.warmth]))} after the latest touchpoint, because ${first} is ${WARMTH_INFO[p.warmth].label}.`;
 }
 
-function logSheet(p, { touchpoint = null, newsItem = null, note = '' } = {}) {
+function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } = {}) {
   if (!p) return;
   const editing = !!touchpoint;
   const today = todayStr();
@@ -2453,6 +2480,7 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '' } = {}) {
   const s = openSheet({
     title: editing ? 'Edit touchpoint' : 'Log touchpoint',
     className: 'log-sheet',
+    onClose,
     body: `<p class="sheet-person">${esc(p.name)}</p>
     <form class="form" novalidate>
       <fieldset class="field"><legend class="field-label">How did you reach out?</legend>
@@ -2588,8 +2616,8 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '' } = {}) {
       if (before[0] && before[0].id === touchpoint.id) {
         await db.savePerson({ ...p, nextTouchpointDate: computeNextDate(p, rest, S.settings, today) });
       }
-      s.close();
       await refresh();
+      s.close();
       toast('Touchpoint deleted');
     });
   }

@@ -4,6 +4,7 @@
    using deeper shades of the navy for the page and surfaces. */
 
 :root {
+  --focus-glow: color-mix(in srgb, var(--accent) 45%, transparent);
   --navy: #313d45;
   --yellow: #ffd103;
 
@@ -43,6 +44,7 @@
     --overlay: rgba(12, 16, 19, 0.86);
     --danger: #ff8a80;
     color-scheme: dark;
+    --focus-glow: color-mix(in srgb, var(--accent) 22%, transparent);
   }
 }
 
@@ -59,6 +61,7 @@
   --overlay: rgba(12, 16, 19, 0.86);
   --danger: #ff8a80;
   color-scheme: dark;
+  --focus-glow: color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 /* Type scale, kept to a few steps so the same kind of text always looks the same.
@@ -1132,6 +1135,12 @@ details.loop-done[open] summary { margin-bottom: 8px; }
 }
 .tl-item { position: relative; padding: 0 0 18px 30px; }
 .tl-item:last-child { padding-bottom: 0; }
+/* Opened from a logged list: the touchpoint glows yellow, then fades. */
+.tl-item.is-focus .tl-body { margin: -6px -8px; padding: 6px 8px; animation: tl-focus 2.6s ease-out both; }
+@keyframes tl-focus {
+  0%, 35% { background: var(--focus-glow); }
+  100% { background: transparent; }
+}
 .tl-node {
   position: absolute;
   left: 0;
@@ -1208,17 +1217,22 @@ details.loop-done[open] summary { margin-bottom: 8px; }
 .save-state { margin: 6px 0 0; min-height: 1.4em; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); }
 
 .log-row {
+  position: relative;
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 10px;
   align-items: start;
   padding: 10px 0;
   border-bottom: 1px solid var(--line);
-  text-decoration: none;
-  color: inherit;
   font-size: 15px;
 }
 .log-row:last-child { border-bottom: none; }
+/* The whole row opens the touchpoint; Edit sits above that. */
+.log-row-main { display: block; color: inherit; }
+.log-row-main::after { content: ''; position: absolute; inset: 0; }
+.log-row:has(.log-row-main:active) { opacity: 0.6; }
+.log-row-side { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.log-row-side .text-btn { position: relative; z-index: 1; padding: 6px 0 0; }
 
 /* Sheets opened from the boxes on Today. */
 .stat-group { margin: 0 0 8px; }
