@@ -297,6 +297,7 @@ button:active, .row-card:active, .stat-box:active, .item-head:active { opacity: 
   text-decoration: none;
   color: #fff;
 }
+button.stat-box { width: 100%; font-size: inherit; letter-spacing: normal; line-height: normal; }
 .stat-box::before {
   content: '';
   position: absolute;
@@ -1215,6 +1216,14 @@ details.loop-done[open] summary { margin-bottom: 8px; }
   font-size: 15px;
 }
 .log-row:last-child { border-bottom: none; }
+
+/* Sheets opened from the boxes on Today. */
+.stat-group { margin: 0 0 8px; }
+.card-list + .stat-group { margin-top: 20px; }
+.stat-sheet .week-range { margin: -4px 0 8px; }
+.log-list { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.stat-add { margin-top: 14px; }
+.stat-more { margin-top: 18px; }
 .log-row-date { display: block; font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); }
 .log-row-note { display: block; color: var(--text-dim); overflow-wrap: anywhere; }
 

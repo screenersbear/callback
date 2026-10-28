@@ -363,8 +363,10 @@ function ideaSheet(p) {
   });
 }
 
-function statBox(num, label, href) {
+// A link, a button that opens what it counts (`stat`), or a plain box.
+function statBox(num, label, href, stat) {
   const inner = `<span class="stat-num">${num}</span><span class="stat-label">${esc(label)}</span>`;
+  if (stat) return `<button type="button" class="stat-box" data-action="stat-sheet" data-stat="${stat}" aria-haspopup="dialog">${inner}</button>`;
   return href ? `<a class="stat-box" href="${href}">${inner}</a>` : `<div class="stat-box">${inner}</div>`;
 }
 
@@ -396,9 +398,9 @@ function renderToday() {
   const week = weekStats(weekStartStr(today));
   const g = S.settings.goals;
   html += `<div class="stats-row">
-    ${statBox(t.overdue.length + t.due.length, 'To reach out', '#/today')}
-    ${statBox(`${week.tps.length}<small>/${g.touchpoints}</small>`, 'Touchpoints this week', '#/week')}
-    ${statBox(`${week.added.length}<small>/${g.newPeople}</small>`, 'New people this week', '#/week')}
+    ${statBox(t.overdue.length + t.due.length, 'To reach out', null, 'reach')}
+    ${statBox(`${week.tps.length}<small>/${g.touchpoints}</small>`, 'Touchpoints this week', null, 'touchpoints')}
+    ${statBox(`${week.added.length}<small>/${g.newPeople}</small>`, 'New people this week', null, 'added')}
   </div>`;
   html += exportReminderHTML(today);
 
@@ -1708,6 +1710,60 @@ function goalBar(label, n, goal) {
   </div>`;
 }
 
+function logRow(t) {
+  const p = S.personById.get(t.personId);
+  return `<a class="log-row" href="#/person/${esc(t.personId)}">
+    <span class="log-row-main"><span class="log-row-date">${esc(fmtDate(t.date))}</span>
+      <b>${esc(p ? p.name : 'Someone')}</b> <span class="dot">·</span> ${esc(touchTypeLabel(t.type))}${t.note ? `<span class="log-row-note">${esc(t.note)}</span>` : ''}</span>
+    <span class="resp resp-${esc(t.responded)}">${esc(respondedLabel(t.responded))}</span>
+  </a>`;
+}
+
+// The three boxes on Today open a sheet with what they count. Tapping a
+// row opens that person; the sheet closes as the page changes.
+function statSheet(kind) {
+  const today = todayStr();
+  const ws = weekStartStr(today);
+  const w = weekStats(ws);
+  const g = S.settings.goals;
+  const rows = (people) => `<div class="card-list">${people.map(personRow).join('')}</div>`;
+  const group = (label, people) => (people.length ? `<p class="filter-label stat-group">${esc(label)} [${people.length}]</p>${rows(people)}` : '');
+  const weekLine = (n, goal) => `<p class="week-range">This week <span class="dot">·</span> ${esc(weekRange(ws))} <span class="dot">·</span> <span class="nowrap">${n} of ${goal}</span></p>`;
+  const weekLink = '<button type="button" class="btn secondary wide stat-more" data-go="#/week">Open weekly review</button>';
+  let title;
+  let body;
+  if (kind === 'reach') {
+    const t = buildToday({ people: S.people, touchpointsByPerson: S.tpsByPerson, news: S.news, loops: S.loops }, today);
+    title = 'To reach out';
+    body = t.overdue.length + t.due.length
+      ? group('Overdue', t.overdue) + group('Due today', t.due)
+      : "<p class=\"hint\">Nobody to reach out to today. You're all caught up.</p>";
+  } else if (kind === 'touchpoints') {
+    title = 'Touchpoints this week';
+    body = `${weekLine(w.tps.length, g.touchpoints)}
+      ${w.tps.length
+        ? `<div class="log-list">${sortTouchpoints(w.tps).map(logRow).join('')}</div>`
+        : '<p class="hint">Nothing logged yet this week. The To reach out box shows who\'s due.</p>'}
+      ${weekLink}`;
+  } else {
+    const added = [...w.added].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    title = 'New people this week';
+    body = `${weekLine(added.length, g.newPeople)}
+      ${added.length ? rows(added) : '<p class="hint">Nobody added yet this week.</p>'}
+      <button type="button" class="primary small-btn stat-add" data-add>+ Add person</button>
+      ${weekLink}`;
+  }
+  const s = openSheet({ title, body, className: 'stat-sheet' });
+  s.body.addEventListener('click', (e) => {
+    const go = e.target.closest('[data-go]');
+    if (go) location.hash = go.dataset.go;
+    if (e.target.closest('[data-add]')) {
+      s.close();
+      personForm(null);
+    }
+  });
+}
+
 function renderWeek() {
   const today = todayStr();
   const ws = weekStartStr(today);
@@ -1716,16 +1772,7 @@ function renderWeek() {
   const rec = weekRecord(ws);
   const metBoth = w.tps.length >= g.touchpoints && w.added.length >= g.newPeople;
 
-  const logged = sortTouchpoints(w.tps)
-    .map((t) => {
-      const p = S.personById.get(t.personId);
-      return `<a class="log-row" href="#/person/${esc(t.personId)}">
-        <span class="log-row-main"><span class="log-row-date">${esc(fmtDate(t.date))}</span>
-          <b>${esc(p ? p.name : 'Someone')}</b> <span class="dot">·</span> ${esc(touchTypeLabel(t.type))}${t.note ? `<span class="log-row-note">${esc(t.note)}</span>` : ''}</span>
-        <span class="resp resp-${esc(t.responded)}">${esc(respondedLabel(t.responded))}</span>
-      </a>`;
-    })
-    .join('');
+  const logged = sortTouchpoints(w.tps).map(logRow).join('');
 
   // Every week from the first sign of activity up to last week, newest first.
   const firsts = [
@@ -3291,6 +3338,7 @@ const ACTIONS = {
     const t = S.tps.find((x) => x.id === el.dataset.id);
     if (t) setResponse(t);
   },
+  'stat-sheet': (el) => statSheet(el.dataset.stat),
   'add-circle': () => circleSheet(),
   'edit-circle': (el) => circleSheet(S.circleById.get(el.dataset.id)),
   'toggle-reorder': () => {
