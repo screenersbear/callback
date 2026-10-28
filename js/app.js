@@ -1719,8 +1719,8 @@ function logRow(t) {
   </a>`;
 }
 
-// The three boxes on Today open a sheet with what they count. Tapping a
-// row opens that person; the sheet closes as the page changes.
+// The boxes on Today and Weekly review open a sheet with what they count.
+// Tapping a row opens that person; the sheet closes as the page changes.
 function statSheet(kind) {
   const today = todayStr();
   const ws = weekStartStr(today);
@@ -1728,8 +1728,9 @@ function statSheet(kind) {
   const g = S.settings.goals;
   const rows = (people) => `<div class="card-list">${people.map(personRow).join('')}</div>`;
   const group = (label, people) => (people.length ? `<p class="filter-label stat-group">${esc(label)} [${people.length}]</p>${rows(people)}` : '');
-  const weekLine = (n, goal) => `<p class="week-range">This week <span class="dot">·</span> ${esc(weekRange(ws))} <span class="dot">·</span> <span class="nowrap">${n} of ${goal}</span></p>`;
-  const weekLink = '<button type="button" class="btn secondary wide stat-more" data-go="#/week">Open weekly review</button>';
+  const weekLine = (count) => `<p class="week-range">This week <span class="dot">·</span> ${esc(weekRange(ws))} <span class="dot">·</span> <span class="nowrap">${count}</span></p>`;
+  // Already on Weekly review, the link would go nowhere.
+  const weekLink = parseRoute().name === 'week' ? '' : '<button type="button" class="btn secondary wide stat-more" data-go="#/week">Open weekly review</button>';
   let title;
   let body;
   if (kind === 'reach') {
@@ -1740,15 +1741,25 @@ function statSheet(kind) {
       : "<p class=\"hint\">Nobody to reach out to today. You're all caught up.</p>";
   } else if (kind === 'touchpoints') {
     title = 'Touchpoints this week';
-    body = `${weekLine(w.tps.length, g.touchpoints)}
+    body = `${weekLine(`${w.tps.length} of ${g.touchpoints}`)}
       ${w.tps.length
         ? `<div class="log-list">${sortTouchpoints(w.tps).map(logRow).join('')}</div>`
         : '<p class="hint">Nothing logged yet this week. The To reach out box shows who\'s due.</p>'}
       ${weekLink}`;
+  } else if (kind === 'replies') {
+    // Counted on the day the reply came in, so the touchpoint itself may be
+    // from an earlier week. Latest reply first.
+    const replies = [...w.replies].sort((a, b) => (b.respondedAt || b.date).localeCompare(a.respondedAt || a.date));
+    title = 'Replies this week';
+    body = `${weekLine(plural(replies.length, 'reply', 'replies'))}
+      ${replies.length
+        ? `<div class="log-list">${replies.map(logRow).join('')}</div>`
+        : '<p class="hint">No replies yet this week. When someone writes back, mark that touchpoint as Replied on their page.</p>'}
+      ${weekLink}`;
   } else {
     const added = [...w.added].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     title = 'New people this week';
-    body = `${weekLine(added.length, g.newPeople)}
+    body = `${weekLine(`${added.length} of ${g.newPeople}`)}
       ${added.length ? rows(added) : '<p class="hint">Nobody added yet this week.</p>'}
       <button type="button" class="primary small-btn stat-add" data-add>+ Add person</button>
       ${weekLink}`;
@@ -1804,9 +1815,9 @@ function renderWeek() {
     <header class="topbar"><h1>Weekly review</h1></header>
     <p class="week-range">This week <span class="dot">·</span> ${esc(weekRange(ws))}</p>
     <div class="stats-row">
-      ${statBox(`${w.tps.length}<small>/${g.touchpoints}</small>`, 'Touchpoints logged', '#/week')}
-      ${statBox(w.replies.length, 'Replies received', '#/week')}
-      ${statBox(`${w.added.length}<small>/${g.newPeople}</small>`, 'New people added', '#/week')}
+      ${statBox(`${w.tps.length}<small>/${g.touchpoints}</small>`, 'Touchpoints logged', null, 'touchpoints')}
+      ${statBox(w.replies.length, 'Replies received', null, 'replies')}
+      ${statBox(`${w.added.length}<small>/${g.newPeople}</small>`, 'New people added', null, 'added')}
     </div>
     <div class="goals">
       ${goalBar('Touchpoints', w.tps.length, g.touchpoints)}
