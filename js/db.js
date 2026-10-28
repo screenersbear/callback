@@ -10,7 +10,7 @@ import { withDefaults } from './cadence.js';
 import { DEFAULT_RELATIONSHIP, DEFAULT_INTEREST } from './model.js';
 
 const DB_NAME = 'callback';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 // Export format version. Still 1: later database versions only added
 // optional fields and stores, and files without them read fine (see readExport).
 export const SCHEMA_VERSION = 1;
@@ -27,6 +27,7 @@ export function withPersonDefaults(p) {
   if (typeof p.introducedByName !== 'string') fill.introducedByName = '';
   if (!Array.isArray(p.canIntroduceToIds)) fill.canIntroduceToIds = [];
   if (!p.interest) fill.interest = DEFAULT_INTEREST;
+  if (!Array.isArray(p.circleIds)) fill.circleIds = [];
   return Object.keys(fill).length ? { ...p, ...fill } : p;
 }
 
@@ -35,7 +36,7 @@ export function withNewsDefaults(n) {
 }
 
 // Stores that travel in exports, imports and (one day) sync.
-const SYNCED = ['people', 'organizations', 'touchpoints', 'news', 'openLoops', 'ideas', 'weeks', 'settings', 'tombstones'];
+const SYNCED = ['people', 'organizations', 'circles', 'touchpoints', 'news', 'openLoops', 'ideas', 'weeks', 'settings', 'tombstones'];
 // settings holds one record, id 'settings', so two devices merge into the
 // same record instead of each keeping its own.
 const SETTINGS_ID = 'settings';
@@ -57,6 +58,7 @@ function open() {
       };
       store('people', 'id', ['organizationId']);
       store('organizations', 'id');
+      store('circles', 'id');
       store('touchpoints', 'id', ['personId']);
       store('news', 'id', ['personId']);
       store('openLoops', 'id', ['personId']);
@@ -192,6 +194,26 @@ export async function deleteOrganization(id) {
     st('organizations').delete(id);
     st('tombstones').put(tombstone(id, 'organizations'));
     for (const p of people) st('people').put({ ...p, organizationId: null, updatedAt: now });
+  });
+}
+
+// ---- Circles (your own groups of people, across organizations) ----
+export const getCircles = () => getAll('circles');
+export const saveCircle = (c) => save('circles', c);
+export async function saveCircles(list) {
+  const recs = list.map(stamp);
+  await write(['circles'], (st) => recs.forEach((r) => st('circles').put(r)));
+  return recs;
+}
+
+// Removes a circle and every membership in it. The people stay.
+export async function deleteCircle(id) {
+  const people = (await getAll('people')).filter((p) => (p.circleIds || []).includes(id));
+  const now = nowISO();
+  await write(['circles', 'people', 'tombstones'], (st) => {
+    st('circles').delete(id);
+    st('tombstones').put(tombstone(id, 'circles'));
+    for (const p of people) st('people').put({ ...p, circleIds: p.circleIds.filter((x) => x !== id), updatedAt: now });
   });
 }
 

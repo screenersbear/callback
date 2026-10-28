@@ -64,6 +64,9 @@ export const NEWS_SUGGESTIONS = [
   'Birthday',
 ];
 
+// Offered when starting a circle, to get going.
+export const CIRCLE_SUGGESTIONS = ['Actors', 'Models', 'Stylists', 'Hair and makeup', 'Directors'];
+
 // What a relationship is for, separate from how warm it is. Cadence never
 // looks at this; it shapes the touchpoint ideas and helps filter.
 export const RELATIONSHIP_TYPES = [

@@ -15,7 +15,7 @@ import { canPickContacts, pickContacts, parseVCards, parsePasted } from './conta
 import {
   TOUCH_TYPES, touchTypeLabel, RESPONDED, respondedLabel, ROLE_SUGGESTIONS, ORG_TYPES, orgTypeLabel,
   NEWS_SUGGESTIONS, RELATIONSHIP_TYPES, DEFAULT_RELATIONSHIP, relationshipInfo, LOOP_DIRECTIONS,
-  INTEREST_LEVELS, interestInfo,
+  INTEREST_LEVELS, interestInfo, CIRCLE_SUGGESTIONS,
 } from './model.js';
 import { openSheet, confirmSheet, choiceSheet, toast, closeAllSheets } from './ui.js';
 
@@ -28,6 +28,7 @@ const view = document.getElementById('view');
 const S = {
   people: [],
   orgs: [],
+  circles: [],
   tps: [],
   news: [],
   loops: [],
@@ -35,6 +36,7 @@ const S = {
   weeks: [],
   personById: new Map(),
   orgById: new Map(),
+  circleById: new Map(),
   tpsByPerson: new Map(),
   newsByPerson: new Map(),
   loopsByPerson: new Map(),
@@ -46,7 +48,9 @@ const S = {
     collapsed: new Set(),
     scroll: new Map(),
     backTo: null,
-    people: { q: '', sort: 'contact', sortOpen: false, warmth: new Set(), rel: new Set(), interest: new Set(), loops: false, dream: false, role: '', tag: '', org: '', showParked: false, filtersOpen: false },
+    people: { q: '', sort: 'contact', sortOpen: false, warmth: new Set(), rel: new Set(), interest: new Set(), circles: new Set(), loops: false, dream: false, role: '', tag: '', org: '', showParked: false, filtersOpen: false },
+    circle: { sort: 'contact', sortOpen: false },
+    circlesReorder: false,
     orgsQ: '',
   },
 };
@@ -61,9 +65,9 @@ function groupBy(list, key) {
 }
 
 async function load() {
-  const [people, orgs, tps, news, loops, ideas, weeks, settings, lastExportAt, installedAt, reminderUntil, lastLogType] =
+  const [people, orgs, circles, tps, news, loops, ideas, weeks, settings, lastExportAt, installedAt, reminderUntil, lastLogType] =
     await Promise.all([
-      db.getPeople(), db.getOrganizations(), db.getTouchpoints(), db.getNews(), db.getOpenLoops(), db.getIdeas(), db.getWeeks(), db.getSettings(),
+      db.getPeople(), db.getOrganizations(), db.getCircles(), db.getTouchpoints(), db.getNews(), db.getOpenLoops(), db.getIdeas(), db.getWeeks(), db.getSettings(),
       db.getMeta('lastExportAt'), db.getMeta('installedAt'), db.getMeta('exportReminderUntil'), db.getMeta('lastLogType'),
     ]);
   S.people = people.sort((a, b) => a.name.localeCompare(b.name));
@@ -74,6 +78,8 @@ async function load() {
   S.settings = settings;
   S.personById = new Map(people.map((p) => [p.id, p]));
   S.orgById = new Map(orgs.map((o) => [o.id, o]));
+  S.circles = circles.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name));
+  S.circleById = new Map(circles.map((c) => [c.id, c]));
   S.tpsByPerson = groupBy(tps, 'personId');
   for (const [k, list] of S.tpsByPerson) S.tpsByPerson.set(k, sortTouchpoints(list));
   S.newsByPerson = groupBy(news, 'personId');
@@ -94,6 +100,9 @@ const newsOf = (id) => S.newsByPerson.get(id) || [];
 const loopsOf = (id) => S.loopsByPerson.get(id) || [];
 const openLoopsOf = (id) => loopsOf(id).filter((l) => l.status !== 'closed');
 const orgOf = (p) => (p && p.organizationId ? S.orgById.get(p.organizationId) : null);
+// A person's circles in your order. Ids of deleted circles are skipped.
+const circlesOf = (p) => S.circles.filter((c) => (p.circleIds || []).includes(c.id));
+const membersOf = (id) => S.people.filter((p) => (p.circleIds || []).includes(id));
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const firstName = (p) => (p.name || '').trim().split(/\s+/)[0] || 'them';
 
@@ -191,6 +200,22 @@ function dreamBadge() {
 }
 
 const dreamOnly = (p) => isDreamOnly(p, tpsOf(p.id));
+// Circles: a dashed ring drawn around a few people. (Overlapping rings are
+// already Collaborator.)
+const CIRCLE_ICON = '<svg class="circle-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.4 1.6"/><circle cx="8" cy="5.6" r="1.5" fill="currentColor"/><circle cx="5.6" cy="9.7" r="1.5" fill="currentColor"/><circle cx="10.4" cy="9.7" r="1.5" fill="currentColor"/></svg>';
+const UP_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 15 12 9 18 15"/></svg>';
+const DOWN_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
+
+// A person's circles as small chips: links on the person page, plain labels
+// on Today, where the whole card already opens the person.
+function circleChips(p, { link = false } = {}) {
+  const list = circlesOf(p);
+  if (!list.length) return '';
+  return `<span class="circle-chips">${list.map((c) => (link
+    ? `<a class="circle-chip" href="#/circle/${esc(c.id)}">${CIRCLE_ICON}${esc(c.name)}</a>`
+    : `<span class="circle-chip">${CIRCLE_ICON}${esc(c.name)}</span>`)).join('')}</span>`;
+}
+
 // People who list `id` among those they could introduce you to.
 const pathsTo = (id) => S.people.filter((c) => c.id !== id && (c.canIntroduceToIds || []).includes(id));
 
@@ -339,7 +364,8 @@ function ideaSheet(p) {
 }
 
 function statBox(num, label, href) {
-  return `<a class="stat-box" href="${href}"><span class="stat-num">${num}</span><span class="stat-label">${esc(label)}</span></a>`;
+  const inner = `<span class="stat-num">${num}</span><span class="stat-label">${esc(label)}</span>`;
+  return href ? `<a class="stat-box" href="${href}">${inner}</a>` : `<div class="stat-box">${inner}</div>`;
 }
 
 function backButton(fallback, label) {
@@ -497,7 +523,7 @@ function personCard(p, kind, news = null) {
 function itemHead(p) {
   const sub = subLine(p);
   return `<a class="item-head" href="#/person/${esc(p.id)}">
-      <span class="item-who"><span class="item-name">${esc(p.name)}</span>${sub ? `<span class="item-sub">${sub}</span>` : ''}${relLabel(p.relationshipType)}</span>
+      <span class="item-who"><span class="item-name">${esc(p.name)}</span>${sub ? `<span class="item-sub">${sub}</span>` : ''}${relLabel(p.relationshipType)}${circleChips(p)}</span>
       ${warmthBadge(p.warmth)}
     </a>`;
 }
@@ -604,6 +630,7 @@ function filteredPeople() {
   if (f.warmth.size) list = list.filter((p) => f.warmth.has(p.warmth));
   if (f.rel.size) list = list.filter((p) => f.rel.has(p.relationshipType));
   if (f.interest.size) list = list.filter((p) => f.interest.has(p.interest));
+  if (f.circles.size) list = list.filter((p) => p.circleIds.some((id) => f.circles.has(id)));
   if (f.loops) list = list.filter((p) => openLoopsOf(p.id).length);
   if (f.dream) list = list.filter((p) => p.dreamList);
   if (f.role) list = list.filter((p) => (p.role || '').toLowerCase() === f.role.toLowerCase());
@@ -612,10 +639,16 @@ function filteredPeople() {
   if (q) {
     list = list.filter((p) => {
       const org = orgOf(p);
-      return [p.name, org && org.name, p.notes, p.role, p.email, p.howWeMet, ...(p.tags || [])]
+      return [p.name, org && org.name, p.notes, p.role, p.email, p.howWeMet, ...(p.tags || []), ...circlesOf(p).map((c) => c.name)]
         .some((v) => v && v.toLowerCase().includes(q));
     });
   }
+  return sortPeople(list, f.sort);
+}
+
+// The People sorts, also used for a circle's members.
+function sortPeople(list, sort) {
+  const today = todayStr();
   const since = (p) => {
     const last = tpsOf(p.id)[0];
     return last ? daysBetween(last.date, today) : Infinity;
@@ -627,12 +660,12 @@ function filteredPeople() {
     next: (a, b) => (a.nextTouchpointDate || '').localeCompare(b.nextTouchpointDate || '') || byName(a, b),
     warmth: (a, b) => WARMTH_ORDER[a.warmth] - WARMTH_ORDER[b.warmth] || byName(a, b),
   };
-  return list.sort(sorters[f.sort] || sorters.contact);
+  return list.sort(sorters[sort] || sorters.contact);
 }
 
 function activeFilterCount() {
   const f = S.ui.people;
-  return f.warmth.size + f.rel.size + f.interest.size + (f.loops ? 1 : 0) + (f.dream ? 1 : 0) + (f.role ? 1 : 0) + (f.tag ? 1 : 0) + (f.org ? 1 : 0);
+  return f.warmth.size + f.rel.size + f.interest.size + f.circles.size + (f.loops ? 1 : 0) + (f.dream ? 1 : 0) + (f.role ? 1 : 0) + (f.tag ? 1 : 0) + (f.org ? 1 : 0);
 }
 
 function peopleListHTML() {
@@ -680,6 +713,10 @@ function filtersHTML() {
     <div class="filters">
       ${INTEREST_LEVELS.map((i) => `<button type="button" class="chip${f.interest.has(i.key) ? ' active' : ''}" data-action="filter-interest" data-i="${i.key}" aria-pressed="${f.interest.has(i.key)}">${interestIcon(i.key)}${esc(i.label)}</button>`).join('')}
     </div>
+    ${S.circles.length ? `<p class="filter-label">Circles</p>
+    <div class="filters">
+      ${S.circles.map((c) => `<button type="button" class="chip${f.circles.has(c.id) ? ' active' : ''}" data-action="filter-circle" data-c="${esc(c.id)}" aria-pressed="${f.circles.has(c.id)}">${CIRCLE_ICON}${esc(c.name)}</button>`).join('')}
+    </div>` : ''}
     <p class="filter-label">Show only</p>
     <div class="filters">
       <button type="button" class="chip${f.loops ? ' active' : ''}" data-action="filter-loops" aria-pressed="${f.loops}">${loopIcon('count')}Has open loops</button>
@@ -772,6 +809,8 @@ function renderPerson(id) {
           ${interestLabel(p.interest, { prefix: true })}<span class="warmth-btn-hint">Change</span></button>
         ${p.dreamList ? dreamBadge() : ''}
       </div>
+      <div class="person-circles">${circleChips(p, { link: true })}
+        <button type="button" class="circle-change" data-action="change-circles" data-id="${pid}">${circlesOf(p).length ? 'Change circles' : '+ Add to a circle'}</button></div>
     </header>
     ${dreamOnly(p) ? `<section class="next-panel">
       <p class="next-label">On your dream list</p>
@@ -1425,6 +1464,215 @@ function renderOrg(id) {
 }
 
 // ---------------------------------------------------------------------------
+// Circles: your own groups of people, like Actors or Models. Organizations
+// are where people work; circles cut across them, and someone can be in
+// several.
+
+const isOverdue = (p, today = todayStr()) => p.warmth !== 'parked' && !dreamOnly(p) && (p.nextTouchpointDate || today) < today;
+
+function renderCircles() {
+  const today = todayStr();
+  const reorder = S.ui.circlesReorder && S.circles.length > 1;
+  let body;
+  if (!S.circles.length) {
+    body = `<div class="empty">
+      <p class="empty-title">No circles yet.</p>
+      <p>Circles are your own groups of people, across organizations, and someone can be in more than one. Try starting with Actors or Models.</p>
+      <button type="button" class="hero-cta" data-action="add-circle">+ New circle</button>
+    </div>`;
+  } else {
+    body = S.circles
+      .map((c, i) => {
+        const members = membersOf(c.id);
+        const late = members.filter((p) => isOverdue(p, today)).length;
+        const main = `<span class="row-main"><span class="row-name">${esc(c.name)}</span>
+          ${c.description ? `<span class="row-sub">${esc(c.description)}</span>` : ''}
+          <span class="row-meta">${plural(members.length, 'person', 'people')}${late ? ` <span class="dot">·</span> <b>${late} overdue</b>` : ''}</span></span>`;
+        if (!reorder) return `<a class="row-card" href="#/circle/${esc(c.id)}">${main}</a>`;
+        const cid = esc(c.id);
+        return `<div class="row-card is-moving">${main}<span class="move-btns">
+          <button type="button" class="move-btn" data-action="move-circle" data-id="${cid}" data-dir="-1"${i === 0 ? ' disabled' : ''} aria-label="Move ${esc(c.name)} up">${UP_ICON}</button>
+          <button type="button" class="move-btn" data-action="move-circle" data-id="${cid}" data-dir="1"${i === S.circles.length - 1 ? ' disabled' : ''} aria-label="Move ${esc(c.name)} down">${DOWN_ICON}</button>
+        </span></div>`;
+      })
+      .join('');
+  }
+  return `
+    <header class="topbar"><h1>Circles</h1>
+      <span class="topbar-actions">
+        ${S.circles.length > 1 ? `<button type="button" class="text-btn" data-action="toggle-reorder" aria-pressed="${reorder}">${reorder ? 'Done' : 'Reorder'}</button>` : ''}
+        <button type="button" class="icon-btn" data-action="add-circle" aria-label="New circle">+</button>
+      </span></header>
+    <div class="card-list">${body}</div>`;
+}
+
+function renderCircle(id) {
+  const c = S.circleById.get(id);
+  if (!c) return notFoundHTML('circle', '#/circles', 'Circles');
+  const today = todayStr();
+  const cid = esc(c.id);
+  const ui = S.ui.circle;
+  const members = membersOf(id);
+  const overdue = members.filter((p) => isOverdue(p, today)).sort((a, b) => a.nextTouchpointDate.localeCompare(b.nextTouchpointDate));
+  const loops = members.reduce((n, p) => n + openLoopsOf(p.id).length, 0);
+  const warmths = WARMTH.map((w) => [w, members.filter((p) => p.warmth === w).length]).filter(([, n]) => n);
+  const row = (p) => `<div class="member-row">${personRow(p)}
+    <button type="button" class="member-remove" data-action="remove-from-circle" data-id="${esc(p.id)}" data-circle="${cid}" aria-label="Remove ${esc(p.name)} from ${esc(c.name)}">${X_ICON_SMALL}</button></div>`;
+  const membersHTML = `
+    <div class="toolbar circle-tools">
+      <button type="button" class="primary small-btn" data-action="circle-add-people" data-id="${cid}">+ Add people</button>
+      ${members.length > 1 ? `<button type="button" class="filter-toggle" data-action="toggle-sort" data-scope="circle" aria-expanded="${ui.sortOpen}">Sort: ${esc(SORTS[ui.sort])}</button>` : ''}
+    </div>
+    ${members.length > 1 ? `<div class="filters"${ui.sortOpen ? '' : ' hidden'}>
+      ${Object.entries(SORTS).map(([k, label]) => `<button type="button" class="chip${ui.sort === k ? ' active' : ''}" data-action="set-sort" data-scope="circle" data-sort="${k}">${esc(label)}</button>`).join('')}
+    </div>` : ''}
+    ${members.length
+      ? sortPeople([...members], ui.sort).map(row).join('')
+      : `<p class="hint">Nobody in ${esc(c.name)} yet. Add people here, or from anyone's page.</p>`}`;
+  return `
+    <div class="detail-top">${backButton('#/circles', 'Back')}
+      <button type="button" class="text-btn" data-action="edit-circle" data-id="${cid}">Edit</button></div>
+    <header class="person-head">
+      <h1 class="person-name">${esc(c.name)}</h1>
+      ${c.description ? `<p class="person-sub">${esc(c.description)}</p>` : ''}
+    </header>
+    <div class="stats-row">
+      ${statBox(members.length, members.length === 1 ? 'Person' : 'People')}
+      ${statBox(overdue.length, 'Overdue')}
+      ${statBox(loops, loops === 1 ? 'Open loop' : 'Open loops')}
+    </div>
+    ${warmths.length ? `<div class="warmth-breakdown" aria-label="Warmth">${warmths.map(([w, n]) => `<span class="warmth-count">${warmthBadge(w)}<b>${n}</b></span>`).join('')}</div>` : ''}
+    ${overdue.length ? sectionBlock('circle-overdue', 'Overdue in this circle', overdue.length, overdue.map(personRow).join(''), 'navy') : ''}
+    ${sectionBlock('circle-members', 'Members', members.length, membersHTML, 'yellow')}`;
+}
+
+const sameName = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
+const nextSortOrder = () => S.circles.reduce((m, c) => Math.max(m, c.sortOrder ?? 0), -1) + 1;
+
+function circleSheet(c = null) {
+  const suggest = c ? [] : CIRCLE_SUGGESTIONS.filter((n) => !S.circles.some((x) => sameName(x.name, n)));
+  const s = openSheet({
+    title: c ? 'Edit circle' : 'New circle',
+    className: 'sheet-small',
+    body: `<form class="form" novalidate>
+      <label class="field"><span class="field-label">Name</span>
+        <input name="name" value="${esc(c ? c.name : '')}" maxlength="60" autocomplete="off" placeholder="Actors" required></label>
+      <p class="field-error" data-error="name" hidden></p>
+      ${suggest.length ? `<div class="chip-choices">${suggest.map((n) => `<button type="button" class="chip" data-name="${esc(n)}">${esc(n)}</button>`).join('')}</div>` : ''}
+      <label class="field"><span class="field-label">Description (optional)</span>
+        <input name="description" value="${esc(c ? c.description || '' : '')}" maxlength="140" autocomplete="off" placeholder="Actors I shoot headshots for"></label>
+      ${c ? '<button type="button" class="btn danger wide" data-delete>Delete circle</button>' : ''}
+      <button type="submit" class="modal-cta primary">${c ? 'Save' : 'Add circle'}</button>
+    </form>`,
+  });
+  const form = s.body.querySelector('form');
+  const nameField = form.querySelector('[name="name"]');
+  form.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-name]');
+    if (!b) return;
+    nameField.value = b.dataset.name;
+    form.querySelector('[data-error="name"]').hidden = true;
+  });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const name = String(fd.get('name') || '').trim();
+    const err = form.querySelector('[data-error="name"]');
+    const clash = S.circles.find((x) => sameName(x.name, name) && (!c || x.id !== c.id));
+    if (!name || clash) {
+      err.textContent = name ? `You already have a circle called ${clash.name}.` : 'Give the circle a name.';
+      err.hidden = false;
+      nameField.focus();
+      return;
+    }
+    const saved = await db.saveCircle({
+      ...(c || { sortOrder: nextSortOrder() }),
+      name,
+      description: String(fd.get('description') || '').trim(),
+    });
+    s.close();
+    if (!c) location.hash = `#/circle/${saved.id}`;
+    await refresh();
+    toast(c ? 'Saved' : `${name} added`);
+  });
+  const del = s.body.querySelector('[data-delete]');
+  if (del) {
+    del.addEventListener('click', async () => {
+      const n = membersOf(c.id).length;
+      const ok = await confirmSheet({
+        title: `Delete ${esc(c.name)}?`,
+        message: n
+          ? `The ${plural(n, 'person', 'people')} in it stay in Callback. Only the circle goes.`
+          : 'Nobody is in it yet.',
+        confirmLabel: 'Delete circle',
+        danger: true,
+      });
+      if (!ok) return;
+      await db.deleteCircle(c.id);
+      S.ui.people.circles.delete(c.id);
+      s.close();
+      location.hash = '#/circles';
+      await refresh();
+      toast(`${c.name} deleted`);
+    });
+  }
+}
+
+// A sheet for ticking circles, where a new one can be made on the spot.
+// Resolves with the chosen ids in your order, or null when closed.
+function circlePicker({ title = 'Circles', selected = [] }) {
+  return new Promise((resolve) => {
+    let result = null;
+    const chosen = new Set(selected);
+    const row = (c) => `<label class="pick-row"><input type="checkbox" data-cid="${esc(c.id)}"${chosen.has(c.id) ? ' checked' : ''}><span class="pick-main"><span class="pick-name">${esc(c.name)}</span>${c.description ? `<span class="pick-sub">${esc(c.description)}</span>` : ''}</span></label>`;
+    const s = openSheet({
+      title,
+      className: 'sheet-small has-footer',
+      body: `
+        <p class="hint" data-empty${S.circles.length ? ' hidden' : ''}>No circles yet. Start one below, like Actors or Models.</p>
+        <div class="pick-list" data-list${S.circles.length ? '' : ' hidden'}>${S.circles.map(row).join('')}</div>
+        <form class="new-circle" novalidate>
+          <input name="name" class="search" maxlength="60" autocomplete="off" placeholder="New circle" aria-label="New circle name">
+          <button type="submit" class="primary small-btn">+ Add</button>
+        </form>
+        <div class="sheet-footer"><button type="button" class="modal-cta primary" data-done>Done</button></div>`,
+      onClose: () => resolve(result),
+    });
+    const list = s.body.querySelector('[data-list]');
+    s.body.addEventListener('change', (e) => {
+      const box = e.target.closest('[data-cid]');
+      if (!box) return;
+      if (box.checked) chosen.add(box.dataset.cid);
+      else chosen.delete(box.dataset.cid);
+    });
+    s.body.querySelector('.new-circle').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = e.target.querySelector('[name="name"]');
+      const name = input.value.trim();
+      if (!name) return;
+      input.value = '';
+      const existing = S.circles.find((x) => sameName(x.name, name));
+      if (existing) {
+        chosen.add(existing.id);
+        list.querySelector(`[data-cid="${existing.id}"]`).checked = true;
+        return;
+      }
+      const c = await db.saveCircle({ name, description: '', sortOrder: nextSortOrder() });
+      S.circles = [...S.circles, c];
+      S.circleById.set(c.id, c);
+      chosen.add(c.id);
+      list.insertAdjacentHTML('beforeend', row(c));
+      list.hidden = false;
+      s.body.querySelector('[data-empty]').hidden = true;
+    });
+    s.body.querySelector('[data-done]').addEventListener('click', () => {
+      result = S.circles.filter((c) => chosen.has(c.id)).map((c) => c.id);
+      s.close();
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Weekly review
 
 function weekStats(ws) {
@@ -1689,14 +1937,16 @@ const ROUTES = {
   today: () => renderToday(),
   people: () => renderPeople(),
   person: (id) => renderPerson(id),
+  circles: () => renderCircles(),
+  circle: (id) => renderCircle(id),
   orgs: () => renderOrgs(),
   org: (id) => renderOrg(id),
   week: () => renderWeek(),
   settings: () => renderSettings(),
   dreams: () => renderDreams(),
 };
-const TAB_FOR = { person: 'people', org: 'orgs', dreams: 'people' };
-const TITLES = { today: 'Today', people: 'People', person: 'Person', orgs: 'Organizations', org: 'Organization', week: 'Weekly review', settings: 'Settings', dreams: 'Dream list' };
+const TAB_FOR = { person: 'people', org: 'orgs', circle: 'circles', dreams: 'people' };
+const TITLES = { today: 'Today', people: 'People', person: 'Person', circles: 'Circles', circle: 'Circle', orgs: 'Organizations', org: 'Organization', week: 'Weekly review', settings: 'Settings', dreams: 'Dream list' };
 
 function parseRoute() {
   const [name, id] = location.hash.replace(/^#\/?/, '').split('/');
@@ -1730,13 +1980,13 @@ window.addEventListener('hashchange', (e) => {
   const from = new URL(e.oldURL).hash || '#/today';
   S.ui.scroll.set(currentKey, window.scrollY);
   const r = parseRoute();
-  if (r.name === 'person' || r.name === 'org') {
-    if (!/^#\/(person|org)\//.test(from) || !S.ui.backTo) S.ui.backTo = from;
+  if (r.name === 'person' || r.name === 'org' || r.name === 'circle') {
+    if (!/^#\/(person|org|circle)\//.test(from) || !S.ui.backTo) S.ui.backTo = from;
   } else {
     S.ui.backTo = null;
     // Lists open at the top when reached from the tab bar, and where you
     // left them when coming back from a person.
-    if (!/^#\/(person|org)\//.test(from)) S.ui.scroll.delete(`${r.name}/`);
+    if (!/^#\/(person|org|circle)\//.test(from)) S.ui.scroll.delete(`${r.name}/`);
   }
   closeAllSheets();
   render();
@@ -1836,6 +2086,9 @@ function personForm(p, preset = {}) {
         <input name="org" list="orgList" value="${esc(org ? org.name : '')}" autocomplete="off" placeholder="Agency, brand, publication">
         <span class="field-hint">Pick one you've added, or type a new name to add it.${org && !isNew ? ' Changing it keeps a note of where they were before.' : ''}</span></label>
       <datalist id="orgList">${S.orgs.map((o) => `<option value="${esc(o.name)}">`).join('')}</datalist>
+      <div class="picker-row"><span class="field-label">Circles</span>
+        <button type="button" class="picker-btn" data-pick="circles"></button>
+        <span class="field-hint">Your own groups, like Actors or Models. Someone can be in more than one.</span></div>
       <fieldset class="field"><legend class="field-label">Relationship</legend>
         <div class="warmth-options">${RELATIONSHIP_TYPES.map((r) => `<label class="warmth-option">
           <input type="radio" name="relationshipType" value="${r.key}"${(v.relationshipType || DEFAULT_RELATIONSHIP) === r.key ? ' checked' : ''}>
@@ -1880,12 +2133,15 @@ function personForm(p, preset = {}) {
   let introducedById = v.introducedById || null;
   let introducedByName = v.introducedByName || '';
   let canIntroduceToIds = [...(v.canIntroduceToIds || [])];
+  let circleIds = [...(v.circleIds || [])];
   const self = p ? [p.id] : [];
   const showPicks = () => {
     const by = introducedById && S.personById.get(introducedById);
     form.querySelector('[data-pick="by"]').textContent = by ? by.name : introducedByName ? `${introducedByName} (not in Callback)` : 'Choose someone, or type a name';
     const names = namesOf(canIntroduceToIds);
     form.querySelector('[data-pick="could"]').textContent = names.length ? joinWords(names) : 'Choose people';
+    const circles = S.circles.filter((c) => circleIds.includes(c.id)).map((c) => c.name);
+    form.querySelector('[data-pick="circles"]').textContent = circles.length ? joinWords(circles) : 'Choose circles';
   };
   showPicks();
   // A new past client starts on Client warmth (every few months) rather than
@@ -1907,7 +2163,11 @@ function personForm(p, preset = {}) {
   form.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-pick]');
     if (!b) return;
-    if (b.dataset.pick === 'by') {
+    if (b.dataset.pick === 'circles') {
+      const ids = await circlePicker({ selected: circleIds });
+      if (ids === null) return;
+      circleIds = ids;
+    } else if (b.dataset.pick === 'by') {
       const id = await peoplePicker({ title: 'Introduced by', selected: introducedById ? [introducedById] : [], exclude: self, allowName: true, typedName: introducedByName });
       if (id === null) return;
       if (id && typeof id === 'object') {
@@ -1964,6 +2224,7 @@ function personForm(p, preset = {}) {
       introducedById,
       introducedByName,
       canIntroduceToIds,
+      circleIds: circleIds.filter((id) => S.circleById.has(id)),
     };
     const warmth = get('warmth') || 'cold';
     const nextInput = /^\d{4}-\d{2}-\d{2}$/.test(get('next')) ? get('next') : '';
@@ -3030,6 +3291,63 @@ const ACTIONS = {
     const t = S.tps.find((x) => x.id === el.dataset.id);
     if (t) setResponse(t);
   },
+  'add-circle': () => circleSheet(),
+  'edit-circle': (el) => circleSheet(S.circleById.get(el.dataset.id)),
+  'toggle-reorder': () => {
+    S.ui.circlesReorder = !S.ui.circlesReorder;
+    render();
+  },
+  'move-circle': async (el) => {
+    const list = [...S.circles];
+    const i = list.findIndex((c) => c.id === el.dataset.id);
+    const j = i + Number(el.dataset.dir);
+    if (i < 0 || j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    await db.saveCircles(list.map((c, n) => ({ ...c, sortOrder: n })).filter((c, n) => list[n].sortOrder !== n));
+    await refresh();
+    const again = view.querySelector(`[data-action="move-circle"][data-id="${el.dataset.id}"][data-dir="${el.dataset.dir}"]:not(:disabled)`);
+    if (again) again.focus();
+  },
+  'circle-add-people': async (el) => {
+    const c = S.circleById.get(el.dataset.id);
+    if (!c) return;
+    const ids = await peoplePicker({ title: `People in ${c.name}`, multiple: true, selected: membersOf(c.id).map((p) => p.id) });
+    if (ids === null) return;
+    const want = new Set(ids);
+    const changed = S.people
+      .filter((p) => want.has(p.id) !== p.circleIds.includes(c.id))
+      .map((p) => ({ ...p, circleIds: want.has(p.id) ? [...p.circleIds, c.id] : p.circleIds.filter((x) => x !== c.id) }));
+    if (!changed.length) return;
+    await db.savePeople(changed);
+    await refresh();
+    toast(`${plural(want.size, 'person', 'people')} in ${c.name}`);
+  },
+  'remove-from-circle': async (el) => {
+    const p = person(el);
+    const c = S.circleById.get(el.dataset.circle);
+    if (!p || !c) return;
+    await db.savePerson({ ...p, circleIds: p.circleIds.filter((x) => x !== c.id) });
+    await refresh();
+    toast(`${firstName(p)} left ${c.name}`, {
+      action: {
+        label: 'Undo',
+        run: async () => {
+          const now = S.personById.get(p.id);
+          if (!now || now.circleIds.includes(c.id)) return;
+          await db.savePerson({ ...now, circleIds: [...now.circleIds, c.id] });
+          await refresh();
+        },
+      },
+    });
+  },
+  'change-circles': async (el) => {
+    const p = person(el);
+    const ids = await circlePicker({ title: `${firstName(p)}'s circles`, selected: p.circleIds });
+    if (ids !== null) await db.savePerson({ ...p, circleIds: ids });
+    // A circle made in the picker shows up either way.
+    await refresh();
+    if (ids !== null) toast('Circles saved');
+  },
   'add-org': () => orgForm(null),
   'edit-org': (el) => orgForm(S.orgById.get(el.dataset.id)),
   back: (el) => {
@@ -3045,12 +3363,14 @@ const ACTIONS = {
     el.nextElementSibling.hidden = S.ui.collapsed.has(k);
     el.nextElementSibling.querySelectorAll('textarea.pd-value').forEach(fitHeight);
   },
-  'toggle-sort': () => {
-    S.ui.people.sortOpen = !S.ui.people.sortOpen;
+  'toggle-sort': (el) => {
+    const ui = el.dataset.scope === 'circle' ? S.ui.circle : S.ui.people;
+    ui.sortOpen = !ui.sortOpen;
     render();
   },
   'set-sort': (el) => {
-    S.ui.people.sort = el.dataset.sort;
+    const ui = el.dataset.scope === 'circle' ? S.ui.circle : S.ui.people;
+    ui.sort = el.dataset.sort;
     render();
   },
   'toggle-filters': () => {
@@ -3084,8 +3404,14 @@ const ACTIONS = {
     else set.add(w);
     render();
   },
+  'filter-circle': (el) => {
+    const set = S.ui.people.circles;
+    if (set.has(el.dataset.c)) set.delete(el.dataset.c);
+    else set.add(el.dataset.c);
+    render();
+  },
   'clear-filters': () => {
-    Object.assign(S.ui.people, { q: '', warmth: new Set(), rel: new Set(), interest: new Set(), loops: false, dream: false, role: '', tag: '', org: '' });
+    Object.assign(S.ui.people, { q: '', warmth: new Set(), rel: new Set(), interest: new Set(), circles: new Set(), loops: false, dream: false, role: '', tag: '', org: '' });
     render();
   },
   'edit-reflection': (el) => reflectionSheet(el.dataset.week),
