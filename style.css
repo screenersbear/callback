@@ -1325,14 +1325,16 @@ details.loop-done[open] summary { margin-bottom: 8px; }
 }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 
+/* Only the body scrolls, so pulling a long sheet down past its top (the
+   iPhone rubber band) moves the content, never the header off the top. */
 .sheet {
   background: var(--surface);
   width: 100%;
   max-width: 560px;
   max-height: 92svh;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 0 20px calc(env(safe-area-inset-bottom) + 20px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   border-top: 4px solid var(--accent);
   animation: slideUp 0.2s ease;
   outline: none;
@@ -1343,16 +1345,20 @@ details.loop-done[open] summary { margin-bottom: 8px; }
 }
 
 .sheet-header {
-  position: sticky;
-  top: 0;
-  z-index: 2;
+  flex-shrink: 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
   background: var(--hero);
-  margin: 0 -20px 16px;
   padding: 14px 16px 14px 20px;
+}
+.sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: none;
+  padding: 16px 20px calc(env(safe-area-inset-bottom) + 20px);
 }
 .sheet-header h2 {
   margin: 0;
@@ -1547,7 +1553,7 @@ details.more > .field + .field { margin-top: 14px; }
 .pick-sub { font-size: 14px; color: var(--text-dim); overflow-wrap: anywhere; }
 
 /* The add button stays in reach however long the list is. */
-.sheet.has-footer { padding-bottom: 0; }
+.sheet.has-footer .sheet-body { padding-bottom: 0; }
 .sheet-footer {
   position: sticky;
   bottom: 0;
@@ -1803,6 +1809,10 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
 :root[data-theme="dark"] .filter-toggle.is-on,
 :root[data-theme="dark"] .stat-box,
 :root[data-theme="dark"] .next-panel { box-shadow: inset 0 0 0 2px var(--ink); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .small-btn.navy { border-color: var(--ink); }
+}
+:root[data-theme="dark"] .small-btn.navy { border-color: var(--ink); }
 
 /* What you sent or said: wraps to fit, with the idea offered underneath. */
 .field textarea.log-note { resize: none; overflow: hidden; }
@@ -1828,11 +1838,11 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
 
 /* ---------- Light touch and quick add ---------- */
 
-/* Under the People header, beside the + for adding one person. */
-.quick-row { display: flex; align-items: center; gap: 12px; margin: -2px 0 14px; }
-.quick-row .small-btn { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+/* Under the People header: one person, or several in a row. */
+.quick-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: -2px 0 14px; }
+.quick-row .small-btn { display: inline-flex; align-items: center; gap: 6px; }
 .quick-row .warmth-icon { width: 15px; height: 15px; }
-.quick-hint { font-size: 14px; color: var(--text-dim); }
+.small-btn.navy { background: var(--hero); color: #fff; border-color: var(--hero); }
 .light-intro { margin: 0 0 4px; font-size: 15px; }
 .light-list { border-top: 1px solid var(--line); }
 .light-row {
@@ -1850,6 +1860,11 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
 .light-name { font-family: var(--font-title); font-size: 17px; line-height: 1.15; overflow-wrap: anywhere; }
 .light-idea { font-size: 15px; overflow-wrap: anywhere; }
 .light-actions { display: flex; gap: 6px; }
+.reply-row { display: flex; flex-direction: column; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.reply-row:last-child { border-bottom: none; }
+.reply-what { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+.reply-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.reply-actions .small-btn { padding: 7px 6px; font-size: 13px; text-align: center; align-self: stretch; }
 .light-actions .small-btn { padding: 7px 10px; font-size: 13px; }
 .week-split { margin: -6px 0 16px; font-size: 15px; font-weight: 700; }
 .stat-note { margin: -4px 0 8px; }

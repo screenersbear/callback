@@ -415,7 +415,6 @@ function renderToday() {
           <p class="hero-date">${esc(fmtLongDate(today))}</p>
         </div>
       </div>
-      <button type="button" class="hero-cta shine-sweep" data-action="add-person">+ Add person</button>
     </div>`;
 
   if (!S.people.length) return html + firstRunHTML();
@@ -435,6 +434,11 @@ function renderToday() {
   if (t.overdue.length) sections.push(['overdue', 'Overdue', t.overdue.length, t.overdue.map(card('overdue')).join('')]);
   if (t.due.length) sections.push(['due', 'Due today', t.due.length, t.due.map(card('due')).join('')]);
   if (t.loops.length) sections.push(['loops', 'Open loops', t.loops.length, t.loops.map(loopCard).join('')]);
+  if (t.replyChecks.length) {
+    sections.push(['replies', 'Did they reply?', t.replyChecks.length, `
+      <p class="light-intro">Still waiting, two days or more after you reached out. Mark each one, or tap Not yet and Callback asks again in two days.</p>
+      <div class="light-list">${t.replyChecks.map(replyRow).join('')}</div>`]);
+  }
   if (t.news.length) sections.push(['news', 'Their news', t.news.length, t.news.map((n) => newsCard(n)).join('')]);
   if (t.comingUp.length) sections.push(['coming', 'Coming up', t.comingUp.length, t.comingUp.map((n) => newsCard(n, { coming: true })).join('')]);
   if (t.resurfaced.length) {
@@ -449,6 +453,23 @@ function renderToday() {
     : '';
   if (!sections.length) return html + caughtUpHTML(today) + light;
   return html + sections.map(([key, title, n, inner], i) => sectionBlock(key, title, n, inner, i % 2 ? 'navy' : 'yellow')).join('') + light;
+}
+
+// A touchpoint still waiting on a reply. The row opens it on the person's
+// page; the buttons settle it right here.
+function replyRow(t) {
+  const p = S.personById.get(t.personId);
+  const id = esc(t.id);
+  return `<div class="reply-row">
+    <a class="light-main" href="#/person/${esc(t.personId)}/${id}"><span class="light-name">${esc(p.name)}</span>
+      <span class="reply-what">${esc(touchTypeLabel(t.type))} <span class="dot">·</span> ${esc(fmtDate(t.date))}</span>
+      ${t.note ? `<span class="light-idea">${esc(t.note)}</span>` : ''}</a>
+    <span class="reply-actions">
+      <button type="button" class="primary small-btn" data-action="reply-mark" data-key="yes" data-id="${id}">Replied</button>
+      <button type="button" class="secondary small-btn" data-action="reply-mark" data-key="no" data-id="${id}">No reply</button>
+      <button type="button" class="secondary small-btn" data-action="reply-later" data-id="${id}">Not yet</button>
+    </span>
+  </div>`;
 }
 
 // One light touch on Today: who, their circle and a light idea, with Log
@@ -801,8 +822,8 @@ function renderPeople() {
         <button type="button" class="icon-btn" data-action="add-person" aria-label="Add person">+</button>
       </span></header>
     <div class="quick-row">
-      <button type="button" class="secondary small-btn" data-action="quick-add">${QUICK_ICON} Quick add</button>
-      <span class="quick-hint">For adding several people in a row.</span>
+      <button type="button" class="primary small-btn" data-action="add-person">+ Add person</button>
+      <button type="button" class="small-btn navy" data-action="quick-add">${QUICK_ICON} Quick add</button>
     </div>
     ${S.people.length ? `
     <input type="search" class="search" id="peopleSearch" placeholder="Search name, org, notes" value="${esc(f.q)}" autocomplete="off" aria-label="Search people">
@@ -3235,6 +3256,10 @@ async function setResponse(t) {
     options: RESPONDED.map((r) => ({ key: r.key, label: r.label, current: (t.responded || 'pending') === r.key })),
   });
   if (!key || key === t.responded) return;
+  await markResponse(t, key);
+}
+
+async function markResponse(t, key) {
   await db.saveTouchpoint({ ...t, responded: key, respondedAt: key === 'yes' ? nowISO() : null });
   await refresh();
   const p = S.personById.get(t.personId);
@@ -3708,6 +3733,17 @@ const ACTIONS = {
   'set-response': (el) => {
     const t = S.tps.find((x) => x.id === el.dataset.id);
     if (t) setResponse(t);
+  },
+  'reply-mark': (el) => {
+    const t = S.tps.find((x) => x.id === el.dataset.id);
+    if (t) markResponse(t, el.dataset.key);
+  },
+  'reply-later': async (el) => {
+    const t = S.tps.find((x) => x.id === el.dataset.id);
+    if (!t) return;
+    await db.saveTouchpoint({ ...t, replyCheckAt: nowISO() });
+    await refresh();
+    toast('Callback will ask again in two days.');
   },
   'stat-sheet': (el) => statSheet(el.dataset.stat),
   'add-circle': () => circleSheet(),

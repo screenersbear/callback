@@ -241,18 +241,33 @@ export function ideaStage(person, tps) {
   return firstContactStage(person, tps);
 }
 
+// ---------- Did they reply? ----------
+
+// A touchpoint still waiting on a reply asks "Did they reply?" two days
+// after it was logged, and again two days after each "Not yet", until it's
+// marked Replied or No reply. Light touches and parked people don't ask.
+export const REPLY_CHECK_HOURS = 48;
+
+export function replyCheckDue(person, t, now = new Date()) {
+  if (t.responded !== 'pending' || t.lightTouch || person.lightTouch || person.warmth === 'parked') return false;
+  const from = t.replyCheckAt || t.createdAt || `${t.date}T00:00:00`;
+  return now - new Date(from) >= REPLY_CHECK_HOURS * 3600 * 1000;
+}
+
 // Everything the Today screen lists, already sorted.
 // news: their-news items from the last week that nobody has acted on yet
 // (no touchpoint for that person since the news date, not dismissed).
-export function buildToday({ people, touchpointsByPerson, news, loops = [] }, today = todayStr()) {
+export function buildToday({ people, touchpointsByPerson, news, loops = [], now = new Date() }, today = todayStr()) {
   const justMet = [];
   const overdue = [];
   const due = [];
   const resurfaced = [];
   const light = [];
+  const replyChecks = [];
   const weekEnd = addDays(weekStartStr(today), 6);
   for (const p of people) {
     const tps = touchpointsByPerson.get(p.id) || [];
+    for (const t of tps) if (replyCheckDue(p, t, now)) replyChecks.push(t);
     // Light touches keep to their own quiet section: anyone due by the end
     // of this week, missed ones carried along, never late.
     if (p.lightTouch && p.warmth !== 'parked') {
@@ -279,6 +294,8 @@ export function buildToday({ people, touchpointsByPerson, news, loops = [] }, to
   resurfaced.sort(byNext);
   due.sort((a, b) => a.name.localeCompare(b.name));
   light.sort((a, b) => byNext(a, b) || a.name.localeCompare(b.name));
+  // Waiting longest first.
+  replyChecks.sort((a, b) => a.date.localeCompare(b.date) || (a.createdAt || '').localeCompare(b.createdAt || ''));
   justMet.sort((a, b) => (a.firstContactDeadline || today).localeCompare(b.firstContactDeadline || today) || a.name.localeCompare(b.name));
 
   const ids = new Set(people.map((p) => p.id));
@@ -312,5 +329,5 @@ export function buildToday({ people, touchpointsByPerson, news, loops = [] }, to
     .filter((l) => (l.direction === 'theyOwe' ? l.dueDate < today : l.dueDate <= today))
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || (a.direction === 'iOwe' ? -1 : 1));
 
-  return { justMet, overdue, due, news: newsToday.filter((n) => !dueIds.has(n.personId)), dueNews, comingUp, resurfaced, loops: loopsToday, light };
+  return { justMet, overdue, due, news: newsToday.filter((n) => !dueIds.has(n.personId)), dueNews, comingUp, resurfaced, loops: loopsToday, light, replyChecks };
 }

@@ -39,8 +39,12 @@ export function withPersonDefaults(p) {
 
 // Whether a touchpoint was a light touch is kept on it, so a week's light
 // touches still count as light after someone moves on from light touch.
+// replyCheckAt: the last "Not yet" on "Did they reply?", if any.
 export function withTouchpointDefaults(t) {
-  return typeof t.lightTouch === 'boolean' ? t : { ...t, lightTouch: false };
+  const fill = {};
+  if (typeof t.lightTouch !== 'boolean') fill.lightTouch = false;
+  if (t.replyCheckAt === undefined) fill.replyCheckAt = null;
+  return Object.keys(fill).length ? { ...t, ...fill } : t;
 }
 
 export function withNewsDefaults(n) {
