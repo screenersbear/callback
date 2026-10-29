@@ -75,6 +75,11 @@
 [hidden] { display: none !important; }
 
 html { background: var(--hero); }
+/* Pulling Today down past the top: the iPhone fills the gap with the page's
+   background colour, mixing html and body, so a white body made it white.
+   On Today the body paints its white as an image instead, which looks the
+   same but leaves the colour to html's navy, the header's colour. */
+body:has(.view[data-route="today"]) { background: linear-gradient(var(--bg), var(--bg)); }
 
 body {
   margin: 0;
@@ -152,6 +157,7 @@ button:active, .row-card:active, .stat-box:active, .item-head:active { opacity: 
   gap: 12px;
   margin-bottom: 18px;
 }
+.brand-row:last-child { margin-bottom: 0; }
 
 .brand-logo-wrap {
   width: 48px;
@@ -1233,6 +1239,7 @@ details.loop-done[open] summary { margin-bottom: 8px; }
 .log-row:has(.log-row-main:active) { opacity: 0.6; }
 .log-row-side { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .log-row-side .text-btn { position: relative; z-index: 1; padding: 6px 0 0; }
+.log-row-side .resp { position: relative; z-index: 1; cursor: pointer; }
 
 /* Sheets opened from the boxes on Today. */
 .stat-group { margin: 0 0 8px; }
@@ -1355,7 +1362,11 @@ details.loop-done[open] summary { margin-bottom: 8px; }
 
 .sheet-overlay {
   position: fixed;
-  inset: 0;
+  /* The visible part of the screen, above the keyboard when it's up. */
+  top: var(--vv-top, 0px);
+  left: 0;
+  right: 0;
+  height: var(--vv-height, 100%);
   background: var(--overlay);
   display: flex;
   align-items: flex-end;
@@ -1370,7 +1381,7 @@ details.loop-done[open] summary { margin-bottom: 8px; }
   background: var(--surface);
   width: 100%;
   max-width: 560px;
-  max-height: 92svh;
+  max-height: calc(var(--vv-height, 100svh) * 0.92);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1767,7 +1778,7 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
 @media (min-width: 600px) {
   .filter-grid { grid-template-columns: repeat(3, 1fr); }
   .sheet-overlay { align-items: center; padding: 24px; }
-  .sheet { max-height: 88vh; border: 3px solid var(--ink); border-top: 4px solid var(--accent); }
+  .sheet { max-height: calc(var(--vv-height, 100vh) * 0.88); border: 3px solid var(--ink); border-top: 4px solid var(--accent); }
   .sheet-small { max-width: 460px; }
   .sheet-wide { max-width: 720px; }
 }

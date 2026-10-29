@@ -7,6 +7,42 @@ export const X_ICON =
 
 const open = [];
 
+// On an iPhone the keyboard covers the bottom of the screen without
+// shrinking the page, so a bottom sheet would slide under it. The visible
+// area is tracked here (as --vv-top and --vv-height) and sheets keep inside
+// it, and whatever field is being typed in is scrolled into view once the
+// keyboard is up. Android resizes the page itself.
+const vv = window.visualViewport;
+function fitViewport() {
+  const root = document.documentElement.style;
+  root.setProperty('--vv-top', `${vv.offsetTop}px`);
+  root.setProperty('--vv-height', `${vv.height}px`);
+}
+if (vv) {
+  vv.addEventListener('resize', fitViewport);
+  vv.addEventListener('scroll', fitViewport);
+  fitViewport();
+}
+const TYPING = 'input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]), textarea, select, [contenteditable="true"]';
+function keepInView(el) {
+  if (!el.isConnected || document.activeElement !== el) return;
+  const r = el.getBoundingClientRect();
+  const top = vv ? vv.offsetTop : 0;
+  const bottom = top + (vv ? vv.height : window.innerHeight);
+  if (r.bottom > bottom - 12 || r.top < top + 8) el.scrollIntoView({ block: 'center' });
+}
+document.addEventListener('focusin', (e) => {
+  const el = e.target;
+  if (!el.matches || !el.matches(TYPING)) return;
+  // Once now, and again after the keyboard has finished sliding up.
+  setTimeout(() => keepInView(el), 60);
+  setTimeout(() => keepInView(el), 400);
+});
+if (vv) vv.addEventListener('resize', () => {
+  const el = document.activeElement;
+  if (el && el.matches && el.matches(TYPING)) keepInView(el);
+});
+
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && open.length) open[open.length - 1].close();
 });

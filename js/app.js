@@ -137,6 +137,9 @@ function warmthIcon(w) {
   return `<svg class="warmth-icon" viewBox="0 0 16 16" aria-hidden="true">${WARMTH_ICON[w] || WARMTH_ICON.cold}</svg>`;
 }
 
+// Warmth inside a sentence: "Kai is Warm now", "Kai is on a project now".
+const warmthWord = (w) => WARMTH_INFO[w].phrase || WARMTH_INFO[w].label;
+
 function warmthBadge(w) {
   const info = WARMTH_INFO[w] || WARMTH_INFO.cold;
   return `<span class="warmth warmth-${esc(w)}">${warmthIcon(w)}<span>${esc(info.label)}</span></span>`;
@@ -1829,7 +1832,7 @@ function logRow(t) {
   return `<div class="log-row">
     <a class="log-row-main" href="#/person/${esc(t.personId)}/${esc(t.id)}"><span class="log-row-date">${esc(fmtDate(t.date))}</span>
       <b>${esc(p ? p.name : 'Someone')}</b> <span class="dot">·</span> ${esc(touchTypeLabel(t.type))}${t.lightTouch ? ' <span class="dot">·</span> Light touch' : ''}${t.note ? `<span class="log-row-note">${esc(t.note)}</span>` : ''}</a>
-    <span class="log-row-side"><span class="resp resp-${esc(t.responded)}">${esc(respondedLabel(t.responded))}</span>
+    <span class="log-row-side"><button type="button" class="resp resp-${esc(t.responded || 'pending')}" data-action="set-response" data-id="${esc(t.id)}" aria-label="Reply status: ${esc(respondedLabel(t.responded))}. Change">${esc(respondedLabel(t.responded))}</button>
       <button type="button" class="text-btn" data-action="edit-tp" data-id="${esc(t.id)}">Edit</button></span>
   </div>`;
 }
@@ -1845,6 +1848,15 @@ function statSheet(kind) {
     if (e.target.closest('[data-add]')) {
       s.close();
       personForm(null);
+    }
+    // The reply status changes in a popup over the list.
+    const resp = e.target.closest('[data-action="set-response"]');
+    const rt = resp && S.tps.find((x) => x.id === resp.dataset.id);
+    if (rt) {
+      setResponse(rt).then(() => {
+        if (s.el.isConnected) s.body.innerHTML = statContent(kind).body;
+      });
+      return;
     }
     // Editing a touchpoint opens over the list, which then shows the change.
     const edit = e.target.closest('[data-action="edit-tp"]');
@@ -2118,7 +2130,7 @@ function renderSettings() {
       <div class="set-group">
         ${numField('cadence.warm', c.warm, 'Warm', 'Days between touchpoints')}
         ${numField('cadence.active', c.active, 'Active', 'Days between touchpoints')}
-        ${numField('cadence.client', c.client, 'Client', 'Days between touchpoints')}
+        ${numField('cadence.client', c.client, WARMTH_INFO.client.label, 'Days between touchpoints')}
         ${numField('cadence.parked', c.parked, 'Parked', 'Days before they come back')}
       </div>
       <div class="set-group">
@@ -2584,7 +2596,7 @@ function personForm(p, preset = {}) {
         <label class="field"><span class="field-label">Notes</span><textarea name="notes" rows="3">${esc(v.notes || '')}</textarea></label>
         <label class="field"><span class="field-label">Custom rhythm in days (optional)</span>
           <input name="override" type="number" min="1" max="3650" inputmode="numeric" value="${esc(v.cadenceOverrideDays || '')}" placeholder="Leave empty to follow their warmth">
-          <span class="field-hint">Defaults: warm every ${span(c.warm)}, active ${span(c.active)}, client ${span(c.client)}.</span></label>
+          <span class="field-hint">Defaults: warm every ${span(c.warm)}, active ${span(c.active)}, on a project ${span(c.client)}.</span></label>
       </details>
       ${isNew ? '' : '<button type="button" class="btn danger wide" data-delete>Delete person</button>'}
       <button type="submit" class="modal-cta primary">${isNew ? 'Add person' : 'Save changes'}</button>
@@ -2798,7 +2810,7 @@ function whyText(p, tps, next) {
     if (sent === 2) return `Last try in ${span(c.coldLastTry)}. That's note 3 of ${COLD_STEPS}.`;
     return `That was the last note in the cold sequence. If ${first} hasn't replied by ${esc(fmtDate(next))}, Callback will ask whether to park them.`;
   }
-  return `${cap(span(c[p.warmth]))} after the latest touchpoint, because ${first} is ${WARMTH_INFO[p.warmth].label}.`;
+  return `${cap(span(c[p.warmth]))} after the latest touchpoint, because ${first} is ${warmthWord(p.warmth)}.`;
 }
 
 function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } = {}) {
@@ -2971,7 +2983,7 @@ function showLogged(s, p, tps, { clearedIdea = false, loop = null, lightEnded = 
   let prompt = '';
   if (p.warmth === 'parked') {
     const back = p.warmthBeforePark && p.warmthBeforePark !== 'parked' ? p.warmthBeforePark : 'warm';
-    prompt = promptBox(`${name} is still parked. Bring them back as ${WARMTH_INFO[back].label}?`, `<button type="button" class="btn primary" data-sheet-act="unpark">Bring back</button>`);
+    prompt = promptBox(`${name} is still parked. Bring them back as ${warmthWord(back)}?`, `<button type="button" class="btn primary" data-sheet-act="unpark">Bring back</button>`);
   } else if (needsWarmPrompt(p, tps)) {
     prompt = promptBox(`${name} replied. Move them to Warm?`, `<button type="button" class="btn primary" data-sheet-act="make-warm">Move to Warm</button>`);
   } else if (p.firstContact === 'justMet' && p.warmth === 'cold' && tps.length === 1) {
@@ -3124,7 +3136,7 @@ async function setWarmth(p, warmth, { quiet = false } = {}) {
   await db.savePerson(rec);
   await refresh();
   if (quiet) return;
-  const label = WARMTH_INFO[warmth].label;
+  const label = warmthWord(warmth);
   const msg = warmth === 'parked'
     ? `${p.name} parked. Back ${fmtDate(rec.nextTouchpointDate)}.`
     : `${p.name} is ${label} now${endsLight ? ', so light touch is off' : ''}. Next touchpoint ${fmtDate(rec.nextTouchpointDate)}.`;
@@ -3201,7 +3213,7 @@ async function unpark(p) {
   const rec = { ...p, ...warmthChangeFields(p, back, nowISO(), today), nextTouchpointDate: today };
   await db.savePerson(rec);
   await refresh();
-  toast(`${p.name} is ${WARMTH_INFO[back].label} again and due today.`);
+  toast(`${p.name} is ${warmthWord(back)} again and due today.`);
 }
 
 async function repark(p) {
@@ -3350,8 +3362,23 @@ async function setResponse(t) {
   await markResponse(t, key);
 }
 
+// A reply came in: how did they seem? It goes on the touchpoint and becomes
+// the person's current interest, since a reply is the freshest sign.
+// Closing the popup skips it.
+async function askInterest(t) {
+  const p = S.personById.get(t.personId);
+  return choiceSheet({
+    title: 'How did they seem?',
+    message: `In ${p ? esc(firstName(p)) : 'their'}${p ? "'s" : ''} reply. This shapes the touchpoint ideas.`,
+    options: INTEREST_LEVELS.map((i) => ({ key: i.key, label: i.label, detail: i.blurb, icon: interestIcon(i.key), current: t.interest === i.key })),
+  });
+}
+
 async function markResponse(t, key) {
-  await db.saveTouchpoint({ ...t, responded: key, respondedAt: key === 'yes' ? nowISO() : null });
+  const interest = key === 'yes' ? await askInterest(t) : null;
+  await db.saveTouchpoint({ ...t, responded: key, respondedAt: key === 'yes' ? t.respondedAt || nowISO() : null, ...(interest ? { interest } : {}) });
+  const p0 = S.personById.get(t.personId);
+  if (interest && p0 && p0.interest !== interest) await db.savePerson({ ...p0, interest });
   await refresh();
   const p = S.personById.get(t.personId);
   if (key === 'yes' && p && p.warmth === 'cold') {

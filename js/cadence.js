@@ -9,7 +9,9 @@ export const WARMTH_INFO = {
   cold: { label: 'Cold', blurb: "You haven't really connected yet." },
   warm: { label: 'Warm', blurb: 'You know each other.' },
   active: { label: 'Active', blurb: "You're talking about something right now." },
-  client: { label: 'Client', blurb: "They've hired you." },
+  // Stored as `client`. The badge says "On a project" (the full wording
+  // doesn't fit a badge); `phrase` is the mid-sentence form.
+  client: { label: 'On a project', phrase: 'on a project', blurb: 'Currently working on a project together.' },
   parked: { label: 'Parked', blurb: 'Resting for now. Callback brings them back later.' },
 };
 
