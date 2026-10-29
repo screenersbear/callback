@@ -7,7 +7,7 @@
 // knows the record was removed on purpose rather than never seen.
 import { uuid, nowISO } from './util.js';
 import { withDefaults } from './cadence.js';
-import { DEFAULT_RELATIONSHIP, DEFAULT_INTEREST } from './model.js';
+import { DEFAULT_RELATIONSHIP, DEFAULT_INTEREST, relTypesOf } from './model.js';
 
 const DB_NAME = 'callback';
 const DB_VERSION = 5;
@@ -20,6 +20,12 @@ export const SCHEMA_VERSION = 1;
 export function withPersonDefaults(p) {
   const fill = {};
   if (!p.relationshipType) fill.relationshipType = DEFAULT_RELATIONSHIP;
+  // Several relationship types came later: one type becomes a list of one.
+  // If an older copy of the app changed the single type, that choice wins.
+  const types = p.relationshipTypes;
+  if (!Array.isArray(types) || !types.length || (p.relationshipType && !types.includes(p.relationshipType))) {
+    fill.relationshipTypes = [p.relationshipType || DEFAULT_RELATIONSHIP];
+  } else if (types.join() !== relTypesOf(p).join()) fill.relationshipTypes = relTypesOf(p);
   if (p.birthday === undefined) fill.birthday = null;
   if (!Array.isArray(p.details)) fill.details = [];
   if (typeof p.dreamList !== 'boolean') fill.dreamList = false;

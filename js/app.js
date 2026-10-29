@@ -17,6 +17,7 @@ import {
   TOUCH_TYPES, touchTypeLabel, RESPONDED, respondedLabel, ROLE_SUGGESTIONS, ORG_TYPES, orgTypeLabel,
   NEWS_SUGGESTIONS, RELATIONSHIP_TYPES, DEFAULT_RELATIONSHIP, relationshipInfo, LOOP_DIRECTIONS,
   INTEREST_LEVELS, interestInfo, CIRCLE_SUGGESTIONS, FIRST_CONTACT_OPTIONS, DEFAULT_FIRST_CONTACT,
+  relTypesOf, relFields,
 } from './model.js';
 import { openSheet, confirmSheet, choiceSheet, toast, closeAllSheets } from './ui.js';
 
@@ -162,6 +163,10 @@ function relLabel(t) {
   const info = relationshipInfo(t);
   return `<span class="rel rel-${esc(info.key)}">${relIcon(info.key)}<span>${esc(info.label)}</span></span>`;
 }
+
+// Every relationship type someone has, side by side.
+const relLabels = (p) => relTypesOf(p).map(relLabel).join('');
+const relWords = (p) => joinWords(relTypesOf(p).map((k) => relationshipInfo(k).label));
 
 const NEWS_ICON = '<svg class="warmth-icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="13" height="11.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M1.5 6.8h13M5 1v3.5M11 1v3.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
 
@@ -601,7 +606,7 @@ function personCard(p, kind, news = null) {
 function itemHead(p) {
   const sub = subLine(p);
   return `<a class="item-head" href="#/person/${esc(p.id)}">
-      <span class="item-who"><span class="item-name">${esc(p.name)}</span>${sub ? `<span class="item-sub">${sub}</span>` : ''}${relLabel(p.relationshipType)}${circleChips(p)}</span>
+      <span class="item-who"><span class="item-name">${esc(p.name)}</span>${sub ? `<span class="item-sub">${sub}</span>` : ''}${relLabels(p)}${circleChips(p)}</span>
       ${warmthBadge(p.warmth)}
     </a>`;
 }
@@ -708,7 +713,7 @@ function filteredPeople() {
   const q = f.q.trim().toLowerCase();
   let list = S.people.filter((p) => f.showParked || p.warmth !== 'parked');
   if (f.warmth.size) list = list.filter((p) => f.warmth.has(p.warmth));
-  if (f.rel.size) list = list.filter((p) => f.rel.has(p.relationshipType));
+  if (f.rel.size) list = list.filter((p) => relTypesOf(p).some((k) => f.rel.has(k)));
   if (f.interest.size) list = list.filter((p) => f.interest.has(p.interest));
   if (f.circles.size) list = list.filter((p) => p.circleIds.some((id) => f.circles.has(id)));
   if (f.loops) list = list.filter((p) => openLoopsOf(p.id).length);
@@ -897,8 +902,8 @@ function renderPerson(id) {
       <div class="person-badges">
         <button type="button" class="warmth-btn" data-action="change-warmth" data-id="${pid}" aria-label="Change warmth, now ${esc(WARMTH_INFO[p.warmth].label)}">
           ${warmthBadge(p.warmth)}<span class="warmth-btn-hint">Change</span></button>
-        <button type="button" class="warmth-btn" data-action="change-rel" data-id="${pid}" aria-label="Change relationship, now ${esc(relationshipInfo(p.relationshipType).label)}">
-          ${relLabel(p.relationshipType)}<span class="warmth-btn-hint">Change</span></button>
+        <button type="button" class="warmth-btn" data-action="change-rel" data-id="${pid}" aria-label="Change relationship, now ${esc(relWords(p))}">
+          <span class="rel-set">${relLabels(p)}</span><span class="warmth-btn-hint">Change</span></button>
         <button type="button" class="warmth-btn" data-action="change-interest" data-id="${pid}" aria-label="Change interest, now ${esc(interestInfo(p.interest).label)}">
           ${interestLabel(p.interest, { prefix: true })}<span class="warmth-btn-hint">Change</span></button>
         ${p.dreamList ? dreamBadge() : ''}
@@ -2412,7 +2417,7 @@ async function quickAddPerson({ name, instagram, note, where, followed, circleId
     tags: [],
     notes: note,
     cadenceOverrideDays: null,
-    relationshipType: DEFAULT_RELATIONSHIP,
+    ...relFields([DEFAULT_RELATIONSHIP]),
     interest: 'unknown',
     dreamList: false,
     introducedById: null,
@@ -2552,11 +2557,12 @@ function personForm(p, preset = {}) {
       <div class="picker-row"><span class="field-label">Circles</span>
         <button type="button" class="picker-btn" data-pick="circles"></button>
         <span class="field-hint">Your own groups, like Actors or Models. Someone can be in more than one.</span></div>
-      <fieldset class="field"><legend class="field-label">Relationship</legend>
+      <fieldset class="field"><legend class="field-label">Relationship (tick any that fit)</legend>
         <div class="warmth-options">${RELATIONSHIP_TYPES.map((r) => `<label class="warmth-option">
-          <input type="radio" name="relationshipType" value="${r.key}"${(v.relationshipType || DEFAULT_RELATIONSHIP) === r.key ? ' checked' : ''}>
+          <input type="checkbox" name="relationshipTypes" value="${r.key}"${relTypesOf(v).includes(r.key) ? ' checked' : ''}>
           <span class="warmth-option-body">${relLabel(r.key)}<span class="warmth-option-blurb">${esc(r.blurb)}</span></span>
-        </label>`).join('')}</div></fieldset>
+        </label>`).join('')}</div>
+        <p class="field-error" data-error="rel" hidden>Tick at least one.</p></fieldset>
       <fieldset class="field"><legend class="field-label">Warmth</legend>
         <div class="warmth-options">${WARMTH.map((w) => `<label class="warmth-option">
           <input type="radio" name="warmth" value="${w}"${v.warmth === w ? ' checked' : ''}>
@@ -2644,8 +2650,8 @@ function personForm(p, preset = {}) {
       if (e.target.name === 'warmth') {
         warmthTouched = true;
         autoClient = false;
-      } else if (e.target.name === 'relationshipType' && !warmthTouched) {
-        const past = e.target.value === 'pastClient';
+      } else if (e.target.name === 'relationshipTypes' && e.target.value === 'pastClient' && !warmthTouched) {
+        const past = e.target.checked;
         if (past || autoClient) form.querySelector(`[name="warmth"][value="${past ? 'client' : v.warmth || 'cold'}"]`).checked = true;
         autoClient = past;
       }
@@ -2688,6 +2694,11 @@ function personForm(p, preset = {}) {
       form.querySelector('[name="name"]').focus();
       return;
     }
+    if (!fd.getAll('relationshipTypes').length) {
+      form.querySelector('[data-error="rel"]').hidden = false;
+      form.querySelector('[name="relationshipTypes"]').focus();
+      return;
+    }
     const today = todayStr();
     const now = nowISO();
 
@@ -2710,7 +2721,7 @@ function personForm(p, preset = {}) {
       tags: parseTags(get('tags')),
       notes: get('notes'),
       cadenceOverrideDays: override > 0 ? override : null,
-      relationshipType: get('relationshipType') || DEFAULT_RELATIONSHIP,
+      ...relFields(fd.getAll('relationshipTypes').map(String)),
       dreamList: !!fd.get('dreamList'),
       introducedById,
       introducedByName,
@@ -3172,24 +3183,52 @@ async function interestSheet(p) {
   });
 }
 
+// Tick any that fit; at least one stays ticked.
+function relationshipPicker(p) {
+  return new Promise((resolve) => {
+    let result = null;
+    const now = relTypesOf(p);
+    const s = openSheet({
+      title: "What's this relationship?",
+      className: 'sheet-small has-footer',
+      body: `<p class="sheet-message">Tick any that fit. This shapes the touchpoint ideas; how often you reach out still follows their warmth.</p>
+        <div class="warmth-options">${RELATIONSHIP_TYPES.map((r) => `<label class="warmth-option">
+          <input type="checkbox" value="${r.key}"${now.includes(r.key) ? ' checked' : ''}>
+          <span class="warmth-option-body">${relLabel(r.key)}<span class="warmth-option-blurb">${esc(r.blurb)}</span></span>
+        </label>`).join('')}</div>
+        <p class="field-error" data-error="rel" hidden>Tick at least one.</p>
+        <div class="sheet-footer"><button type="button" class="modal-cta primary" data-done>Done</button></div>`,
+      onClose: () => resolve(result),
+    });
+    s.body.addEventListener('change', () => { s.body.querySelector('[data-error="rel"]').hidden = true; });
+    s.body.querySelector('[data-done]').addEventListener('click', () => {
+      const picked = [...s.body.querySelectorAll('input:checked')].map((x) => x.value);
+      if (!picked.length) {
+        s.body.querySelector('[data-error="rel"]').hidden = false;
+        return;
+      }
+      result = picked;
+      s.close();
+    });
+  });
+}
+
 async function relationshipSheet(p) {
   if (!p) return;
-  const key = await choiceSheet({
-    title: "What's this relationship?",
-    message: 'This shapes the touchpoint ideas. How often you reach out still follows their warmth.',
-    options: RELATIONSHIP_TYPES.map((r) => ({ key: r.key, label: r.label, detail: r.blurb, icon: relIcon(r.key), current: p.relationshipType === r.key })),
-  });
-  if (!key || key === p.relationshipType) return;
-  const rec = { ...p, relationshipType: key };
+  const picked = await relationshipPicker(p);
+  if (!picked) return;
+  const fields = relFields(picked);
+  if (fields.relationshipTypes.join() === relTypesOf(p).join()) return;
+  const rec = { ...p, ...fields };
   const endsLight = leavesLightTouch(p, rec);
   if (endsLight) Object.assign(rec, lightOffFields(rec, tpsOf(p.id), S.settings, todayStr()));
   await db.savePerson(rec);
   await refresh();
-  toast(`${firstName(p)} is marked as ${relationshipInfo(key).label}${endsLight ? ', and light touch is off' : ''}.`, {
+  toast(`${firstName(p)} is marked as ${relWords(rec)}${endsLight ? ', and light touch is off' : ''}.`, {
     action: {
       label: 'Undo',
       run: async () => {
-        const back = { relationshipType: p.relationshipType, ...(endsLight ? { lightTouch: true, nextTouchpointDate: p.nextTouchpointDate } : {}) };
+        const back = { ...relFields(relTypesOf(p)), ...(endsLight ? { lightTouch: true, nextTouchpointDate: p.nextTouchpointDate } : {}) };
         await db.savePerson({ ...S.personById.get(p.id), ...back });
         await refresh();
       },
@@ -3673,7 +3712,7 @@ async function addPeople(contacts, warmth, relationshipType = DEFAULT_RELATIONSH
       birthday: c.birthday || null,
       details: [],
       organizationId: c.org ? orgIds.get(c.org.trim().toLowerCase()) : null,
-      relationshipType,
+      ...relFields([relationshipType]),
       cadenceOverrideDays: null,
       pastOrganizations: [],
       ...warmthChangeFields({}, warmth, now, today),

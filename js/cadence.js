@@ -2,6 +2,7 @@
 // work out when to reach out next. Pure functions only, no storage or DOM,
 // so the same rules can run anywhere (a future sync server or feed included).
 import { addDays, addMonths, todayStr, maxDate, span, daysBetween, toDateStr, weekStartStr } from './util.js';
+import { relTypesOf } from './model.js';
 
 export const WARMTH = ['cold', 'warm', 'active', 'client', 'parked'];
 
@@ -218,7 +219,8 @@ export function firstContactStage(person, tps) {
 export function leavesLightTouch(before, after) {
   if (!after.lightTouch) return false;
   const became = (k, v) => after[k] === v && before[k] !== v;
-  return became('warmth', 'active') || became('warmth', 'client') || became('relationshipType', 'pastClient');
+  const nowPast = relTypesOf(after).includes('pastClient') && !relTypesOf(before).includes('pastClient');
+  return became('warmth', 'active') || became('warmth', 'client') || nowPast;
 }
 
 // Fields for taking someone off light touch: their normal rhythm from the

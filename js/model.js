@@ -91,6 +91,22 @@ export function relationshipInfo(key) {
   return RELATIONSHIP_TYPES.find((r) => r.key === key) || RELATIONSHIP_TYPES[0];
 }
 
+// Someone can be several of these at once (a past client who's also a
+// collaborator). `relationshipTypes` holds them in this list's order;
+// `relationshipType` keeps the first, for older copies of the app.
+export function relTypesOf(p) {
+  const list = p && Array.isArray(p.relationshipTypes) && p.relationshipTypes.length
+    ? p.relationshipTypes
+    : [(p && p.relationshipType) || DEFAULT_RELATIONSHIP];
+  const keys = RELATIONSHIP_TYPES.map((r) => r.key).filter((k) => list.includes(k));
+  return keys.length ? keys : [DEFAULT_RELATIONSHIP];
+}
+
+export function relFields(types) {
+  const list = relTypesOf({ relationshipTypes: types });
+  return { relationshipTypes: list, relationshipType: list[0] };
+}
+
 // Open loops: small promises, either way.
 export const LOOP_DIRECTIONS = [
   { key: 'iOwe', label: 'On your side', blurb: 'Something you promised.' },

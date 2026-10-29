@@ -2,6 +2,7 @@
 // "just checking in". One shows under each due person, rotating daily.
 import { hash, todayStr, daysBetween, parseDate } from './util.js';
 import { yearlyWindow } from './cadence.js';
+import { relTypesOf } from './model.js';
 
 const GENERAL = [
   "Send a recent frame that fits something they're working on.",
@@ -183,13 +184,18 @@ export function ideasFor(person, { firstContact = null } = {}) {
 }
 
 function builtInIdeasFor(person) {
-  // A known interest level leads; unknown falls back to relationship and role.
+  // A known interest level leads; unknown falls back to relationship and
+  // role. Someone with several relationship types gets each one's ideas.
   if (person && BY_INTEREST[person.interest]) return BY_INTEREST[person.interest];
-  if (person && person.relationshipType === 'collaborator') return COLLABORATOR;
-  if (person && person.relationshipType === 'pastClient') return PAST_CLIENT;
+  const types = relTypesOf(person);
   const role = (person && person.role) || '';
-  const own = BY_ROLE.filter((r) => r.match.test(role)).flatMap((r) => r.ideas);
-  return [...own, ...GENERAL];
+  const list = [];
+  if (types.includes('pastClient')) list.push(...PAST_CLIENT);
+  if (types.includes('collaborator')) list.push(...COLLABORATOR);
+  if (types.includes('prospect') || types.includes('industry')) {
+    list.push(...BY_ROLE.filter((r) => r.match.test(role)).flatMap((r) => r.ideas), ...GENERAL);
+  }
+  return [...new Set(list)];
 }
 
 // Same idea all day for the same person; `turn` steps to the next one.
