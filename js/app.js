@@ -819,7 +819,6 @@ function renderPeople() {
     <header class="topbar"><h1>People</h1>
       <span class="topbar-actions">
         <a class="dream-link" href="#/dreams">${DREAM_STAR}Dream list</a>
-        <button type="button" class="icon-btn" data-action="add-person" aria-label="Add person">+</button>
       </span></header>
     <div class="quick-row">
       <button type="button" class="primary small-btn" data-action="add-person">+ Add person</button>
