@@ -262,7 +262,15 @@ export async function saveIdeas(list) {
 }
 
 // ---- Weekly reflections (one record per week, keyed by its Monday) ----
-export const getWeeks = () => getAll('weeks');
+// What worked is a list of points, `{ id, text }`. A reflection saved before
+// that, as one block of text, reads as a single point. `reflection` keeps the
+// points as plain text, one per line, alongside.
+export function withWeekDefaults(w) {
+  if (Array.isArray(w.points)) return w;
+  const text = (w.reflection || '').trim();
+  return { ...w, points: text ? [{ id: 'reflection', text }] : [] };
+}
+export const getWeeks = async () => (await getAll('weeks')).map(withWeekDefaults);
 export async function getWeek(weekStart) {
   const list = await getByIndex('weeks', 'weekStart', weekStart);
   return list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] || null;
@@ -306,6 +314,7 @@ export async function exportAll() {
   data.people = data.people.map(withPersonDefaults);
   data.news = data.news.map(withNewsDefaults);
   data.touchpoints = data.touchpoints.map(withTouchpointDefaults);
+  data.weeks = data.weeks.map(withWeekDefaults);
   data.settings = data.settings.map(withDefaults);
   return { app: 'callback', version: SCHEMA_VERSION, exportedAt: nowISO(), data };
 }
@@ -327,6 +336,7 @@ export function readExport(payload) {
   data.people = data.people.map(withPersonDefaults);
   data.news = data.news.map(withNewsDefaults);
   data.touchpoints = data.touchpoints.map(withTouchpointDefaults);
+  data.weeks = data.weeks.map(withWeekDefaults);
   return data;
 }
 

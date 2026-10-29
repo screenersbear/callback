@@ -1914,7 +1914,6 @@ function renderWeek() {
   const ws = weekStartStr(today);
   const w = weekStats(ws);
   const g = S.settings.goals;
-  const rec = weekRecord(ws);
   const metBoth = w.regular.length >= g.touchpoints && w.added.length >= g.newPeople;
 
   const logged = sortTouchpoints(w.tps).map(logRow).join('');
@@ -1938,8 +1937,8 @@ function renderWeek() {
           return `<article class="week-card">
             <p class="week-card-head"><span class="week-card-range">${esc(weekRange(pw))}</span>${met ? '<span class="week-card-met">Goal met</span>' : ''}</p>
             <p class="week-card-stats">${plural(s.regular.length, 'touchpoint')}${s.light.length ? ` <span class="dot">·</span> ${plural(s.light.length, 'light touch', 'light touches')}` : ''} <span class="dot">·</span> ${plural(s.replies.length, 'reply', 'replies')} <span class="dot">·</span> ${s.added.length} new</p>
-            ${r && r.reflection ? `<p class="week-card-reflection pre">${esc(r.reflection)}</p>` : ''}
-            <button type="button" class="text-btn" data-action="edit-reflection" data-week="${pw}">${r && r.reflection ? 'Edit reflection' : 'Add a reflection'}</button>
+            ${r && r.points.length ? `<div class="points week-card-points" data-week="${pw}"><ul class="point-list">${pointItems(r.points)}</ul></div>` : ''}
+            <button type="button" class="text-btn" data-action="edit-reflection" data-week="${pw}">${r && r.points.length ? '+ Add a point' : 'Add a reflection'}</button>
           </article>`;
         })
         .join('')
@@ -1960,21 +1959,117 @@ function renderWeek() {
       <p class="goals-note">${metBoth ? 'Both goals met. Lovely week.' : 'Goals reset every Monday. Change them in Settings.'}</p>
     </div>
     <section class="section-block">
-      <h2 class="heading-yellow static"><label for="reflection">What worked this week?</label></h2>
-      <textarea id="reflection" class="reflection" data-week="${ws}" rows="5" placeholder="A note that landed, a reply that surprised you, something to try again next week.">${esc(rec ? rec.reflection : '')}</textarea>
-      <p class="save-state" id="reflectionState" aria-live="polite">${rec && rec.reflection ? 'Saved' : ''}</p>
+      <h2 class="heading-yellow static"><label for="pointNew">What worked this week?</label></h2>
+      ${pointsEditorHTML(ws, 'pointNew')}
     </section>
     ${sectionBlock('week-logged', 'Logged this week', w.tps.length, logged || '<p class="hint">Nothing logged yet this week. Today has a list of who to reach out to.</p>', 'navy')}
     ${sectionBlock('week-past', 'Past weeks', pastWeeks.length || null, pastHTML, 'yellow')}`;
 }
 
-const saveReflection = debounce(async (ws, text) => {
+// What worked, as a running list. The box on top adds a point (Enter or
+// Add) and stays ready for the next; each point shows as plain text under
+// it, newest first, and tapping one turns it back into a box to edit.
+// Emptying a point removes it.
+const pointItem = (pt) => `<li class="point" data-id="${esc(pt.id)}"><button type="button" class="point-text" data-point-edit>${esc(pt.text)}</button></li>`;
+const pointItems = (points) => [...points].reverse().map(pointItem).join('');
+const POINT_FIRST = 'A note that landed, a reply that surprised you, something to try again.';
+const POINT_MORE = 'Something else that worked?';
+
+function pointsEditorHTML(ws, inputId = '') {
   const rec = weekRecord(ws);
-  const saved = await db.saveWeek({ ...(rec || { weekStart: ws }), reflection: text });
-  S.weeks = [...S.weeks.filter((x) => x.id !== saved.id), saved];
-  const el = document.getElementById('reflectionState');
-  if (el) el.textContent = 'Saved';
-}, 500);
+  const points = rec ? rec.points : [];
+  return `<div class="points" data-week="${ws}">
+    <div class="point-new"><span class="point-dot" aria-hidden="true"></span>
+      <textarea class="point-input" data-point-new rows="1"${inputId ? ` id="${inputId}"` : ''} enterkeyhint="done" placeholder="${points.length ? POINT_MORE : POINT_FIRST}" aria-label="Add something that worked"></textarea>
+      <button type="button" class="primary small-btn" data-point-add>Add</button></div>
+    <ul class="point-list">${pointItems(points)}</ul>
+    <p class="save-state" aria-live="polite"></p>
+  </div>`;
+}
+
+// Saves go one at a time, each on top of the last, so quick adds and edits
+// never overwrite each other (or start a second record for the week).
+let pointsQueue = Promise.resolve();
+function changePoints(box, change) {
+  const ws = box.dataset.week;
+  const state = box.querySelector('.save-state');
+  if (state) state.textContent = 'Saving';
+  pointsQueue = pointsQueue.then(async () => {
+    const rec = weekRecord(ws);
+    const points = change(rec ? rec.points : []);
+    const saved = await db.saveWeek({ ...(rec || { weekStart: ws }), points, reflection: points.map((p) => p.text).join('\n') });
+    S.weeks = [...S.weeks.filter((x) => x.id !== saved.id), saved];
+    if (state && state.isConnected) state.textContent = 'Saved';
+  }).catch(() => toast("Couldn't save that. Try again."));
+  return pointsQueue;
+}
+
+const pointText = (v) => v.replace(/\s*\n+\s*/g, ' ').trim();
+
+function addPoint(box, { keepFocus = true } = {}) {
+  const input = box.querySelector('[data-point-new]');
+  const text = pointText(input.value);
+  if (keepFocus) input.focus();
+  if (!text) return;
+  const pt = { id: uuid(), text };
+  input.value = '';
+  fitHeight(input);
+  input.placeholder = POINT_MORE;
+  box.querySelector('.point-list').insertAdjacentHTML('afterbegin', pointItem(pt));
+  changePoints(box, (points) => [...points, pt]);
+}
+
+function startPointEdit(btn) {
+  const li = btn.closest('.point');
+  const ta = document.createElement('textarea');
+  ta.className = 'point-input';
+  ta.rows = 1;
+  ta.dataset.pointEditing = '1';
+  ta.setAttribute('enterkeyhint', 'done');
+  ta.setAttribute('aria-label', 'Edit this point. Empty it to remove it.');
+  ta.value = btn.textContent;
+  ta.dataset.was = btn.textContent;
+  li.replaceChildren(ta);
+  fitHeight(ta);
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+}
+
+function finishPointEdit(ta) {
+  if (ta.dataset.done) return;
+  ta.dataset.done = '1';
+  const li = ta.closest('.point');
+  const box = ta.closest('.points');
+  const id = li.dataset.id;
+  const text = pointText(ta.value);
+  if (text === ta.dataset.was) {
+    li.innerHTML = pointItem({ id, text }).replace(/^<li[^>]*>|<\/li>$/g, '');
+    return;
+  }
+  if (!text) {
+    // Removed, with Undo putting it back where it was.
+    let removed = null;
+    let at = -1;
+    li.remove();
+    changePoints(box, (points) => {
+      at = points.findIndex((p) => p.id === id);
+      removed = points[at] || null;
+      return points.filter((p) => p.id !== id);
+    });
+    toast('Point removed', {
+      action: {
+        label: 'Undo',
+        run: async () => {
+          await changePoints(box, (points) => (removed ? [...points.slice(0, at), removed, ...points.slice(at)] : points));
+          render();
+        },
+      },
+    });
+    return;
+  }
+  li.innerHTML = pointItem({ id, text }).replace(/^<li[^>]*>|<\/li>$/g, '');
+  changePoints(box, (points) => points.map((p) => (p.id === id ? { ...p, text } : p)));
+}
 
 // ---------------------------------------------------------------------------
 // Settings
@@ -3229,23 +3324,20 @@ function orgForm(o) {
   }
 }
 
+// An earlier week's points, with the same box and list as this week.
 function reflectionSheet(ws) {
-  const rec = weekRecord(ws);
   const s = openSheet({
     title: `Week of ${weekRange(ws)}`,
-    body: `<form class="form">
-      <label class="field"><span class="field-label">What worked this week?</span>
-        <textarea name="reflection" rows="7">${esc(rec ? rec.reflection : '')}</textarea></label>
-      <button type="submit" class="modal-cta primary">Save</button>
-    </form>`,
-  });
-  s.body.querySelector('form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const text = String(new FormData(e.target).get('reflection') || '').trim();
-    await db.saveWeek({ ...(rec || { weekStart: ws }), reflection: text });
-    s.close();
-    await refresh();
-    toast('Saved');
+    body: `<p class="field-label points-label">What worked that week?</p>
+      ${pointsEditorHTML(ws)}
+      <button type="button" class="modal-cta primary" data-close>Done</button>`,
+    // Whatever is still being typed in the box is kept too.
+    onClose: async () => {
+      const input = s.body.querySelector('[data-point-new]');
+      if (input && pointText(input.value)) addPoint(s.body.querySelector('.points'), { keepFocus: false });
+      await pointsQueue;
+      render();
+    },
   });
 }
 
@@ -3942,7 +4034,7 @@ document.addEventListener('keydown', (e) => {
 
 document.addEventListener('input', (e) => {
   const t = e.target;
-  if (t.matches && t.matches('textarea.pd-value, textarea.log-note')) fitHeight(t);
+  if (t.matches && t.matches('textarea.pd-value, textarea.log-note, textarea.point-input')) fitHeight(t);
   if (t.id === 'peopleSearch') {
     S.ui.people.q = t.value;
     updatePeopleList();
@@ -3952,11 +4044,35 @@ document.addEventListener('input', (e) => {
     const tmp = document.createElement('div');
     tmp.innerHTML = renderOrgs();
     list.innerHTML = tmp.querySelector('#orgList').innerHTML;
-  } else if (t.id === 'reflection') {
-    const st = document.getElementById('reflectionState');
-    if (st) st.textContent = 'Saving';
-    saveReflection(t.dataset.week, t.value);
   }
+});
+
+// What worked: Enter adds a point (or finishes an edit), a tap on a point
+// edits it, and leaving an edited point saves it. Works on Weekly review and
+// in the sheet for an earlier week.
+document.addEventListener('keydown', (e) => {
+  const t = e.target;
+  if (e.key !== 'Enter' || e.shiftKey || e.isComposing || !t.matches || !t.matches('textarea.point-input')) return;
+  e.preventDefault();
+  if (t.dataset.pointEditing) t.blur();
+  else addPoint(t.closest('.points'));
+});
+document.addEventListener('click', (e) => {
+  const edit = e.target.closest('[data-point-edit]');
+  if (edit) startPointEdit(edit);
+  const add = e.target.closest('[data-point-add]');
+  if (add) addPoint(add.closest('.points'));
+});
+document.addEventListener('focusout', (e) => {
+  const t = e.target;
+  if (!t.matches) return;
+  if (t.matches('textarea[data-point-editing]')) finishPointEdit(t);
+  // Typed but not added yet: keep it rather than lose it on the way out.
+  else if (t.matches('textarea[data-point-new]') && pointText(t.value) && t.isConnected) addPoint(t.closest('.points'), { keepFocus: false });
+});
+// Tapping Add keeps the keyboard up for the next point.
+document.addEventListener('mousedown', (e) => {
+  if (e.target.closest && e.target.closest('[data-point-add]')) e.preventDefault();
 });
 
 document.addEventListener('change', (e) => {
