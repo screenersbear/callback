@@ -8,7 +8,7 @@ import {
 import {
   WARMTH, WARMTH_INFO, COLD_STEPS, computeNextDate, warmthChangeFields, cadenceLabel, needsParkPrompt,
   needsWarmPrompt, SNOOZE_OPTIONS, snoozeDate, buildToday, coldState, sortTouchpoints, nextYearly, isDreamOnly,
-  firstContactStage, JUST_MET_DAYS,
+  firstContactStage, JUST_MET_DAYS, leavesLightTouch, lightOffFields, isEngaging, ideaStage,
 } from './cadence.js';
 import { pickIdea, yearlyIdea, setIdeaLibrary, isOwnIdea } from './ideas.js';
 import { upcomingEvents, buildCalendar } from './ics.js';
@@ -46,11 +46,12 @@ const S = {
   installPrompt: null,
   ui: {
     ideaTurn: new Map(),
-    collapsed: new Set(),
+    // Light touches start folded away at the bottom of Today.
+    collapsed: new Set(['today-light']),
     scroll: new Map(),
     backTo: null,
-    people: { q: '', sort: 'contact', sortOpen: false, warmth: new Set(), rel: new Set(), interest: new Set(), circles: new Set(), loops: false, dream: false, role: '', tag: '', org: '', showParked: false, filtersOpen: false },
-    circle: { sort: 'contact', sortOpen: false },
+    people: { q: '', sort: 'contact', sortOpen: false, warmth: new Set(), rel: new Set(), interest: new Set(), circles: new Set(), loops: false, dream: false, light: false, role: '', tag: '', org: '', showParked: false, filtersOpen: false },
+    circle: { sort: 'contact', sortOpen: false, light: false },
     circlesReorder: false,
     orgsQ: '',
   },
@@ -200,6 +201,14 @@ function dreamBadge() {
   return `<span class="dream-badge">${DREAM_STAR}<span>Dream list</span></span>`;
 }
 
+// Light touch: a feather, for weak ties kept faintly familiar.
+const LIGHT_ICON = '<svg class="warmth-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M14.2 1.8c-5.2.3-9 3.5-9.8 9.6l.6.6c6-.8 9-4.8 9.2-10.2z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M1.8 14.2l8-8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+const QUICK_ICON = '<svg class="warmth-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M9.6 1.2L3.2 9.1h4.3l-1.1 5.7 6.4-7.9H8.5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>';
+
+function lightBadge() {
+  return `<span class="dream-badge light-badge">${LIGHT_ICON}<span>Light touch</span></span>`;
+}
+
 const dreamOnly = (p) => isDreamOnly(p, tpsOf(p.id));
 const firstStage = (p) => firstContactStage(p, tpsOf(p.id));
 
@@ -285,8 +294,8 @@ function promptBox(text, buttons) {
 function shownIdea(p) {
   const own = (p.customIdea || '').trim();
   const turn = S.ui.ideaTurn.get(p.id) || 0;
-  const firstContact = firstStage(p);
-  const yearly = own || turn || firstContact ? null : yearlyIdea(newsOf(p.id), tpsOf(p.id));
+  const firstContact = ideaStage(p, tpsOf(p.id));
+  const yearly = own || turn || firstContact ? null : yearlyIdea(newsOf(p.id), tpsOf(p.id), todayStr(), { light: p.lightTouch });
   return { own, yearly, text: own || yearly || pickIdea(p, todayStr(), turn, { firstContact }) };
 }
 
@@ -415,7 +424,7 @@ function renderToday() {
   const g = S.settings.goals;
   html += `<div class="stats-row">
     ${statBox(t.justMet.length + t.overdue.length + t.due.length, 'To reach out', null, 'reach')}
-    ${statBox(`${week.tps.length}<small>/${g.touchpoints}</small>`, 'Touchpoints this week', null, 'touchpoints')}
+    ${statBox(`${week.regular.length}<small>/${g.touchpoints}</small>`, 'Touchpoints this week', null, 'touchpoints')}
     ${statBox(`${week.added.length}<small>/${g.newPeople}</small>`, 'New people this week', null, 'added')}
   </div>`;
   html += exportReminderHTML(today);
@@ -432,8 +441,28 @@ function renderToday() {
     sections.push(['resurfaced', 'Resurfaced', t.resurfaced.length, t.resurfaced.map((p) => personCard(p, 'resurfaced')).join('')]);
   }
 
-  if (!sections.length) return html + caughtUpHTML(today);
-  return html + sections.map(([key, title, n, inner], i) => sectionBlock(key, title, n, inner, i % 2 ? 'navy' : 'yellow')).join('');
+  // Light touches wait at the bottom, folded away, to do in one sitting.
+  const light = t.light.length
+    ? sectionBlock('today-light', 'Light touches', t.light.length, `
+      <p class="light-intro">${plural(t.light.length, 'light touch', 'light touches')} this week. Small gestures, easy to do in one sitting.</p>
+      <div class="light-list">${t.light.map(lightRow).join('')}</div>`, sections.length % 2 ? 'navy' : 'yellow')
+    : '';
+  if (!sections.length) return html + caughtUpHTML(today) + light;
+  return html + sections.map(([key, title, n, inner], i) => sectionBlock(key, title, n, inner, i % 2 ? 'navy' : 'yellow')).join('') + light;
+}
+
+// One light touch on Today: who, their circle and a light idea, with Log
+// and Snooze. Never late: a missed one just carries on to the next sitting.
+function lightRow(p) {
+  const id = esc(p.id);
+  return `<div class="light-row">
+    <a class="light-main" href="#/person/${id}"><span class="light-who"><span class="light-name">${esc(p.name)}</span>${circleChips(p)}</span>
+      <span class="light-idea">${esc(shownIdea(p).text)}</span></a>
+    <span class="light-actions">
+      <button type="button" class="primary small-btn" data-action="log" data-id="${id}">Log</button>
+      <button type="button" class="secondary small-btn" data-action="snooze" data-id="${id}">Snooze</button>
+    </span>
+  </div>`;
 }
 
 function firstRunHTML() {
@@ -460,7 +489,7 @@ function firstRunHTML() {
 
 function caughtUpHTML(today) {
   const upcoming = S.people
-    .filter((p) => p.warmth !== 'parked' && !dreamOnly(p) && (p.nextTouchpointDate || today) > today)
+    .filter((p) => p.warmth !== 'parked' && !p.lightTouch && !dreamOnly(p) && (p.nextTouchpointDate || today) > today)
     .sort((a, b) => a.nextTouchpointDate.localeCompare(b.nextTouchpointDate))
     .slice(0, 4);
   return `<div class="caught-up">
@@ -559,7 +588,7 @@ function newsCard(n, { coming = false } = {}) {
   const today = todayStr();
   const id = esc(p.id);
   const when = n.date === today ? 'Today' : coming ? `${fmtDate(n.date)}, ${relDay(n.date, today)}` : cap(relDay(n.date, today));
-  const idea = (n.repeatsYearly && yearlyIdea([n], tpsOf(p.id), today)) || 'Congratulate them, or send something that fits the moment.';
+  const idea = (n.repeatsYearly && yearlyIdea([n], tpsOf(p.id), today, { light: p.lightTouch })) || 'Congratulate them, or send something that fits the moment.';
   return `<article class="item-card news-card">
     ${itemHead(p)}
     <p class="news-line"><span class="news-when">${esc(when)}</span>${esc(n.description)}${n.repeatsYearly ? ' <span class="yearly-tag">Every year</span>' : ''}</p>
@@ -634,6 +663,7 @@ function personRow(p) {
   let nextText;
   if (firstStage(p) === 'justMet') nextText = `<b>${esc(followUpText(p, today))}</b>`;
   else if (dreamOnly(p)) nextText = 'Not reached out yet';
+  else if (p.lightTouch && p.warmth !== 'parked' && next <= addDays(weekStartStr(today), 6)) nextText = 'Light touch this week';
   else if (p.warmth === 'parked') nextText = `Back ${esc(fmtDate(next, { weekday: false }))}`;
   else if (next < today) nextText = `<b>${esc(nextRelText(next, today))}</b>`;
   else if (next === today) nextText = '<b>Due today</b>';
@@ -644,7 +674,7 @@ function personRow(p) {
       ${sub ? `<span class="row-sub">${sub}</span>` : ''}
       <span class="row-meta">${dreamOnly(p) ? `<span class="nowrap">${nextText}</span>` : `<span class="nowrap">${esc(sinceText(p, today))}</span> <span class="dot">·</span> <span class="nowrap">${nextText}</span>`}</span>
     </span>
-    <span class="row-badges">${warmthBadge(p.warmth)}${p.dreamList ? `<span class="dream-mark" title="Dream list">${DREAM_STAR}<span class="visually-hidden">Dream list</span></span>` : ''}${loopCountBadge(openLoopsOf(p.id).length)}</span>
+    <span class="row-badges">${warmthBadge(p.warmth)}${p.lightTouch ? `<span class="dream-mark" title="Light touch">${LIGHT_ICON}<span class="visually-hidden">Light touch</span></span>` : ''}${p.dreamList ? `<span class="dream-mark" title="Dream list">${DREAM_STAR}<span class="visually-hidden">Dream list</span></span>` : ''}${loopCountBadge(openLoopsOf(p.id).length)}</span>
   </a>`;
 }
 
@@ -659,6 +689,7 @@ function filteredPeople() {
   if (f.circles.size) list = list.filter((p) => p.circleIds.some((id) => f.circles.has(id)));
   if (f.loops) list = list.filter((p) => openLoopsOf(p.id).length);
   if (f.dream) list = list.filter((p) => p.dreamList);
+  if (f.light) list = list.filter((p) => p.lightTouch);
   if (f.role) list = list.filter((p) => (p.role || '').toLowerCase() === f.role.toLowerCase());
   if (f.tag) list = list.filter((p) => (p.tags || []).some((t) => t.toLowerCase() === f.tag.toLowerCase()));
   if (f.org) list = list.filter((p) => p.organizationId === f.org);
@@ -691,7 +722,7 @@ function sortPeople(list, sort) {
 
 function activeFilterCount() {
   const f = S.ui.people;
-  return f.warmth.size + f.rel.size + f.interest.size + f.circles.size + (f.loops ? 1 : 0) + (f.dream ? 1 : 0) + (f.role ? 1 : 0) + (f.tag ? 1 : 0) + (f.org ? 1 : 0);
+  return f.warmth.size + f.rel.size + f.interest.size + f.circles.size + (f.loops ? 1 : 0) + (f.dream ? 1 : 0) + (f.light ? 1 : 0) + (f.role ? 1 : 0) + (f.tag ? 1 : 0) + (f.org ? 1 : 0);
 }
 
 function peopleListHTML() {
@@ -747,6 +778,7 @@ function filtersHTML() {
     <div class="filters">
       <button type="button" class="chip${f.loops ? ' active' : ''}" data-action="filter-loops" aria-pressed="${f.loops}">${loopIcon('count')}Has open loops</button>
       <button type="button" class="chip${f.dream ? ' active' : ''}" data-action="filter-dream" aria-pressed="${f.dream}">${DREAM_STAR}Dream list</button>
+      <button type="button" class="chip${f.light ? ' active' : ''}" data-action="filter-light" aria-pressed="${f.light}">${LIGHT_ICON}Light touch</button>
     </div>
     <div class="filter-grid">
       <label class="field"><span class="field-label">Role</span>
@@ -768,6 +800,10 @@ function renderPeople() {
         <a class="dream-link" href="#/dreams">${DREAM_STAR}Dream list</a>
         <button type="button" class="icon-btn" data-action="add-person" aria-label="Add person">+</button>
       </span></header>
+    <div class="quick-row">
+      <button type="button" class="secondary small-btn" data-action="quick-add">${QUICK_ICON} Quick add</button>
+      <span class="quick-hint">For adding several people in a row.</span>
+    </div>
     ${S.people.length ? `
     <input type="search" class="search" id="peopleSearch" placeholder="Search name, org, notes" value="${esc(f.q)}" autocomplete="off" aria-label="Search people">
     <div class="toolbar">
@@ -818,11 +854,18 @@ function renderPerson(id) {
     );
   } else if (needsWarmPrompt(p, tps)) {
     prompt = promptBox(`${name} replied. Move them to Warm?`, `<button type="button" class="btn primary" data-action="make-warm" data-id="${pid}">Move to Warm</button>`);
+  } else if (isEngaging(p, tps)) {
+    prompt = promptBox("They're engaging. Give them more attention?",
+      `<button type="button" class="btn primary" data-action="light-off" data-id="${pid}">Turn off light touch</button>
+       <button type="button" class="btn secondary" data-action="dismiss-engage" data-id="${pid}">Not now</button>`);
   }
 
   const stage = p.warmth === 'parked' ? null : firstStage(p);
   const deadline = p.firstContactDeadline || today;
-  const overdue = p.warmth !== 'parked' && (stage === 'justMet' ? deadline < today : next < today);
+  // A light touch is never late: a missed one carries on from today.
+  const light = p.lightTouch && p.warmth !== 'parked';
+  const shownNext = light && next < today ? today : next;
+  const overdue = p.warmth !== 'parked' && !light && (stage === 'justMet' ? deadline < today : next < today);
   const sub = subLine(p, { link: true });
   const left = `
     <header class="person-head">
@@ -836,6 +879,8 @@ function renderPerson(id) {
         <button type="button" class="warmth-btn" data-action="change-interest" data-id="${pid}" aria-label="Change interest, now ${esc(interestInfo(p.interest).label)}">
           ${interestLabel(p.interest, { prefix: true })}<span class="warmth-btn-hint">Change</span></button>
         ${p.dreamList ? dreamBadge() : ''}
+        ${p.lightTouch ? `<button type="button" class="warmth-btn" data-action="light-off" data-id="${pid}" aria-label="Light touch is on. Turn it off">
+          ${lightBadge()}<span class="warmth-btn-hint">Turn off</span></button>` : ''}
       </div>
       <div class="person-circles">${circleChips(p, { link: true })}
         <button type="button" class="circle-change" data-action="change-circles" data-id="${pid}">${circlesOf(p).length ? 'Change circles' : '+ Add to a circle'}</button></div>
@@ -849,9 +894,9 @@ function renderPerson(id) {
       <p class="next-date">${esc(fmtDate(deadline))}</p>
       <p class="next-rel">${overdue ? 'Follow-up is late' : esc(cap(relDay(deadline, today)))} <span class="dot">·</span> A quick note while it's fresh</p>
     </section>` : `<section class="next-panel${overdue ? ' is-overdue' : ''}">
-      <p class="next-label">${p.warmth === 'parked' ? 'Comes back' : stage ? 'First touchpoint' : 'Next touchpoint'}</p>
-      <p class="next-date">${esc(fmtDate(next))}</p>
-      <p class="next-rel">${esc(nextRelText(next, today))} <span class="dot">·</span> ${esc(cadenceLabel(p, tps, S.settings))}</p>
+      <p class="next-label">${p.warmth === 'parked' ? 'Comes back' : light ? 'Next light touch' : stage ? 'First touchpoint' : 'Next touchpoint'}</p>
+      <p class="next-date">${esc(fmtDate(shownNext))}</p>
+      <p class="next-rel">${esc(nextRelText(shownNext, today))} <span class="dot">·</span> ${esc(cadenceLabel(p, tps, S.settings))}</p>
       <div class="next-actions">
         <button type="button" class="btn on-ink" data-action="snooze" data-id="${pid}">Snooze</button>
         <button type="button" class="btn on-ink" data-action="change-date" data-id="${pid}">Change date</button>
@@ -1379,9 +1424,13 @@ function loopSheet(p, l = null) {
       description,
       dueDate: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : null,
     });
+    // Something real is in motion, so a light touch becomes a full contact.
+    const fresh = S.personById.get(p.id);
+    const endsLight = !l && fresh && fresh.lightTouch;
+    if (endsLight) await db.savePerson({ ...fresh, ...lightOffFields(fresh, tpsOf(p.id), S.settings, todayStr()) });
     s.close();
     await refresh();
-    toast(l ? 'Saved' : 'Loop added');
+    toast(l ? 'Saved' : endsLight ? `Loop added. ${firstName(p)} is off light touch now, since something real is in motion.` : 'Loop added');
   });
   const del = s.body.querySelector('[data-delete]');
   if (del) {
@@ -1501,7 +1550,7 @@ function renderOrg(id) {
 // several.
 
 function isOverdue(p, today = todayStr()) {
-  if (p.warmth === 'parked') return false;
+  if (p.warmth === 'parked' || p.lightTouch) return false;
   if (firstStage(p) === 'justMet') return (p.firstContactDeadline || today) < today;
   return !dreamOnly(p) && (p.nextTouchpointDate || today) < today;
 }
@@ -1521,9 +1570,10 @@ function renderCircles() {
       .map((c, i) => {
         const members = membersOf(c.id);
         const late = members.filter((p) => isOverdue(p, today)).length;
+        const light = members.filter((p) => p.lightTouch).length;
         const main = `<span class="row-main"><span class="row-name">${esc(c.name)}</span>
           ${c.description ? `<span class="row-sub">${esc(c.description)}</span>` : ''}
-          <span class="row-meta">${plural(members.length, 'person', 'people')}${late ? ` <span class="dot">·</span> <b>${late} overdue</b>` : ''}</span></span>`;
+          <span class="row-meta">${plural(members.length, 'person', 'people')}${light ? ` <span class="dot">·</span> ${plural(light, 'light touch', 'light touches')}` : ''}${late ? ` <span class="dot">·</span> <b>${late} overdue</b>` : ''}</span></span>`;
         if (!reorder) return `<a class="row-card" href="#/circle/${esc(c.id)}">${main}</a>`;
         const cid = esc(c.id);
         return `<div class="row-card is-moving">${main}<span class="move-btns">
@@ -1552,19 +1602,24 @@ function renderCircle(id) {
   const overdue = members.filter((p) => isOverdue(p, today)).sort((a, b) => a.nextTouchpointDate.localeCompare(b.nextTouchpointDate));
   const loops = members.reduce((n, p) => n + openLoopsOf(p.id).length, 0);
   const warmths = WARMTH.map((w) => [w, members.filter((p) => p.warmth === w).length]).filter(([, n]) => n);
+  const lightCount = members.filter((p) => p.lightTouch).length;
+  const shown = ui.light ? members.filter((p) => p.lightTouch) : members;
   const row = (p) => `<div class="member-row">${personRow(p)}
     <button type="button" class="member-remove" data-action="remove-from-circle" data-id="${esc(p.id)}" data-circle="${cid}" aria-label="Remove ${esc(p.name)} from ${esc(c.name)}">${X_ICON_SMALL}</button></div>`;
   const membersHTML = `
     <div class="toolbar circle-tools">
       <button type="button" class="primary small-btn" data-action="circle-add-people" data-id="${cid}">+ Add people</button>
       ${members.length > 1 ? `<button type="button" class="filter-toggle" data-action="toggle-sort" data-scope="circle" aria-expanded="${ui.sortOpen}">Sort: ${esc(SORTS[ui.sort])}</button>` : ''}
+      ${lightCount || ui.light ? `<button type="button" class="filter-toggle${ui.light ? ' is-on' : ''}" data-action="filter-light" data-scope="circle" aria-pressed="${ui.light}">Light touch</button>` : ''}
     </div>
     ${members.length > 1 ? `<div class="filters"${ui.sortOpen ? '' : ' hidden'}>
       ${Object.entries(SORTS).map(([k, label]) => `<button type="button" class="chip${ui.sort === k ? ' active' : ''}" data-action="set-sort" data-scope="circle" data-sort="${k}">${esc(label)}</button>`).join('')}
     </div>` : ''}
-    ${members.length
-      ? sortPeople([...members], ui.sort).map(row).join('')
-      : `<p class="hint">Nobody in ${esc(c.name)} yet. Add people here, or from anyone's page.</p>`}`;
+    ${shown.length
+      ? sortPeople([...shown], ui.sort).map(row).join('')
+      : members.length
+        ? `<p class="hint">Nobody in ${esc(c.name)} is a light touch.</p>`
+        : `<p class="hint">Nobody in ${esc(c.name)} yet. Add people here, or from anyone's page.</p>`}`;
   return `
     <div class="detail-top">${backButton('#/circles', 'Back')}
       <button type="button" class="text-btn" data-action="edit-circle" data-id="${cid}">Edit</button></div>
@@ -1577,9 +1632,9 @@ function renderCircle(id) {
       ${statBox(overdue.length, 'Overdue')}
       ${statBox(loops, loops === 1 ? 'Open loop' : 'Open loops')}
     </div>
-    ${warmths.length ? `<div class="warmth-breakdown" aria-label="Warmth">${warmths.map(([w, n]) => `<span class="warmth-count">${warmthBadge(w)}<b>${n}</b></span>`).join('')}</div>` : ''}
+    ${warmths.length ? `<div class="warmth-breakdown" aria-label="Warmth">${warmths.map(([w, n]) => `<span class="warmth-count">${warmthBadge(w)}<b>${n}</b></span>`).join('')}${lightCount ? `<span class="warmth-count">${lightBadge()}<b>${lightCount}</b></span>` : ''}</div>` : ''}
     ${overdue.length ? sectionBlock('circle-overdue', 'Overdue in this circle', overdue.length, overdue.map(personRow).join(''), 'navy') : ''}
-    ${sectionBlock('circle-members', 'Members', members.length, membersHTML, 'yellow')}`;
+    ${sectionBlock('circle-members', ui.light ? 'Light touches' : 'Members', shown.length, membersHTML, 'yellow')}`;
 }
 
 const sameName = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -1719,6 +1774,9 @@ function weekStats(ws) {
     ws,
     we,
     tps: S.tps.filter((t) => inWeek(t.date)),
+    // Light touches count on their own, apart from the touchpoints goal.
+    regular: S.tps.filter((t) => inWeek(t.date) && !t.lightTouch),
+    light: S.tps.filter((t) => inWeek(t.date) && t.lightTouch),
     replies: S.tps.filter((t) => t.responded === 'yes' && inWeek(t.respondedAt ? localDay(t.respondedAt) : t.date)),
     added: S.people.filter((p) => p.createdAt && inWeek(localDay(p.createdAt))),
   };
@@ -1750,7 +1808,7 @@ function logRow(t) {
   const p = S.personById.get(t.personId);
   return `<div class="log-row">
     <a class="log-row-main" href="#/person/${esc(t.personId)}/${esc(t.id)}"><span class="log-row-date">${esc(fmtDate(t.date))}</span>
-      <b>${esc(p ? p.name : 'Someone')}</b> <span class="dot">·</span> ${esc(touchTypeLabel(t.type))}${t.note ? `<span class="log-row-note">${esc(t.note)}</span>` : ''}</a>
+      <b>${esc(p ? p.name : 'Someone')}</b> <span class="dot">·</span> ${esc(touchTypeLabel(t.type))}${t.lightTouch ? ' <span class="dot">·</span> Light touch' : ''}${t.note ? `<span class="log-row-note">${esc(t.note)}</span>` : ''}</a>
     <span class="log-row-side"><span class="resp resp-${esc(t.responded)}">${esc(respondedLabel(t.responded))}</span>
       <button type="button" class="text-btn" data-action="edit-tp" data-id="${esc(t.id)}">Edit</button></span>
   </div>`;
@@ -1802,10 +1860,13 @@ function statContent(kind) {
       : "<p class=\"hint\">Nobody to reach out to today. You're all caught up.</p>";
   } else if (kind === 'touchpoints') {
     title = 'Touchpoints this week';
-    body = `${weekLine(`${w.tps.length} of ${g.touchpoints}`)}
-      ${w.tps.length
-        ? `<div class="log-list">${sortTouchpoints(w.tps).map(logRow).join('')}</div>`
-        : '<p class="hint">Nothing logged yet this week. The To reach out box shows who\'s due.</p>'}
+    body = `${weekLine(`${w.regular.length} of ${g.touchpoints}`)}
+      ${w.regular.length
+        ? `<div class="log-list">${sortTouchpoints(w.regular).map(logRow).join('')}</div>`
+        : `<p class="hint">${w.light.length ? 'No touchpoints yet this week, only light touches.' : 'Nothing logged yet this week. The To reach out box shows who\'s due.'}</p>`}
+      ${w.light.length ? `<p class="filter-label stat-group">Light touches [${w.light.length}]</p>
+        <p class="hint stat-note">They count on their own, apart from the goal.</p>
+        <div class="log-list">${sortTouchpoints(w.light).map(logRow).join('')}</div>` : ''}
       ${weekLink}`;
   } else if (kind === 'replies') {
     // Counted on the day the reply came in, so the touchpoint itself may be
@@ -1834,7 +1895,7 @@ function renderWeek() {
   const w = weekStats(ws);
   const g = S.settings.goals;
   const rec = weekRecord(ws);
-  const metBoth = w.tps.length >= g.touchpoints && w.added.length >= g.newPeople;
+  const metBoth = w.regular.length >= g.touchpoints && w.added.length >= g.newPeople;
 
   const logged = sortTouchpoints(w.tps).map(logRow).join('');
 
@@ -1853,10 +1914,10 @@ function renderWeek() {
         .map((pw) => {
           const s = weekStats(pw);
           const r = weekRecord(pw);
-          const met = s.tps.length >= g.touchpoints;
+          const met = s.regular.length >= g.touchpoints;
           return `<article class="week-card">
             <p class="week-card-head"><span class="week-card-range">${esc(weekRange(pw))}</span>${met ? '<span class="week-card-met">Goal met</span>' : ''}</p>
-            <p class="week-card-stats">${plural(s.tps.length, 'touchpoint')} <span class="dot">·</span> ${plural(s.replies.length, 'reply', 'replies')} <span class="dot">·</span> ${s.added.length} new</p>
+            <p class="week-card-stats">${plural(s.regular.length, 'touchpoint')}${s.light.length ? ` <span class="dot">·</span> ${plural(s.light.length, 'light touch', 'light touches')}` : ''} <span class="dot">·</span> ${plural(s.replies.length, 'reply', 'replies')} <span class="dot">·</span> ${s.added.length} new</p>
             ${r && r.reflection ? `<p class="week-card-reflection pre">${esc(r.reflection)}</p>` : ''}
             <button type="button" class="text-btn" data-action="edit-reflection" data-week="${pw}">${r && r.reflection ? 'Edit reflection' : 'Add a reflection'}</button>
           </article>`;
@@ -1868,12 +1929,13 @@ function renderWeek() {
     <header class="topbar"><h1>Weekly review</h1></header>
     <p class="week-range">This week <span class="dot">·</span> ${esc(weekRange(ws))}</p>
     <div class="stats-row">
-      ${statBox(`${w.tps.length}<small>/${g.touchpoints}</small>`, 'Touchpoints logged', null, 'touchpoints')}
+      ${statBox(`${w.regular.length}<small>/${g.touchpoints}</small>`, 'Touchpoints logged', null, 'touchpoints')}
       ${statBox(w.replies.length, 'Replies received', null, 'replies')}
       ${statBox(`${w.added.length}<small>/${g.newPeople}</small>`, 'New people added', null, 'added')}
     </div>
+    ${w.light.length ? `<p class="week-split">${plural(w.regular.length, 'touchpoint')}, ${plural(w.light.length, 'light touch', 'light touches')}</p>` : ''}
     <div class="goals">
-      ${goalBar('Touchpoints', w.tps.length, g.touchpoints)}
+      ${goalBar('Touchpoints', w.regular.length, g.touchpoints)}
       ${goalBar('New people', w.added.length, g.newPeople)}
       <p class="goals-note">${metBoth ? 'Both goals met. Lovely week.' : 'Goals reset every Monday. Change them in Settings.'}</p>
     </div>
@@ -1943,6 +2005,10 @@ function renderSettings() {
         ${numField('cadence.active', c.active, 'Active', 'Days between touchpoints')}
         ${numField('cadence.client', c.client, 'Client', 'Days between touchpoints')}
         ${numField('cadence.parked', c.parked, 'Parked', 'Days before they come back')}
+      </div>
+      <div class="set-group">
+        <p class="set-group-title">${lightBadge()} Weak ties, whatever their warmth</p>
+        ${numField('cadence.lightTouch', c.lightTouch, 'Light touch', 'Days between touchpoints')}
       </div>
       <button type="button" class="secondary small-btn" data-action="recalc-all">Recalculate everyone's next date</button>
       <p class="hint">Changes apply the next time you log a touchpoint. Recalculate to apply them to everyone now.</p>`, 'yellow')}
@@ -2180,6 +2246,155 @@ function wirePasteBox(form) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Light touch and quick add
+
+// Off light touch by hand: their normal rhythm from the latest touchpoint,
+// never overdue because of it.
+async function endLightTouch(p) {
+  if (!p || !p.lightTouch) return;
+  const rec = { ...p, ...lightOffFields(p, tpsOf(p.id), S.settings, todayStr()) };
+  await db.savePerson(rec);
+  await refresh();
+  toast(`${firstName(p)} is off light touch.${rec.nextTouchpointDate ? ` Next touchpoint ${fmtDate(rec.nextTouchpointDate)}.` : ''}`, {
+    action: {
+      label: 'Undo',
+      run: async () => {
+        await db.savePerson({ ...S.personById.get(p.id), lightTouch: true, nextTouchpointDate: p.nextTouchpointDate });
+        await refresh();
+      },
+    },
+  });
+}
+
+// Someone you haven't followed yet gets that as the first light touch, two
+// weeks out.
+const QUICK_FIRST_DAYS = 14;
+
+async function quickAddPerson({ name, instagram, note, where, followed, circleIds }) {
+  const today = todayStr();
+  const saved = await db.savePerson({
+    name,
+    role: '',
+    organizationId: null,
+    email: '',
+    phone: '',
+    instagram,
+    website: '',
+    howWeMet: where,
+    tags: [],
+    notes: note,
+    cadenceOverrideDays: null,
+    relationshipType: DEFAULT_RELATIONSHIP,
+    interest: 'unknown',
+    dreamList: false,
+    introducedById: null,
+    introducedByName: '',
+    canIntroduceToIds: [],
+    circleIds: circleIds.filter((id) => S.circleById.has(id)),
+    pastOrganizations: [],
+    ...warmthChangeFields({}, 'warm', nowISO(), today),
+    firstContact: null,
+    firstContactDeadline: null,
+    lightTouch: true,
+    engagePromptDismissed: null,
+    nextTouchpointDate: addDays(today, QUICK_FIRST_DAYS),
+  });
+  // Already followed: that's today's light touch, and the next one follows
+  // the light touch rhythm.
+  if (followed) {
+    const tp = await db.saveTouchpoint({
+      personId: saved.id, type: 'comment', date: today, note: 'Followed on Instagram',
+      responded: 'pending', respondedAt: null, interest: null, lightTouch: true,
+    });
+    await db.savePerson({ ...saved, nextTouchpointDate: computeNextDate(saved, [tp], S.settings, today) });
+  }
+  db.askToPersist();
+}
+
+// For meeting a lot of people at once. The form stays open for the next
+// person and keeps the circle and where you met, since a batch shares them.
+function quickAddSheet() {
+  const c = S.settings.cadence;
+  let circleIds = [];
+  const added = [];
+  const field = (name, label, attrs = '') =>
+    `<label class="field"><span class="field-label">${label}</span><input name="${name}" ${attrs}></label>`;
+  const s = openSheet({
+    title: 'Quick add',
+    className: 'quick-sheet',
+    body: `<form class="form" novalidate>
+      <p class="hint">For meeting lots of people at once. Each one starts as a light touch: every ${span(c.lightTouch)}, with small gestures like reacting to a post.</p>
+      ${field('name', 'Name', 'autocomplete="off" autocapitalize="words" placeholder="Who did you meet?" required')}
+      <p class="field-error" data-error="name" hidden>Add a name first.</p>
+      ${field('instagram', 'Instagram (optional)', 'autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="@handle"')}
+      ${field('note', 'Note (optional)', 'autocomplete="off" maxlength="140" placeholder="Model, wants to shoot outdoors"')}
+      <div class="picker-row"><span class="field-label">Circle (optional)</span>
+        <button type="button" class="picker-btn" data-pick="circles"></button></div>
+      ${field('where', 'Where we met (optional)', 'autocomplete="off" maxlength="80" placeholder="Agency party"')}
+      <p class="field-hint">The circle and where you met stay filled in for the next person.</p>
+      <label class="check"><input type="checkbox" name="followed"> Already followed them</label>
+      <p class="quick-count" data-count aria-live="polite" hidden></p>
+      <button type="submit" class="modal-cta primary" data-save>Add</button>
+      <button type="button" class="btn secondary wide" data-done>Done</button>
+    </form>`,
+    onClose: () => {
+      if (added.length) toast(`${plural(added.length, 'person', 'people')} added as light touches.`);
+    },
+  });
+  const form = s.body.querySelector('form');
+  const input = (k) => form.querySelector(`[name="${k}"]`);
+  const showCircles = () => {
+    const names = S.circles.filter((x) => circleIds.includes(x.id)).map((x) => x.name);
+    form.querySelector('[data-pick="circles"]').textContent = names.length ? joinWords(names) : 'Choose a circle';
+  };
+  showCircles();
+  // Tapping Add keeps the focus (and the keyboard) on the form.
+  form.querySelector('[data-save]').addEventListener('mousedown', (e) => e.preventDefault());
+  form.addEventListener('input', (e) => {
+    if (e.target === input('name')) form.querySelector('[data-error="name"]').hidden = true;
+  });
+  form.addEventListener('click', async (e) => {
+    if (e.target.closest('[data-done]')) {
+      s.close();
+      return;
+    }
+    if (!e.target.closest('[data-pick]')) return;
+    const ids = await circlePicker({ title: 'Circle', selected: circleIds });
+    if (ids === null) return;
+    circleIds = ids;
+    showCircles();
+  });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = input('name').value.trim();
+    if (!name) {
+      form.querySelector('[data-error="name"]').hidden = false;
+      input('name').focus();
+      return;
+    }
+    const values = {
+      name,
+      instagram: input('instagram').value.trim(),
+      note: input('note').value.replace(/\s+/g, ' ').trim(),
+      where: input('where').value.trim(),
+      followed: input('followed').checked,
+      circleIds: [...circleIds],
+    };
+    // Cleared and focused right away, before saving, so the keyboard stays
+    // up for the next name.
+    for (const k of ['name', 'instagram', 'note']) input(k).value = '';
+    input('followed').checked = false;
+    input('name').focus();
+    await quickAddPerson(values);
+    added.push(name);
+    const count = form.querySelector('[data-count]');
+    count.innerHTML = `<b>${added.length} added</b> <span class="dot">·</span> ${esc(joinWords(added))}`;
+    count.hidden = false;
+    await refresh();
+  });
+}
+
 function personForm(p, preset = {}) {
   const isNew = !p;
   const v = p || { warmth: 'cold', nextTouchpointDate: todayStr(), ...preset };
@@ -2220,6 +2435,10 @@ function personForm(p, preset = {}) {
           <input type="radio" name="warmth" value="${w}"${v.warmth === w ? ' checked' : ''}>
           <span class="warmth-option-body">${warmthBadge(w)}<span class="warmth-option-blurb">${esc(WARMTH_INFO[w].blurb)}</span></span>
         </label>`).join('')}</div></fieldset>
+      <div class="field">
+        <label class="check"><input type="checkbox" name="lightTouch"${v.lightTouch ? ' checked' : ''}> ${LIGHT_ICON} Light touch</label>
+        <span class="field-hint">For weak ties: every ${span(c.lightTouch)}, small gestures only, in a quiet spot at the bottom of Today.</span>
+      </div>
       ${isNew ? `<fieldset class="field"><legend class="field-label">When should you first reach out?</legend>
         <div class="warmth-options first-options">${FIRST_CONTACT_OPTIONS.map((o) => `<label class="warmth-option">
           <input type="radio" name="firstContact" value="${o.key}"${firstDefault === o.key ? ' checked' : ''}>
@@ -2370,6 +2589,7 @@ function personForm(p, preset = {}) {
       introducedByName,
       canIntroduceToIds,
       circleIds: circleIds.filter((id) => S.circleById.has(id)),
+      lightTouch: !!fd.get('lightTouch'),
     };
     const warmth = get('warmth') || 'cold';
     const nextInput = /^\d{4}-\d{2}-\d{2}$/.test(get('next')) ? get('next') : '';
@@ -2404,9 +2624,12 @@ function personForm(p, preset = {}) {
       }
       const warmthChanged = warmth !== p.warmth;
       if (warmthChanged) Object.assign(rec, warmthChangeFields(p, warmth, now, today));
+      if (leavesLightTouch(p, rec)) rec.lightTouch = false;
       const rhythmChanged = (rec.cadenceOverrideDays || null) !== (p.cadenceOverrideDays || null);
+      const lightChanged = rec.lightTouch !== !!p.lightTouch;
       if (nextInput && nextInput !== p.nextTouchpointDate) rec.nextTouchpointDate = nextInput;
-      else if (warmthChanged || rhythmChanged) rec.nextTouchpointDate = computeNextDate(rec, tpsOf(p.id), S.settings, today);
+      else if (lightChanged && !rec.lightTouch) Object.assign(rec, lightOffFields(rec, tpsOf(p.id), S.settings, today));
+      else if (warmthChanged || rhythmChanged || lightChanged) rec.nextTouchpointDate = computeNextDate(rec, tpsOf(p.id), S.settings, today);
     }
     const saved = await db.savePerson(rec);
     db.askToPersist();
@@ -2452,6 +2675,7 @@ function whyText(p, tps, next) {
   if (p.warmth === 'parked') return `${first} is parked, so they come back in ${span(c.parked)}.`;
   const custom = Number(p.cadenceOverrideDays);
   if (custom > 0) return `That's your custom rhythm for ${first}: every ${span(custom)}.`;
+  if (p.lightTouch) return `${cap(span(c.lightTouch))} after the latest touchpoint, because ${first} is a light touch. A small gesture is enough.`;
   if (p.warmth === 'cold') {
     const { sent, replied } = coldState(p, tps);
     if (replied) return `${first} replied. Nice work.`;
@@ -2567,6 +2791,7 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } 
       responded,
       respondedAt,
       interest: String(fd.get('interest') || '') || null,
+      lightTouch: touchpoint ? !!touchpoint.lightTouch : !!p.lightTouch,
     });
     const all = sortTouchpoints([...before.filter((t) => t.id !== tp.id), tp]);
     // A new touchpoint always resets the schedule. An edit only does when it
@@ -2577,7 +2802,7 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } 
     const clearedIdea = !editing && !!(p.customIdea || '').trim();
     // How they seemed at their latest touchpoint becomes their current interest.
     const interest = tp.interest && (!editing || all[0].id === tp.id) ? { interest: tp.interest } : {};
-    const person = await db.savePerson({ ...p, nextTouchpointDate: next, ...(clearedIdea ? { customIdea: '' } : {}), ...interest });
+    let person = await db.savePerson({ ...p, nextTouchpointDate: next, ...(clearedIdea ? { customIdea: '' } : {}), ...interest });
     if (newsItem) await db.saveNews({ ...newsItem, dismissedAt: nowISO() });
     // "Anything promised?" becomes an open loop alongside the touchpoint.
     const promised = String(fd.get('promise') || '').trim();
@@ -2593,6 +2818,8 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } 
         closedAt: null,
       });
     }
+    const lightEnded = !!loop && person.lightTouch;
+    if (lightEnded) person = await db.savePerson({ ...person, ...lightOffFields(person, all, S.settings, today) });
     db.setMeta('lastLogType', type);
     db.askToPersist();
     await refresh();
@@ -2602,7 +2829,7 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } 
       toast('Touchpoint saved');
       return;
     }
-    showLogged(s, person, all, { clearedIdea, loop });
+    showLogged(s, person, all, { clearedIdea, loop, lightEnded });
   });
 
   const del = s.body.querySelector('[data-delete]');
@@ -2623,7 +2850,7 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } 
   }
 }
 
-function showLogged(s, p, tps, { clearedIdea = false, loop = null } = {}) {
+function showLogged(s, p, tps, { clearedIdea = false, loop = null, lightEnded = false } = {}) {
   const next = p.nextTouchpointDate;
   const name = esc(firstName(p));
   let prompt = '';
@@ -2649,6 +2876,7 @@ function showLogged(s, p, tps, { clearedIdea = false, loop = null } = {}) {
     <p class="logged-why">${whyText(p, tps, next)}</p>
     ${clearedIdea ? '<p class="logged-why">Your typed idea is used up, so fresh suggestions show next time.</p>' : ''}
     ${loop ? `<p class="logged-why">${loopIcon(loop.direction)} Open loop added: ${esc(loop.description)}${loop.dueDate ? `, by ${esc(fmtDate(loop.dueDate))}` : ''}.</p>` : ''}
+    ${lightEnded ? `<p class="logged-why">${LIGHT_ICON} ${name} is off light touch now, since something real is in motion.</p>` : ''}
     ${prompt}
     <div class="sheet-actions">
       <button type="button" class="btn secondary" data-sheet-act="change-date">Change date</button>
@@ -2773,14 +3001,18 @@ async function setWarmth(p, warmth, { quiet = false } = {}) {
   if (!p || p.warmth === warmth) return;
   const today = todayStr();
   const rec = { ...p, ...warmthChangeFields(p, warmth, nowISO(), today) };
-  rec.nextTouchpointDate = computeNextDate(rec, tpsOf(p.id), S.settings, today);
+  // Becoming Active or a client is something real, so light touch ends,
+  // without making them overdue.
+  const endsLight = leavesLightTouch(p, rec);
+  if (endsLight) Object.assign(rec, lightOffFields(rec, tpsOf(p.id), S.settings, today));
+  else rec.nextTouchpointDate = computeNextDate(rec, tpsOf(p.id), S.settings, today);
   await db.savePerson(rec);
   await refresh();
   if (quiet) return;
   const label = WARMTH_INFO[warmth].label;
   const msg = warmth === 'parked'
     ? `${p.name} parked. Back ${fmtDate(rec.nextTouchpointDate)}.`
-    : `${p.name} is ${label} now. Next touchpoint ${fmtDate(rec.nextTouchpointDate)}.`;
+    : `${p.name} is ${label} now${endsLight ? ', so light touch is off' : ''}. Next touchpoint ${fmtDate(rec.nextTouchpointDate)}.`;
   toast(msg, {
     action: {
       label: 'Undo',
@@ -2821,13 +3053,17 @@ async function relationshipSheet(p) {
     options: RELATIONSHIP_TYPES.map((r) => ({ key: r.key, label: r.label, detail: r.blurb, icon: relIcon(r.key), current: p.relationshipType === r.key })),
   });
   if (!key || key === p.relationshipType) return;
-  await db.savePerson({ ...p, relationshipType: key });
+  const rec = { ...p, relationshipType: key };
+  const endsLight = leavesLightTouch(p, rec);
+  if (endsLight) Object.assign(rec, lightOffFields(rec, tpsOf(p.id), S.settings, todayStr()));
+  await db.savePerson(rec);
   await refresh();
-  toast(`${firstName(p)} is marked as ${relationshipInfo(key).label}.`, {
+  toast(`${firstName(p)} is marked as ${relationshipInfo(key).label}${endsLight ? ', and light touch is off' : ''}.`, {
     action: {
       label: 'Undo',
       run: async () => {
-        await db.savePerson({ ...S.personById.get(p.id), relationshipType: p.relationshipType });
+        const back = { relationshipType: p.relationshipType, ...(endsLight ? { lightTouch: true, nextTouchpointDate: p.nextTouchpointDate } : {}) };
+        await db.savePerson({ ...S.personById.get(p.id), ...back });
         await refresh();
       },
     },
@@ -3332,6 +3568,20 @@ const ACTIONS = {
   'dream-notes': (el) => notesSheet(person(el)),
   'edit-contact': (el) => contactSheet(person(el), el.dataset.field),
   'edit-person': (el) => personForm(person(el)),
+  'quick-add': () => quickAddSheet(),
+  'light-off': (el) => endLightTouch(person(el)),
+  'dismiss-engage': async (el) => {
+    const p = person(el);
+    const latest = p && tpsOf(p.id)[0];
+    if (!latest) return;
+    await db.savePerson({ ...p, engagePromptDismissed: latest.id });
+    await refresh();
+  },
+  'filter-light': (el) => {
+    const f = el.dataset.scope === 'circle' ? S.ui.circle : S.ui.people;
+    f.light = !f.light;
+    render();
+  },
   log: (el) => logSheet(person(el), { newsItem: el.dataset.news ? S.news.find((n) => n.id === el.dataset.news) : null }),
   snooze: (el) => snoozeSheet(person(el)),
   'change-date': (el) => dateSheet(person(el)),
@@ -3580,7 +3830,7 @@ const ACTIONS = {
     render();
   },
   'clear-filters': () => {
-    Object.assign(S.ui.people, { q: '', warmth: new Set(), rel: new Set(), interest: new Set(), circles: new Set(), loops: false, dream: false, role: '', tag: '', org: '' });
+    Object.assign(S.ui.people, { q: '', warmth: new Set(), rel: new Set(), interest: new Set(), circles: new Set(), loops: false, dream: false, light: false, role: '', tag: '', org: '' });
     render();
   },
   'edit-reflection': (el) => reflectionSheet(el.dataset.week),

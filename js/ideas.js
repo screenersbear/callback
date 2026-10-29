@@ -121,6 +121,19 @@ const BY_INTEREST = {
   ],
 };
 
+// Light touch: weak ties get small, give-first gestures only, whatever the
+// relationship. Never prints, letters, gifts, calls, meetings or pitches.
+const LIGHT = [
+  'React to a recent post.',
+  'Leave a thoughtful comment on their work.',
+  'Send them a frame they might like.',
+  'Share their work in your stories.',
+  'Congratulate them on something they posted.',
+];
+// Lukewarm light touches keep to the gentlest of those.
+const LIGHT_LUKEWARM = [LIGHT[0], LIGHT[1], LIGHT[4]];
+const LIGHT_FALLBACK = 'React to something they shared lately.';
+
 export const IDEAS = GENERAL;
 
 // Before the first touchpoint, ideas fit how you came across them.
@@ -132,6 +145,8 @@ const FIRST_CONTACT = {
   ],
 };
 FIRST_CONTACT.pickDate = FIRST_CONTACT.reachOutNow;
+// A light touch with no touchpoints yet (see ideaStage in cadence.js).
+FIRST_CONTACT.lightTouch = ['Follow them and react to a recent post.'];
 
 // Your own suggestions and the ones you removed for good. The app sets this
 // after every load, so each pick, on screen and in the calendar file, uses it.
@@ -154,6 +169,12 @@ export const FALLBACK_IDEA = 'Reach out with something that gives: a frame, a pr
 export function ideasFor(person, { firstContact = null } = {}) {
   const first = (FIRST_CONTACT[firstContact] || []).filter((t) => !library.hidden.has(t.toLowerCase()));
   if (first.length) return first;
+  // Light touches only ever get light ideas: your own suggestions stay out,
+  // since they may be bigger asks.
+  if (person && person.lightTouch) {
+    const light = (person.interest === 'lukewarm' ? LIGHT_LUKEWARM : LIGHT).filter((t) => !library.hidden.has(t.toLowerCase()));
+    return light.length ? light : [LIGHT_FALLBACK];
+  }
   const base = builtInIdeasFor(person).filter((t) => !library.hidden.has(t.toLowerCase()));
   // Your own ideas join every pool except lukewarm, which stays give-first.
   const own = person && person.interest === 'lukewarm' ? [] : library.own;
@@ -179,8 +200,9 @@ export function pickIdea(person, dateStr, turn = 0, { firstContact = null } = {}
 }
 
 // When a yearly date (a birthday, say) is within the week, the idea is about
-// that: "Birthday on Friday. A card or print would land well."
-export function yearlyIdea(newsList, tps, today = todayStr()) {
+// that: "Birthday on Friday. A card or print would land well." A light touch
+// gets a quick message instead of a card or print.
+export function yearlyIdea(newsList, tps, today = todayStr(), { light = false } = {}) {
   let best = null;
   for (const n of newsList) {
     if (!n.repeatsYearly) continue;
@@ -192,6 +214,6 @@ export function yearlyIdea(newsList, tps, today = todayStr()) {
   if (!best) return null;
   const ahead = daysBetween(today, best.day);
   const when = ahead === 0 ? 'today' : ahead === 1 ? 'tomorrow' : `on ${parseDate(best.day).toLocaleDateString(undefined, { weekday: 'long' })}`;
-  const gift = /birthday/i.test(best.n.description) ? 'A card or print would land well.' : 'A note or a print would land well.';
+  const gift = light ? 'A quick message would be enough.' : /birthday/i.test(best.n.description) ? 'A card or print would land well.' : 'A note or a print would land well.';
   return `${best.n.description} ${when}. ${gift}`;
 }

@@ -31,7 +31,16 @@ export function withPersonDefaults(p) {
   // Left empty for people added before first contact timing: they behave as before.
   if (p.firstContact === undefined) fill.firstContact = null;
   if (p.firstContactDeadline === undefined) fill.firstContactDeadline = null;
+  // Light touch (weak ties) came later: everyone before it is a full contact.
+  if (typeof p.lightTouch !== 'boolean') fill.lightTouch = false;
+  if (p.engagePromptDismissed === undefined) fill.engagePromptDismissed = null;
   return Object.keys(fill).length ? { ...p, ...fill } : p;
+}
+
+// Whether a touchpoint was a light touch is kept on it, so a week's light
+// touches still count as light after someone moves on from light touch.
+export function withTouchpointDefaults(t) {
+  return typeof t.lightTouch === 'boolean' ? t : { ...t, lightTouch: false };
 }
 
 export function withNewsDefaults(n) {
@@ -221,7 +230,7 @@ export async function deleteCircle(id) {
 }
 
 // ---- Touchpoints ----
-export const getTouchpoints = () => getAll('touchpoints');
+export const getTouchpoints = async () => (await getAll('touchpoints')).map(withTouchpointDefaults);
 export const getTouchpointsFor = (personId) => getByIndex('touchpoints', 'personId', personId);
 export const saveTouchpoint = (t) => save('touchpoints', t);
 export const deleteTouchpoint = (id) => remove('touchpoints', id);
@@ -292,6 +301,8 @@ export async function exportAll() {
   // Written out complete, defaults included, so a backup reads back as-is.
   data.people = data.people.map(withPersonDefaults);
   data.news = data.news.map(withNewsDefaults);
+  data.touchpoints = data.touchpoints.map(withTouchpointDefaults);
+  data.settings = data.settings.map(withDefaults);
   return { app: 'callback', version: SCHEMA_VERSION, exportedAt: nowISO(), data };
 }
 
@@ -311,6 +322,7 @@ export function readExport(payload) {
   // Older exports: missing fields get their defaults (prospect, no birthday...).
   data.people = data.people.map(withPersonDefaults);
   data.news = data.news.map(withNewsDefaults);
+  data.touchpoints = data.touchpoints.map(withTouchpointDefaults);
   return data;
 }
 

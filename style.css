@@ -1825,3 +1825,32 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
   text-transform: uppercase;
   letter-spacing: 1px;
 }
+
+/* ---------- Light touch and quick add ---------- */
+
+/* Under the People header, beside the + for adding one person. */
+.quick-row { display: flex; align-items: center; gap: 12px; margin: -2px 0 14px; }
+.quick-row .small-btn { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.quick-row .warmth-icon { width: 15px; height: 15px; }
+.quick-hint { font-size: 14px; color: var(--text-dim); }
+.light-intro { margin: 0 0 4px; font-size: 15px; }
+.light-list { border-top: 1px solid var(--line); }
+.light-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.light-row:last-child { border-bottom: none; }
+.light-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; color: inherit; }
+.light-main:active { opacity: 0.6; }
+.light-who { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.light-name { font-family: var(--font-title); font-size: 17px; line-height: 1.15; overflow-wrap: anywhere; }
+.light-idea { font-size: 15px; overflow-wrap: anywhere; }
+.light-actions { display: flex; gap: 6px; }
+.light-actions .small-btn { padding: 7px 10px; font-size: 13px; }
+.week-split { margin: -6px 0 16px; font-size: 15px; font-weight: 700; }
+.stat-note { margin: -4px 0 8px; }
+.quick-count { margin: 0; font-size: 15px; overflow-wrap: anywhere; }

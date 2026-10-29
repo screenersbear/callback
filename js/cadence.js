@@ -1,7 +1,7 @@
 // The cadence engine: given a person, their touchpoints and the settings,
 // work out when to reach out next. Pure functions only, no storage or DOM,
 // so the same rules can run anywhere (a future sync server or feed included).
-import { addDays, addMonths, todayStr, maxDate, span, daysBetween, toDateStr } from './util.js';
+import { addDays, addMonths, todayStr, maxDate, span, daysBetween, toDateStr, weekStartStr } from './util.js';
 
 export const WARMTH = ['cold', 'warm', 'active', 'client', 'parked'];
 
@@ -26,6 +26,7 @@ export const DEFAULT_SETTINGS = {
     active: 30,
     client: 90,
     parked: 180,
+    lightTouch: 90, // weak ties, whatever their warmth
   },
   goals: { touchpoints: 10, newPeople: 3 },
 };
@@ -75,8 +76,8 @@ function overrideDays(person) {
 
 // The next touchpoint date for a person, from their most recent touchpoint.
 // Order of rules: parked first (they rest, whatever else is set), then the
-// person's own cadence override, then their warmth default, then for cold
-// people the step they're on in the sequence.
+// person's own cadence override, then light touch, then their warmth
+// default, then for cold people the step they're on in the sequence.
 export function computeNextDate(person, tps, settings, today = todayStr()) {
   const c = withDefaults(settings).cadence;
   const last = lastTouchpoint(tps);
@@ -91,6 +92,8 @@ export function computeNextDate(person, tps, settings, today = todayStr()) {
 
   const custom = overrideDays(person);
   if (custom) return addDays(last.date, custom);
+
+  if (person.lightTouch) return addDays(last.date, c.lightTouch);
 
   if (person.warmth === 'cold') {
     const { sent } = coldState(person, tps);
@@ -119,6 +122,7 @@ export function cadenceLabel(person, tps, settings) {
   const custom = overrideDays(person);
   if (person.warmth === 'parked') return `Parked. Comes back after ${span(c.parked)}`;
   if (custom) return `Every ${span(custom)} (your custom rhythm)`;
+  if (person.lightTouch) return `Every ${span(c.lightTouch)} (light touch)`;
   if (person.warmth === 'cold') {
     const { sent, replied } = coldState(person, tps);
     if (replied) return 'Cold, but they replied';
@@ -132,7 +136,7 @@ export function cadenceLabel(person, tps, settings) {
 
 // A cold person who got all three notes and never replied.
 export function needsParkPrompt(person, tps) {
-  if (person.warmth !== 'cold' || overrideDays(person)) return false;
+  if (person.warmth !== 'cold' || overrideDays(person) || person.lightTouch) return false;
   const s = coldState(person, tps);
   return s.done && !s.replied;
 }
@@ -203,6 +207,40 @@ export function firstContactStage(person, tps) {
   return !tps.length && FIRST_STAGES.includes(person.firstContact) ? person.firstContact : null;
 }
 
+// ---------- Light touch ----------
+
+// Light touch is where weak ties start: someone met briefly, kept faintly
+// familiar on a slow rhythm. Something real ends it: becoming Active or a
+// client, or being marked a past client. (An open loop ends it too; the app
+// handles that when the loop is added.)
+export function leavesLightTouch(before, after) {
+  if (!after.lightTouch) return false;
+  const became = (k, v) => after[k] === v && before[k] !== v;
+  return became('warmth', 'active') || became('warmth', 'client') || became('relationshipType', 'pastClient');
+}
+
+// Fields for taking someone off light touch: their normal rhythm from the
+// latest touchpoint, but never overdue because of the switch.
+export function lightOffFields(person, tps, settings, today = todayStr()) {
+  if (!tps.length && !person.nextTouchpointDate) return { lightTouch: false };
+  const next = computeNextDate({ ...person, lightTouch: false }, tps, settings, today);
+  return { lightTouch: false, nextTouchpointDate: next < today ? today : next };
+}
+
+// Two replies in a row from a light touch: worth more attention. Stays
+// quiet once dismissed, until another reply comes in after that.
+export function isEngaging(person, tps) {
+  const [a, b] = sortTouchpoints(tps);
+  return !!person.lightTouch && !!b && a.responded === 'yes' && b.responded === 'yes' && person.engagePromptDismissed !== a.id;
+}
+
+// Which idea pool fits before the first touchpoint: a light touch starts by
+// following them, anyone else by how they were added.
+export function ideaStage(person, tps) {
+  if (person.lightTouch && !tps.length) return 'lightTouch';
+  return firstContactStage(person, tps);
+}
+
 // Everything the Today screen lists, already sorted.
 // news: their-news items from the last week that nobody has acted on yet
 // (no touchpoint for that person since the news date, not dismissed).
@@ -211,8 +249,16 @@ export function buildToday({ people, touchpointsByPerson, news, loops = [] }, to
   const overdue = [];
   const due = [];
   const resurfaced = [];
+  const light = [];
+  const weekEnd = addDays(weekStartStr(today), 6);
   for (const p of people) {
     const tps = touchpointsByPerson.get(p.id) || [];
+    // Light touches keep to their own quiet section: anyone due by the end
+    // of this week, missed ones carried along, never late.
+    if (p.lightTouch && p.warmth !== 'parked') {
+      if (!isDreamOnly(p, tps) && (p.nextTouchpointDate || today) <= weekEnd) light.push(p);
+      continue;
+    }
     // Someone you just met has their own section until the first touchpoint,
     // however close the follow-up deadline is.
     if (firstContactStage(p, tps) === 'justMet' && p.warmth !== 'parked') {
@@ -232,6 +278,7 @@ export function buildToday({ people, touchpointsByPerson, news, loops = [] }, to
   overdue.sort(byNext);
   resurfaced.sort(byNext);
   due.sort((a, b) => a.name.localeCompare(b.name));
+  light.sort((a, b) => byNext(a, b) || a.name.localeCompare(b.name));
   justMet.sort((a, b) => (a.firstContactDeadline || today).localeCompare(b.firstContactDeadline || today) || a.name.localeCompare(b.name));
 
   const ids = new Set(people.map((p) => p.id));
@@ -265,5 +312,5 @@ export function buildToday({ people, touchpointsByPerson, news, loops = [] }, to
     .filter((l) => (l.direction === 'theyOwe' ? l.dueDate < today : l.dueDate <= today))
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || (a.direction === 'iOwe' ? -1 : 1));
 
-  return { justMet, overdue, due, news: newsToday.filter((n) => !dueIds.has(n.personId)), dueNews, comingUp, resurfaced, loops: loopsToday };
+  return { justMet, overdue, due, news: newsToday.filter((n) => !dueIds.has(n.personId)), dueNews, comingUp, resurfaced, loops: loopsToday, light };
 }
