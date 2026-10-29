@@ -8,6 +8,7 @@ export const TOUCH_TYPES = [
   { key: 'meeting', label: 'Meeting' },
   { key: 'sent_work', label: 'Sent work' },
   { key: 'comment', label: 'Comment on their work' },
+  { key: 'followed', label: 'Followed' },
   { key: 'gift', label: 'Gift or card' },
   { key: 'event', label: 'Event' },
   { key: 'other', label: 'Other' },

@@ -147,7 +147,7 @@ const FIRST_CONTACT = {
 };
 FIRST_CONTACT.pickDate = FIRST_CONTACT.reachOutNow;
 // A light touch with no touchpoints yet (see ideaStage in cadence.js).
-FIRST_CONTACT.lightTouch = ['Follow them and react to a recent post.'];
+FIRST_CONTACT.lightTouch = ["Follow them and send a quick note while it's fresh."];
 
 // Your own suggestions and the ones you removed for good. The app sets this
 // after every load, so each pick, on screen and in the calendar file, uses it.

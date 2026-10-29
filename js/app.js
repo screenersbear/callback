@@ -2399,9 +2399,13 @@ async function endLightTouch(p) {
   });
 }
 
-// Someone you haven't followed yet gets that as the first light touch, two
-// weeks out.
-const QUICK_FIRST_DAYS = 14;
+// First touch Not yet: no touchpoint, and the first one two days out, while
+// meeting them is still fresh.
+const QUICK_FIRST_DAYS = 2;
+const FIRST_TOUCH_HINT = {
+  notYet: "Nothing is logged. The first touchpoint is in 2 days: follow them and send a quick note while it's fresh.",
+  followed: 'Logs today as Followed. The next light touch follows the light touch rhythm.',
+};
 
 async function quickAddPerson({ name, instagram, note, where, followed, circleIds }) {
   const today = todayStr();
@@ -2432,11 +2436,11 @@ async function quickAddPerson({ name, instagram, note, where, followed, circleId
     engagePromptDismissed: null,
     nextTouchpointDate: addDays(today, QUICK_FIRST_DAYS),
   });
-  // Already followed: that's today's light touch, and the next one follows
-  // the light touch rhythm.
+  // Already followed, and only when picked for this person: today's
+  // touchpoint is the follow, and the next one follows the light touch rhythm.
   if (followed) {
     const tp = await db.saveTouchpoint({
-      personId: saved.id, type: 'comment', date: today, note: 'Followed on Instagram',
+      personId: saved.id, type: 'followed', date: today, note: 'Followed on Instagram.',
       responded: 'pending', respondedAt: null, interest: null, lightTouch: true,
     });
     await db.savePerson({ ...saved, nextTouchpointDate: computeNextDate(saved, [tp], S.settings, today) });
@@ -2465,7 +2469,13 @@ function quickAddSheet() {
         <button type="button" class="picker-btn" data-pick="circles"></button></div>
       ${field('where', 'Where we met (optional)', 'autocomplete="off" maxlength="80" placeholder="Agency party"')}
       <p class="field-hint">The circle and where you met stay filled in for the next person.</p>
-      <label class="check"><input type="checkbox" name="followed"> Already followed them</label>
+      <fieldset class="field"><legend class="field-label">First touch</legend>
+        <div class="seg">
+          <label class="seg-option"><input type="radio" name="firstTouch" value="notYet" checked><span>Not yet</span></label>
+          <label class="seg-option"><input type="radio" name="firstTouch" value="followed"><span>Already followed</span></label>
+        </div>
+        <span class="field-hint" data-first-hint>${FIRST_TOUCH_HINT.notYet}</span>
+      </fieldset>
       <p class="quick-count" data-count aria-live="polite" hidden></p>
       <button type="submit" class="modal-cta primary" data-save>Add</button>
       <button type="button" class="btn secondary wide" data-done>Done</button>
@@ -2483,8 +2493,15 @@ function quickAddSheet() {
   showCircles();
   // Tapping Add keeps the focus (and the keyboard) on the form.
   form.querySelector('[data-save]').addEventListener('mousedown', (e) => e.preventDefault());
+  const firstTouch = (value) => {
+    form.querySelector(`[name="firstTouch"][value="${value}"]`).checked = true;
+    form.querySelector('[data-first-hint]').textContent = FIRST_TOUCH_HINT[value];
+  };
   form.addEventListener('input', (e) => {
     if (e.target === input('name')) form.querySelector('[data-error="name"]').hidden = true;
+  });
+  form.addEventListener('change', (e) => {
+    if (e.target.name === 'firstTouch') firstTouch(e.target.value);
   });
   form.addEventListener('click', async (e) => {
     if (e.target.closest('[data-done]')) {
@@ -2510,13 +2527,15 @@ function quickAddSheet() {
       instagram: input('instagram').value.trim(),
       note: input('note').value.replace(/\s+/g, ' ').trim(),
       where: input('where').value.trim(),
-      followed: input('followed').checked,
+      followed: form.querySelector('[name="firstTouch"]:checked').value === 'followed',
       circleIds: [...circleIds],
     };
     // Cleared and focused right away, before saving, so the keyboard stays
     // up for the next name.
+    // Everything but the circle and where you met starts fresh, First touch
+    // included, so a follow never carries over to the next person.
     for (const k of ['name', 'instagram', 'note']) input(k).value = '';
-    input('followed').checked = false;
+    firstTouch('notYet');
     input('name').focus();
     await quickAddPerson(values);
     added.push(name);
@@ -4189,12 +4208,87 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ---------------------------------------------------------------------------
+// One-time cleanup: quick add used to log "Followed on Instagram" (as a
+// Comment on their work) by itself the moment someone was added. Those are
+// listed once, all ticked, for you to delete. Each person's next touchpoint
+// is then worked out as if they'd just been added with Not yet.
+
+function autoFollowTouchpoints() {
+  return S.tps.filter((t) => {
+    if (t.type !== 'comment' || !/^Followed on Instagram\.?$/.test((t.note || '').trim())) return false;
+    const p = S.personById.get(t.personId);
+    return !!p && !!p.createdAt && !!t.createdAt && Math.abs(new Date(t.createdAt) - new Date(p.createdAt)) <= 10000;
+  });
+}
+
+async function offerFollowCleanup() {
+  if (await db.getMeta('followCleanupDone')) return;
+  const found = sortTouchpoints(autoFollowTouchpoints());
+  const done = () => db.setMeta('followCleanupDone', nowISO());
+  if (!found.length) {
+    await done();
+    return;
+  }
+  const s = openSheet({
+    title: "Touchpoints you didn't log",
+    className: 'sheet-small has-footer',
+    body: `<p class="sheet-message">Quick add used to log these by itself when you added someone. Untick any you really made, and delete the rest. Each person's next touchpoint is then set as if you'd just added them with Not yet.</p>
+      <div class="pick-list">${found.map((t) => {
+        const p = S.personById.get(t.personId);
+        return `<label class="pick-row"><input type="checkbox" data-tid="${esc(t.id)}" checked><span class="pick-main"><span class="pick-name">${esc(p.name)}</span><span class="pick-sub">${esc(fmtDate(t.date))} <span class="dot">·</span> ${esc(t.note)}</span></span></label>`;
+      }).join('')}</div>
+      <div class="sheet-footer">
+        <button type="button" class="modal-cta primary" data-delete></button>
+        <button type="button" class="btn secondary wide cleanup-keep" data-keep>Keep them all</button>
+      </div>`,
+  });
+  const del = s.body.querySelector('[data-delete]');
+  const picked = () => [...s.body.querySelectorAll('[data-tid]:checked')].map((x) => x.dataset.tid);
+  const label = () => {
+    const n = picked().length;
+    del.textContent = n ? `Delete ${plural(n, 'touchpoint')}` : 'Nothing ticked';
+    del.disabled = !n;
+  };
+  label();
+  s.body.addEventListener('change', label);
+  s.body.querySelector('[data-keep]').addEventListener('click', async () => {
+    await done();
+    s.close();
+    toast('Kept them all.');
+  });
+  del.addEventListener('click', async () => {
+    const ids = new Set(picked());
+    if (!ids.size) return;
+    del.disabled = true;
+    const today = todayStr();
+    const people = new Set();
+    for (const t of found) {
+      if (!ids.has(t.id)) continue;
+      await db.deleteTouchpoint(t.id);
+      people.add(t.personId);
+    }
+    for (const pid of people) {
+      const p = S.personById.get(pid);
+      if (!p) continue;
+      const rest = tpsOf(pid).filter((t) => !ids.has(t.id));
+      const next = rest.length ? computeNextDate(p, rest, S.settings, today) : addDays(today, QUICK_FIRST_DAYS);
+      await db.savePerson({ ...p, nextTouchpointDate: next });
+    }
+    await done();
+    s.close();
+    await refresh();
+    toast(`Deleted ${plural(ids.size, 'touchpoint')} and updated ${people.size === 1 ? 'that person' : 'those people'}'s next touchpoints.`);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Start
 
 async function start() {
   try {
     if (!(await db.getMeta('installedAt'))) await db.setMeta('installedAt', nowISO());
     await refresh();
+    await offerFollowCleanup();
   } catch (err) {
     view.innerHTML = `<div class="empty"><p class="empty-title">Callback couldn't open its storage.</p>
       <p>${esc(err && err.message ? err.message : 'Your browser may be blocking site data, for example in a private window.')}</p></div>`;

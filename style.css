@@ -1305,6 +1305,7 @@ details.loop-done[open] summary { margin-bottom: 8px; }
 .week-card-points .point-text { font-size: 15px; padding: 4px 0; }
 .week-card-points .point::before { top: 10px; }
 .points-label { margin: 0 0 10px; }
+.cleanup-keep { margin-top: 8px; }
 
 /* ---------- Settings ---------- */
 
