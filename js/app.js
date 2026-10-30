@@ -682,10 +682,12 @@ const SORTS = {
   name: 'Name',
   next: 'Next touchpoint',
   warmth: 'Warmth',
+  added: 'Date added',
 };
 const WARMTH_ORDER = { client: 0, active: 1, warm: 2, cold: 3, parked: 4 };
 
-function personRow(p) {
+// `added`: also say when they were added (when that's the sort).
+function personRow(p, { added = false } = {}) {
   const today = todayStr();
   const next = p.nextTouchpointDate || today;
   const sub = subLine(p);
@@ -701,7 +703,7 @@ function personRow(p) {
     <span class="row-main">
       <span class="row-name">${esc(p.name)}</span>
       ${sub ? `<span class="row-sub">${sub}</span>` : ''}
-      <span class="row-meta">${dreamOnly(p) ? `<span class="nowrap">${nextText}</span>` : `<span class="nowrap">${esc(sinceText(p, today))}</span> <span class="dot">·</span> <span class="nowrap">${nextText}</span>`}</span>
+      <span class="row-meta">${added && p.createdAt ? `<span class="nowrap">Added ${esc(fmtDate(toDateStr(new Date(p.createdAt)), { weekday: false }))}</span> <span class="dot">·</span> ` : ''}${dreamOnly(p) ? `<span class="nowrap">${nextText}</span>` : `<span class="nowrap">${esc(sinceText(p, today))}</span> <span class="dot">·</span> <span class="nowrap">${nextText}</span>`}</span>
     </span>
     <span class="row-badges">${warmthBadge(p.warmth)}${p.lightTouch ? `<span class="dream-mark" title="Light touch">${LIGHT_ICON}<span class="visually-hidden">Light touch</span></span>` : ''}${p.dreamList ? `<span class="dream-mark" title="Dream list">${DREAM_STAR}<span class="visually-hidden">Dream list</span></span>` : ''}${loopCountBadge(openLoopsOf(p.id).length)}</span>
   </a>`;
@@ -745,6 +747,8 @@ function sortPeople(list, sort) {
     name: byName,
     next: (a, b) => (a.nextTouchpointDate || '').localeCompare(b.nextTouchpointDate || '') || byName(a, b),
     warmth: (a, b) => WARMTH_ORDER[a.warmth] - WARMTH_ORDER[b.warmth] || byName(a, b),
+    // Newest first.
+    added: (a, b) => (b.createdAt || '').localeCompare(a.createdAt || '') || byName(a, b),
   };
   return list.sort(sorters[sort] || sorters.contact);
 }
@@ -770,7 +774,8 @@ function peopleListHTML() {
     return `${count}<div class="empty"><p>Nobody matches that.</p>
       <button type="button" class="btn secondary" data-action="clear-filters">Clear search and filters</button></div>`;
   }
-  return count + list.map(personRow).join('');
+  const added = S.ui.people.sort === 'added';
+  return count + list.map((p) => personRow(p, { added })).join('');
 }
 
 function uniqueSorted(values) {
@@ -1632,7 +1637,7 @@ function renderCircle(id) {
   const warmths = WARMTH.map((w) => [w, members.filter((p) => p.warmth === w).length]).filter(([, n]) => n);
   const lightCount = members.filter((p) => p.lightTouch).length;
   const shown = ui.light ? members.filter((p) => p.lightTouch) : members;
-  const row = (p) => `<div class="member-row">${personRow(p)}
+  const row = (p) => `<div class="member-row">${personRow(p, { added: ui.sort === 'added' })}
     <button type="button" class="member-remove" data-action="remove-from-circle" data-id="${esc(p.id)}" data-circle="${cid}" aria-label="Remove ${esc(p.name)} from ${esc(c.name)}">${X_ICON_SMALL}</button></div>`;
   const membersHTML = `
     <div class="toolbar circle-tools">
