@@ -10,38 +10,101 @@ const open = [];
 // On an iPhone the keyboard covers the bottom of the screen without
 // shrinking the page, so a bottom sheet would slide under it. The visible
 // area is tracked here (as --vv-top and --vv-height) and sheets keep inside
-// it, and whatever field is being typed in is scrolled into view once the
-// keyboard is up. Android resizes the page itself.
+// it. While the keyboard is up, html gets .kb-up and --kb (the keyboard's
+// height), which gives the page room at the bottom and tucks the tab bar
+// away, and whatever is being typed in is moved to sit just above the
+// keyboard. Android resizes the page itself, so --kb stays near 0 there.
 const vv = window.visualViewport;
+const html = document.documentElement;
+const TYPING = 'input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="hidden"]), textarea, select, [contenteditable="true"]';
+const typingIn = (el) => !!(el && el.matches && el.matches(TYPING));
 function fitViewport() {
-  const root = document.documentElement.style;
-  root.setProperty('--vv-top', `${vv.offsetTop}px`);
-  root.setProperty('--vv-height', `${vv.height}px`);
+  if (!vv) return;
+  html.style.setProperty('--vv-top', `${vv.offsetTop}px`);
+  html.style.setProperty('--vv-height', `${vv.height}px`);
+  const kb = Math.max(0, Math.round(html.clientHeight - vv.height));
+  html.style.setProperty('--kb', `${kb}px`);
+  html.classList.toggle('kb-up', kb > 120 && typingIn(document.activeElement));
+}
+
+// The nearest box that scrolls (a sheet's body), or null for the page.
+function scrollerOf(el) {
+  for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+    const oy = getComputedStyle(p).overflowY;
+    if ((oy === 'auto' || oy === 'scroll') && p.scrollHeight > p.clientHeight + 1) return p;
+  }
+  return null;
+}
+
+// Moves the field, with its label, so it sits just above the keyboard (or
+// just under the top, if it's up there). A field that's already in view
+// stays where it is.
+const GAP = 16;
+function keepInView(el) {
+  if (!el.isConnected || document.activeElement !== el) return;
+  let top = (vv ? vv.offsetTop : 0) + GAP;
+  let bottom = (vv ? vv.offsetTop + vv.height : html.clientHeight) - GAP;
+  const box = scrollerOf(el);
+  if (box) {
+    const b = box.getBoundingClientRect();
+    top = Math.max(top, b.top + GAP / 2);
+    bottom = Math.min(bottom, b.bottom - GAP / 2);
+  }
+  // A sheet's sticky footer (its Save or Done button) covers fields too.
+  const footer = el.closest('.sheet') && el.closest('.sheet').querySelector('.sheet-footer');
+  if (footer && !footer.contains(el)) bottom = Math.min(bottom, footer.getBoundingClientRect().top - GAP / 2);
+  const r = el.getBoundingClientRect();
+  if (!r.height) return;
+  const wrap = el.closest('.field');
+  let want = { top: wrap ? Math.min(r.top, wrap.getBoundingClientRect().top) : r.top, bottom: r.bottom };
+  if (want.bottom - want.top > bottom - top) want = { top: r.top, bottom: r.bottom };
+  let delta = 0;
+  if (r.bottom - r.top > bottom - top) {
+    // Taller than the space (a long note): show its top, unless enough of
+    // it is in view already.
+    if (r.top > bottom - 60 || r.bottom < top + 60) delta = r.top - top;
+  } else if (want.bottom > bottom) delta = want.bottom - bottom;
+  else if (want.top < top) delta = want.top - top;
+  if (Math.abs(delta) < 2) return;
+  if (box) {
+    const before = box.scrollTop;
+    box.scrollTop = before + delta;
+    delta -= box.scrollTop - before;
+  }
+  // Sheets are pinned to the screen, so only page fields move the page.
+  if (Math.abs(delta) >= 2 && !el.closest('.sheet-overlay')) window.scrollBy(0, delta);
+}
+
+let settleTimers = [];
+function settle(el) {
+  // Now, and again while the keyboard slides up and iOS finishes its own scroll.
+  settleTimers.forEach(clearTimeout);
+  settleTimers = [0, 120, 300, 600].map((ms) => setTimeout(() => { fitViewport(); keepInView(el); }, ms));
+}
+document.addEventListener('focusin', (e) => {
+  if (typingIn(e.target)) settle(e.target);
+});
+// Leaving a field for the next one keeps the keyboard up, so wait a moment
+// before deciding it's gone (taking the room away would jump the page).
+document.addEventListener('focusout', () => setTimeout(fitViewport, 150));
+// Typing can move a field down (a note growing a line), so check again.
+document.addEventListener('input', (e) => {
+  if (typingIn(e.target)) keepInView(e.target);
+});
+// iOS zooms in on any field with text under 16px (a detail's label) and
+// leaves the page zoomed. A scale limit stops that; pinching still zooms.
+if (/iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
+  const meta = document.querySelector('meta[name="viewport"]');
+  if (meta && !/maximum-scale/.test(meta.content)) meta.content += ', maximum-scale=1';
 }
 if (vv) {
-  vv.addEventListener('resize', fitViewport);
+  vv.addEventListener('resize', () => {
+    fitViewport();
+    if (typingIn(document.activeElement)) keepInView(document.activeElement);
+  });
   vv.addEventListener('scroll', fitViewport);
   fitViewport();
 }
-const TYPING = 'input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]), textarea, select, [contenteditable="true"]';
-function keepInView(el) {
-  if (!el.isConnected || document.activeElement !== el) return;
-  const r = el.getBoundingClientRect();
-  const top = vv ? vv.offsetTop : 0;
-  const bottom = top + (vv ? vv.height : window.innerHeight);
-  if (r.bottom > bottom - 12 || r.top < top + 8) el.scrollIntoView({ block: 'center' });
-}
-document.addEventListener('focusin', (e) => {
-  const el = e.target;
-  if (!el.matches || !el.matches(TYPING)) return;
-  // Once now, and again after the keyboard has finished sliding up.
-  setTimeout(() => keepInView(el), 60);
-  setTimeout(() => keepInView(el), 400);
-});
-if (vv) vv.addEventListener('resize', () => {
-  const el = document.activeElement;
-  if (el && el.matches && el.matches(TYPING)) keepInView(el);
-});
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && open.length) open[open.length - 1].close();

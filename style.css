@@ -1745,6 +1745,11 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
   transform: translateZ(0);
 }
 
+/* While the phone keyboard is up (ui.js): room at the bottom so the last
+   fields can move above it, and no tab bar floating over the keyboard. */
+.kb-up #app { padding-bottom: calc(var(--kb) + 96px + env(safe-area-inset-bottom)); }
+.kb-up .tabbar { visibility: hidden; }
+
 .tab {
   flex: 1;
   display: flex;
