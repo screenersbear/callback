@@ -1,9 +1,8 @@
-/* Callback: the Documenting Fictions look. "Berry blade black" (#313d45)
-   for the page and for text on white, white cards and fields, "mango
-   yellow", and the #175ba9 blue for headers, bars, borders and fills.
-   Square corners, Arial Black titles in capitals, Courier for everything
-   else. Dark mode keeps the blue, with deep slate shades for the page and
-   surfaces. */
+/* Callback: the Documenting Fictions look. White, "mango yellow", the
+   #175ba9 blue for headers, bars, borders and fills, and "berry blade black"
+   (#313d45) for text. Square corners, Arial Black titles in capitals, Courier
+   for everything else. Dark mode keeps the blue, with deep slate shades for
+   the page and surfaces. */
 
 :root {
   --focus-glow: color-mix(in srgb, var(--accent) 45%, transparent);
@@ -25,15 +24,6 @@
   --field: #ffffff;
   --overlay: rgba(23, 91, 169, 0.9);
   --danger: #b3261e;
-  /* The page itself, and text sitting straight on it (see #app). White and
-     yellow boxes put the --box-* colours back inside them. */
-  --page: #313d45;
-  --page-text: #ffffff;
-  --page-text-dim: rgba(255, 255, 255, 0.72);
-  --page-danger: #ff8a80;
-  --box-text: #313d45;
-  --box-text-dim: rgba(49, 61, 69, 0.72);
-  --box-danger: #b3261e;
 
   --font-title: "Arial Black", "Helvetica Neue", Arial, sans-serif;
   --font-body: "Courier New", Courier, monospace;
@@ -54,13 +44,6 @@
     --field: #1d252a;
     --overlay: rgba(12, 16, 19, 0.86);
     --danger: #ff8a80;
-    --page: #1d252a;
-    --page-text: #f6f6f3;
-    --page-text-dim: rgba(246, 246, 243, 0.7);
-    --page-danger: #ff8a80;
-    --box-text: #f6f6f3;
-    --box-text-dim: rgba(246, 246, 243, 0.7);
-    --box-danger: #ff8a80;
     color-scheme: dark;
     --focus-glow: color-mix(in srgb, var(--accent) 22%, transparent);
   }
@@ -78,13 +61,6 @@
   --field: #1d252a;
   --overlay: rgba(12, 16, 19, 0.86);
   --danger: #ff8a80;
-  --page: #1d252a;
-  --page-text: #f6f6f3;
-  --page-text-dim: rgba(246, 246, 243, 0.7);
-  --page-danger: #ff8a80;
-  --box-text: #f6f6f3;
-  --box-text-dim: rgba(246, 246, 243, 0.7);
-  --box-danger: #ff8a80;
   color-scheme: dark;
   --focus-glow: color-mix(in srgb, var(--accent) 22%, transparent);
 }
@@ -101,14 +77,14 @@
 
 html { background: var(--hero); }
 /* Pulling Today down past the top: the iPhone fills the gap with the page's
-   background colour, mixing html and body, so the body's colour showed there.
-   On Today the body paints its colour as an image instead, which looks the
-   same but leaves the colour to html's blue, the header's colour. */
-body:has(.view[data-route="today"]) { background: linear-gradient(var(--page), var(--page)); }
+   background colour, mixing html and body, so a white body made it white.
+   On Today the body paints its white as an image instead, which looks the
+   same but leaves the colour to html's navy, the header's colour. */
+body:has(.view[data-route="today"]) { background: linear-gradient(var(--bg), var(--bg)); }
 
 body {
   margin: 0;
-  background: var(--page);
+  background: var(--bg);
   color: var(--text);
   font-family: var(--font-body);
   font-size: 16px;
@@ -143,29 +119,8 @@ button:active, .row-card:active, .stat-box:active, .item-head:active { opacity: 
   margin: 0 auto;
   min-height: 100dvh;
   padding: env(safe-area-inset-top) 16px calc(96px + env(safe-area-inset-bottom));
-  background: var(--page);
-  --text: var(--page-text);
-  --text-dim: var(--page-text-dim);
-  --danger: var(--page-danger);
-  color: var(--text);
+  background: var(--bg);
 }
-
-/* The page is berry blade black, so text straight on it is white (above).
-   Anything with a white or yellow box of its own puts berry blade black text
-   back inside it. Sheets and the tab bar sit outside #app, so they keep it. */
-.item-card, .btn:not(.danger):not(.on-ink), .small-btn.secondary, .prompt, .reminder,
-.warmth:not(.warmth-parked), .interest-pick, .dream-badge, .picker-btn, .loop-count,
-.row-card, .search, .chip, .news-item, .resp, .bar, .reflection, .week-card,
-.point-input, .choice, .chip-choice span, .circle-chip, .member-remove, .move-btn,
-input, select, textarea, .hero-cta, .icon-btn, .heading-yellow, .news-when, .primary,
-.filter-toggle, .first-tag, .logged-check, .close-btn {
-  --text: var(--box-text);
-  --text-dim: var(--box-text-dim);
-  --danger: var(--box-danger);
-}
-/* The boxes that don't set a text colour of their own. */
-.item-card, .prompt, .reminder, .picker-btn, .search, .news-item, .reflection,
-.week-card, .point-input, .set-input input, .choice, .chip-choice span { color: var(--text); }
 
 .view { outline: none; padding-top: 4px; }
 .view[data-route="today"] { padding-top: 0; }
@@ -907,7 +862,7 @@ details.loop-done[open] summary { margin-bottom: 8px; }
   border: 3px solid var(--ink);
   padding: 12px 14px;
   text-decoration: none;
-  color: var(--text);
+  color: inherit;
 }
 .row-card.is-parked { border-style: dashed; }
 .row-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
