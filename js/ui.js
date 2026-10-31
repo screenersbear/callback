@@ -91,6 +91,11 @@ document.addEventListener('focusout', () => setTimeout(fitViewport, 150));
 document.addEventListener('input', (e) => {
   if (typingIn(e.target)) keepInView(e.target);
 });
+// So can the page changing while the keyboard stays up, like a circle just
+// added to the list above the "New circle" box.
+new MutationObserver(() => {
+  if (typingIn(document.activeElement)) keepInView(document.activeElement);
+}).observe(document.body, { childList: true, subtree: true });
 // iOS zooms in on any field with text under 16px (a detail's label) and
 // leaves the page zoomed. A scale limit stops that; pinching still zooms.
 if (/iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
