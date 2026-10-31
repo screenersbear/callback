@@ -1,27 +1,27 @@
 /* Callback: the Documenting Fictions look. Three colours (white, "berry
-   blade black" navy, "mango yellow"), square corners, Arial Black titles in
-   capitals, Courier for everything else. Dark mode keeps the same three,
-   using deeper shades of the navy for the page and surfaces. */
+   blade black" #175ba9 blue, "mango yellow"), square corners, Arial Black
+   titles in capitals, Courier for everything else. Dark mode keeps the same
+   three, with deep slate shades for the page and surfaces. */
 
 :root {
   --focus-glow: color-mix(in srgb, var(--accent) 45%, transparent);
-  --navy: #313d45;
+  --navy: #175ba9;
   --yellow: #ffd103;
 
   --bg: #ffffff;
   --surface: #ffffff;
-  --text: #313d45;
-  --text-dim: rgba(49, 61, 69, 0.72);
+  --text: #175ba9;
+  --text-dim: rgba(23, 91, 169, 0.85);
   /* Chrome: heading bars, borders, fills. Separate from --text so dark mode
      can lift it while text stays readable. */
-  --ink: #313d45;
+  --ink: #175ba9;
   --on-ink: #ffffff;
   --accent: #ffd103;
-  --on-accent: #313d45;
-  --hero: #313d45;
+  --on-accent: #175ba9;
+  --hero: #175ba9;
   --line: #d9d9d9;
   --field: #ffffff;
-  --overlay: rgba(49, 61, 69, 0.9);
+  --overlay: rgba(23, 91, 169, 0.9);
   --danger: #b3261e;
 
   --font-title: "Arial Black", "Helvetica Neue", Arial, sans-serif;
@@ -38,7 +38,7 @@
     --text-dim: rgba(246, 246, 243, 0.7);
     --ink: #4a5b67;
     --on-ink: #ffffff;
-    --hero: #313d45;
+    --hero: #175ba9;
     --line: rgba(255, 255, 255, 0.18);
     --field: #1d252a;
     --overlay: rgba(12, 16, 19, 0.86);
@@ -55,7 +55,7 @@
   --text-dim: rgba(246, 246, 243, 0.7);
   --ink: #4a5b67;
   --on-ink: #ffffff;
-  --hero: #313d45;
+  --hero: #175ba9;
   --line: rgba(255, 255, 255, 0.18);
   --field: #1d252a;
   --overlay: rgba(12, 16, 19, 0.86);
