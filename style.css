@@ -1,7 +1,8 @@
-/* Callback: the Documenting Fictions look. Three colours (white, "berry
-   blade black" #175ba9 blue, "mango yellow"), square corners, Arial Black
-   titles in capitals, Courier for everything else. Dark mode keeps the same
-   three, with deep slate shades for the page and surfaces. */
+/* Callback: the Documenting Fictions look. White, "mango yellow", the
+   #175ba9 blue for headers, bars, borders and fills, and "berry blade black"
+   (#313d45) for text. Square corners, Arial Black titles in capitals, Courier
+   for everything else. Dark mode keeps the blue, with deep slate shades for
+   the page and surfaces. */
 
 :root {
   --focus-glow: color-mix(in srgb, var(--accent) 45%, transparent);
@@ -10,14 +11,14 @@
 
   --bg: #ffffff;
   --surface: #ffffff;
-  --text: #175ba9;
-  --text-dim: rgba(23, 91, 169, 0.85);
+  --text: #313d45;
+  --text-dim: rgba(49, 61, 69, 0.72);
   /* Chrome: heading bars, borders, fills. Separate from --text so dark mode
      can lift it while text stays readable. */
   --ink: #175ba9;
   --on-ink: #ffffff;
   --accent: #ffd103;
-  --on-accent: #175ba9;
+  --on-accent: #313d45;
   --hero: #175ba9;
   --line: #d9d9d9;
   --field: #ffffff;
