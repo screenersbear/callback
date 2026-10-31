@@ -411,6 +411,27 @@ function backButton(fallback, label) {
 // ---------------------------------------------------------------------------
 // Today
 
+// The title is as big as Contact Sheet's. There the logo and "Contact Sheet"
+// fill the header's width, so the same sum is done here with that title,
+// measured in whatever font the phone has (iPhones have no Arial Black and
+// fall back to Helvetica, which is narrower, so the size can't be fixed).
+function fitBrandTitle() {
+  const t = view.querySelector('.hero-band .brand-title');
+  if (!t) return;
+  const row = t.parentElement;
+  const probe = document.createElement('span');
+  probe.className = 'brand-title';
+  probe.textContent = 'Contact Sheet';
+  probe.style.cssText = 'position: absolute; visibility: hidden; white-space: nowrap; font-family: var(--font-title); font-size: 100px; letter-spacing: 0;';
+  row.appendChild(probe);
+  const width = probe.getBoundingClientRect().width;
+  probe.remove();
+  // Contact Sheet's row at 100px: a 130px logo and a 35px gap before the title.
+  const size = (100 * row.clientWidth) / (130 + 35 + width);
+  t.style.fontSize = `${Math.min(64, Math.floor(size * 0.995 * 10) / 10)}px`;
+}
+window.addEventListener('resize', fitBrandTitle);
+
 function renderToday() {
   const today = todayStr();
   const t = buildToday({ people: S.people, touchpointsByPerson: S.tpsByPerson, news: S.news, loops: S.loops }, today);
@@ -2273,6 +2294,7 @@ function render() {
   if (focus) S.ui.collapsed.delete('timeline');
   view.innerHTML = ROUTES[r.name](r.id);
   view.dataset.route = r.name;
+  fitBrandTitle();
   view.querySelectorAll('textarea.pd-value').forEach(fitHeight);
   const tab = TAB_FOR[r.name] || r.name;
   document.querySelectorAll('.tab').forEach((t) => {

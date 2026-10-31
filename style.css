@@ -169,6 +169,7 @@ button:active, .row-card:active, .stat-box:active, .item-head:active { opacity: 
 
 .brand-logo { width: 100%; height: 100%; display: block; }
 
+/* fitBrandTitle() in app.js sets the size to match Contact Sheet's title. */
 .brand-title {
   margin: 0;
   font-size: 25px;
