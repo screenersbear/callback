@@ -2,7 +2,7 @@
 // scheduling rules through cadence.js; this file only draws and reacts.
 import * as db from './db.js';
 import {
-  todayStr, addDays, daysBetween, fmtDate, fmtLongDate, fmtTimestamp, relDay, span, plural, esc,
+  todayStr, addDays, daysBetween, fmtDate, fmtTimestamp, relDay, span, plural, esc,
   debounce, weekStartStr, toDateStr, parseDate, normalizeUrl, instagramUrl, saveFile, readFileText, nowISO, uuid, hash,
 } from './util.js';
 import {
@@ -418,10 +418,7 @@ function renderToday() {
     <div class="hero-band">
       <div class="brand-row">
         <div class="brand-logo-wrap shine-sweep">${LOGO}</div>
-        <div class="brand-text">
-          <h1 class="brand-title">Callback</h1>
-          <p class="hero-date">${esc(fmtLongDate(today))}</p>
-        </div>
+        <h1 class="brand-title">Callback</h1>
       </div>
     </div>`;
 

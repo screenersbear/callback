@@ -171,21 +171,12 @@ button:active, .row-card:active, .stat-box:active, .item-head:active { opacity: 
 
 .brand-title {
   margin: 0;
-  font-size: 22px;
+  font-size: 25px;
   font-weight: 900;
   color: var(--accent);
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 0.5px;
   line-height: 1.05;
-}
-
-.hero-date {
-  margin: 4px 0 0;
-  color: #fff;
-  font-size: 14px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 1px;
 }
 
 .shine-sweep { position: relative; overflow: hidden; }

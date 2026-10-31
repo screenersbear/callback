@@ -93,10 +93,6 @@ export function fmtDate(s, { weekday = true, year = 'auto' } = {}) {
   });
 }
 
-export function fmtLongDate(s) {
-  return parseDate(s).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
-}
-
 export function fmtTimestamp(iso) {
   if (!iso) return '';
   const d = new Date(iso);
