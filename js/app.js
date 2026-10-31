@@ -1994,15 +1994,13 @@ function renderWeek() {
 // Emptying a point removes it.
 const pointItem = (pt) => `<li class="point" data-id="${esc(pt.id)}"><button type="button" class="point-text" data-point-edit>${esc(pt.text)}</button></li>`;
 const pointItems = (points) => [...points].reverse().map(pointItem).join('');
-const POINT_FIRST = 'A note that landed, a reply that surprised you, something to try again.';
-const POINT_MORE = 'Something else that worked?';
 
 function pointsEditorHTML(ws, inputId = '') {
   const rec = weekRecord(ws);
   const points = rec ? rec.points : [];
   return `<div class="points" data-week="${ws}">
     <div class="point-new"><span class="point-dot" aria-hidden="true"></span>
-      <textarea class="point-input" data-point-new rows="1"${inputId ? ` id="${inputId}"` : ''} enterkeyhint="done" placeholder="${points.length ? POINT_MORE : POINT_FIRST}" aria-label="Add something that worked"></textarea>
+      <textarea class="point-input" data-point-new rows="1"${inputId ? ` id="${inputId}"` : ''} enterkeyhint="done" aria-label="Add something that worked"></textarea>
       <button type="button" class="primary small-btn" data-point-add>Add</button></div>
     <ul class="point-list">${pointItems(points)}</ul>
     <p class="save-state" aria-live="polite"></p>
@@ -2036,7 +2034,6 @@ function addPoint(box, { keepFocus = true } = {}) {
   const pt = { id: uuid(), text };
   input.value = '';
   fitHeight(input);
-  input.placeholder = POINT_MORE;
   box.querySelector('.point-list').insertAdjacentHTML('afterbegin', pointItem(pt));
   changePoints(box, (points) => [...points, pt]);
 }
