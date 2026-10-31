@@ -2567,6 +2567,20 @@ function quickAddSheet() {
   });
 }
 
+// Added as Already did: the touchpoint happened, so offer to log it straight
+// away. Until it's logged they wait in Due today like Reach out now, since
+// the next date is worked out from that touchpoint.
+async function offerFirstLog(id, name) {
+  const ok = await confirmSheet({
+    title: 'Log the touchpoint?',
+    message: `You've already reached out to ${esc(name)}. Log it now so Callback can plan the next one.`,
+    confirmLabel: 'Log touchpoint',
+    cancelLabel: 'Not now',
+  });
+  if (ok) logSheet(S.personById.get(id));
+  else toast(`${name} added. Log the touchpoint from Today when you're ready.`);
+}
+
 function personForm(p, preset = {}) {
   const isNew = !p;
   const v = p || { warmth: 'cold', nextTouchpointDate: todayStr(), ...preset };
@@ -2815,7 +2829,8 @@ function personForm(p, preset = {}) {
     if (isNew) {
       location.hash = `#/person/${saved.id}`;
       await refresh();
-      if (saved.firstContact === 'justMet') toast(`${name} added. ${followUpText(saved)}.`);
+      if (saved.firstContact === 'alreadyDid') offerFirstLog(saved.id, name);
+      else if (saved.firstContact === 'justMet') toast(`${name} added. ${followUpText(saved)}.`);
       else if (!saved.nextTouchpointDate) toast(`${name} added to your dream list.`);
       else toast(`${name} added. First touchpoint ${relDay(saved.nextTouchpointDate)}.`);
     } else {

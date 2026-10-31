@@ -69,6 +69,7 @@ export const NEWS_SUGGESTIONS = [
 export const FIRST_CONTACT_OPTIONS = [
   { key: 'justMet', label: 'Just met', blurb: "Follow up while it's fresh." },
   { key: 'reachOutNow', label: 'Reach out now', blurb: "You found them and you're ready." },
+  { key: 'alreadyDid', label: 'Already did', blurb: "You've reached out already. Log it once they're added." },
   { key: 'pickDate', label: 'Pick a date', blurb: 'Choose the day of the first touchpoint.' },
   { key: 'someday', label: 'Someday', blurb: 'Not yet, but you want to remember them.' },
 ];
