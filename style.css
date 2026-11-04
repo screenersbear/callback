@@ -1481,6 +1481,14 @@ details.loop-done[open] summary { margin-bottom: 8px; }
 .field input[type="date"] { -webkit-appearance: none; appearance: none; }
 
 .field-hint { display: block; margin-top: 6px; font-size: 14px; color: var(--text-dim); }
+
+/* A dropdown of your own entries under a field (organizations), with the
+   select arrow on the field so it reads as one. */
+.field input.has-suggest:not([type="radio"]):not([type="checkbox"]) { background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%); background-position: calc(100% - 18px) 52%, calc(100% - 12px) 52%; background-size: 6px 6px; background-repeat: no-repeat; padding-right: 32px; }
+.suggest { border: 3px solid var(--ink); border-top: none; background: var(--field); max-height: 200px; overflow-y: auto; overscroll-behavior: contain; }
+.suggest-option { display: block; width: 100%; text-align: left; padding: 11px 12px; border: none; border-bottom: 1px solid var(--line); background: none; color: var(--text); font-size: 16px; font-weight: 700; letter-spacing: 0; overflow-wrap: anywhere; }
+.suggest-option:last-child { border-bottom: none; }
+.suggest-option.is-active { background: var(--accent); color: var(--on-accent); }
 .field-error { margin: -10px 0 0; color: var(--danger); font-size: 14px; font-weight: 700; }
 
 .chip-choices { display: flex; flex-wrap: wrap; gap: 8px; }

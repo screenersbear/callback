@@ -2349,6 +2349,69 @@ function joinWords(list) {
 
 // Fills the Add person form from pasted text. Fields someone typed into
 // themselves are left alone; ones filled by an earlier paste are replaced.
+// The organizations you've added drop down under the Organization field when
+// it's tapped, narrowing as you type. (A datalist only shows them above the
+// iPhone keyboard, one at a time.) Typing a new name still adds it on save.
+function wireOrgSuggest(form) {
+  const input = form.querySelector('#orgField');
+  const list = form.querySelector('#orgSuggest');
+  if (!input || !S.orgs.length) return;
+  let active = -1;
+  const options = () => [...list.querySelectorAll('[data-name]')];
+  const hide = () => {
+    list.hidden = true;
+    list.innerHTML = '';
+    input.setAttribute('aria-expanded', 'false');
+    active = -1;
+  };
+  const show = () => {
+    const q = input.value.trim().toLowerCase();
+    const matches = S.orgs
+      .filter((o) => !q || o.name.toLowerCase().includes(q))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    // Nothing to offer, or what's typed is already the one match.
+    if (!matches.length || (matches.length === 1 && matches[0].name.toLowerCase() === q)) return hide();
+    active = -1;
+    list.innerHTML = matches.map((o) => `<button type="button" class="suggest-option" role="option" tabindex="-1" data-name="${esc(o.name)}">${esc(o.name)}</button>`).join('');
+    list.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+  };
+  const highlight = (i) => {
+    const opts = options();
+    active = (i + opts.length) % opts.length;
+    opts.forEach((o, n) => o.classList.toggle('is-active', n === active));
+    opts[active].scrollIntoView({ block: 'nearest' });
+  };
+  input.addEventListener('focus', show);
+  input.addEventListener('input', show);
+  // A moment's wait, so a tap on a name lands before the list goes.
+  input.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== input) hide(); }, 200));
+  // Keeps the field focused while a name is clicked (desktop).
+  list.addEventListener('mousedown', (e) => e.preventDefault());
+  list.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-name]');
+    if (!b) return;
+    input.value = b.dataset.name;
+    hide();
+    input.blur();
+  });
+  input.addEventListener('keydown', (e) => {
+    if (list.hidden) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      highlight(active + (e.key === 'ArrowDown' ? 1 : active < 0 ? 0 : -1));
+    } else if (e.key === 'Enter' && active >= 0) {
+      e.preventDefault();
+      input.value = options()[active].dataset.name;
+      hide();
+    } else if (e.key === 'Escape') {
+      // Closes the list, not the whole sheet.
+      e.stopPropagation();
+      hide();
+    }
+  });
+}
+
 function wirePasteBox(form) {
   const box = form.querySelector('[data-paste]');
   const result = form.querySelector('[data-paste-result]');
@@ -2604,10 +2667,10 @@ function personForm(p, preset = {}) {
       <p class="field-error" data-error="name" hidden>Add a name first.</p>
       ${field('role', 'Role', v.role, 'list="roleList" autocomplete="off" placeholder="Casting director, editor, client"')}
       <datalist id="roleList">${ROLE_SUGGESTIONS.map((r) => `<option value="${esc(r)}">`).join('')}</datalist>
-      <label class="field"><span class="field-label">Organization</span>
-        <input name="org" list="orgList" value="${esc(org ? org.name : '')}" autocomplete="off" placeholder="Agency, brand, publication">
-        <span class="field-hint">Pick one you've added, or type a new name to add it.${org && !isNew ? ' Changing it keeps a note of where they were before.' : ''}</span></label>
-      <datalist id="orgList">${S.orgs.map((o) => `<option value="${esc(o.name)}">`).join('')}</datalist>
+      <div class="field"><label class="field-label" for="orgField">Organization</label>
+        <input id="orgField" name="org" value="${esc(org ? org.name : '')}" autocomplete="off" placeholder="Agency, brand, publication"${S.orgs.length ? ' class="has-suggest" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="orgSuggest"' : ''}>
+        <div class="suggest" id="orgSuggest" role="listbox" aria-label="Your organizations" hidden></div>
+        <span class="field-hint">Pick one you've added, or type a new name to add it.${org && !isNew ? ' Changing it keeps a note of where they were before.' : ''}</span></div>
       <div class="picker-row"><span class="field-label">Circles</span>
         <button type="button" class="picker-btn" data-pick="circles"></button>
         <span class="field-hint">Your own groups, like Actors or Models. Someone can be in more than one.</span></div>
@@ -2664,6 +2727,7 @@ function personForm(p, preset = {}) {
   });
   const form = s.body.querySelector('form');
   if (isNew) wirePasteBox(form);
+  wireOrgSuggest(form);
   // Introductions are picked in their own sheet and kept here until save.
   let introducedById = v.introducedById || null;
   let introducedByName = v.introducedByName || '';

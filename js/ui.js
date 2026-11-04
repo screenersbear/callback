@@ -56,7 +56,9 @@ function keepInView(el) {
   const r = el.getBoundingClientRect();
   if (!r.height) return;
   const wrap = el.closest('.field');
-  let want = { top: wrap ? Math.min(r.top, wrap.getBoundingClientRect().top) : r.top, bottom: r.bottom };
+  // An open dropdown under the field (your organizations) comes along too.
+  const drop = wrap && wrap.querySelector('.suggest:not([hidden])');
+  let want = { top: wrap ? Math.min(r.top, wrap.getBoundingClientRect().top) : r.top, bottom: drop ? Math.max(r.bottom, drop.getBoundingClientRect().bottom) : r.bottom };
   if (want.bottom - want.top > bottom - top) want = { top: r.top, bottom: r.bottom };
   let delta = 0;
   if (r.bottom - r.top > bottom - top) {
