@@ -1357,7 +1357,7 @@ details.loop-done[open] summary { margin-bottom: 8px; }
 .sheet-overlay {
   position: fixed;
   /* The visible part of the screen, above the keyboard when it's up. */
-  top: var(--vv-top, 0px);
+  top: 0;
   left: 0;
   right: 0;
   height: var(--vv-height, 100%);
@@ -1368,6 +1368,10 @@ details.loop-done[open] summary { margin-bottom: 8px; }
   animation: fade 0.15s ease;
 }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+/* Typing in a sheet on a phone (ui.js): the sheet sits at the top of the
+   screen, clear of the keyboard, which only ever covers the bottom. */
+.sheet-typing .sheet-overlay { align-items: flex-start; padding-top: env(safe-area-inset-top); }
+.sheet-typing .sheet { max-height: calc(var(--vv-height, 100svh) - env(safe-area-inset-top) - 8px); }
 
 /* Only the body scrolls, so pulling a long sheet down past its top (the
    iPhone rubber band) moves the content, never the header off the top. */
@@ -1788,6 +1792,8 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
   .filter-grid { grid-template-columns: repeat(3, 1fr); }
   .sheet-overlay { align-items: center; padding: 24px; }
   .sheet { max-height: calc(var(--vv-height, 100vh) * 0.88); border: 3px solid var(--ink); border-top: 4px solid var(--accent); }
+  .sheet-typing .sheet-overlay { padding-top: max(24px, env(safe-area-inset-top)); }
+  .sheet-typing .sheet { max-height: calc(var(--vv-height, 100vh) - max(24px, env(safe-area-inset-top)) - 24px); }
   .sheet-small { max-width: 460px; }
   .sheet-wide { max-width: 720px; }
 }

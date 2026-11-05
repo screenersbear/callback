@@ -9,22 +9,54 @@ const open = [];
 
 // On an iPhone the keyboard covers the bottom of the screen without
 // shrinking the page, so a bottom sheet would slide under it. The visible
-// area is tracked here (as --vv-top and --vv-height) and sheets keep inside
-// it. While the keyboard is up, html gets .kb-up and --kb (the keyboard's
-// height), which gives the page room at the bottom and tucks the tab bar
-// away, and whatever is being typed in is moved to sit just above the
-// keyboard. Android resizes the page itself, so --kb stays near 0 there.
+// height is tracked here (as --vv-height) and sheets keep inside it. While
+// the keyboard is up, html gets .kb-up and --kb (the keyboard's height),
+// which gives the page room at the bottom and tucks the tab bar away, and
+// whatever is being typed in is moved to sit just above the keyboard.
+// Android resizes the page itself, so --kb stays near 0 there.
+//
+// Typing in a sheet on a phone also gives html .sheet-typing: the sheet
+// moves to the top of the screen and shrinks to the room the keyboard will
+// leave, before the keyboard is even up, so the field is never where the
+// keyboard lands. Sheets used to sit at the bottom and follow the keyboard
+// with visualViewport.offsetTop, but iOS 26 and 27 often report that wrong
+// (it stays put after the keyboard goes), which pushed the sheet's bottom,
+// and the New circle box with it, under the keyboard.
 const vv = window.visualViewport;
 const html = document.documentElement;
 const TYPING = 'input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="hidden"]), textarea, select, [contenteditable="true"]';
 const typingIn = (el) => !!(el && el.matches && el.matches(TYPING));
+const inSheet = (el) => !!(el && el.closest && el.closest('.sheet-overlay'));
+const phone = () => matchMedia('(pointer: coarse)').matches;
+// The keyboard's height the last time it was up (a guess until then).
+let kbSeen = 0;
+try { kbSeen = Number(localStorage.getItem('callback-kb')) || 0; } catch {}
+let kbExpectedUntil = 0;
+let visibleHeight = html.clientHeight;
 function fitViewport() {
   if (!vv) return;
-  html.style.setProperty('--vv-top', `${vv.offsetTop}px`);
-  html.style.setProperty('--vv-height', `${vv.height}px`);
-  const kb = Math.max(0, Math.round(html.clientHeight - vv.height));
+  const full = html.clientHeight;
+  const kb = Math.max(0, Math.round(full - vv.height));
+  const typing = typingIn(document.activeElement);
+  let h = vv.height;
+  if (kb > 120 && typing && Math.abs(kb - kbSeen) > 4) {
+    kbSeen = kb;
+    try { localStorage.setItem('callback-kb', String(kb)); } catch {}
+  } else if (kb <= 120 && html.classList.contains('sheet-typing') && Date.now() < kbExpectedUntil) {
+    // The keyboard is on its way: make room for it now.
+    h = Math.min(h, full - (kbSeen || Math.round(full * 0.46)));
+  }
+  visibleHeight = h;
+  html.style.setProperty('--vv-height', `${h}px`);
   html.style.setProperty('--kb', `${kb}px`);
-  html.classList.toggle('kb-up', kb > 120 && typingIn(document.activeElement));
+  html.classList.toggle('kb-up', kb > 120 && typing);
+}
+// Leaving a sheet's fields (or closing the sheet) puts it back at the bottom.
+function endSheetTyping() {
+  const el = document.activeElement;
+  if (typingIn(el) && inSheet(el)) return;
+  html.classList.remove('sheet-typing');
+  fitViewport();
 }
 
 // The nearest box that scrolls (a sheet's body), or null for the page.
@@ -42,8 +74,11 @@ function scrollerOf(el) {
 const GAP = 16;
 function keepInView(el) {
   if (!el.isConnected || document.activeElement !== el) return;
-  let top = (vv ? vv.offsetTop : 0) + GAP;
-  let bottom = (vv ? vv.offsetTop + vv.height : html.clientHeight) - GAP;
+  // Sheets sit from the top of the screen (see fitViewport), so their
+  // fields are measured from there, not from iOS's offsetTop.
+  const sheetField = inSheet(el);
+  let top = (vv && !sheetField ? vv.offsetTop : 0) + GAP;
+  let bottom = (sheetField ? visibleHeight : vv ? vv.offsetTop + vv.height : html.clientHeight) - GAP;
   const box = scrollerOf(el);
   if (box) {
     const b = box.getBoundingClientRect();
@@ -84,11 +119,19 @@ function settle(el) {
   settleTimers = [0, 120, 300, 600].map((ms) => setTimeout(() => { fitViewport(); keepInView(el); }, ms));
 }
 document.addEventListener('focusin', (e) => {
-  if (typingIn(e.target)) settle(e.target);
+  if (!typingIn(e.target)) return;
+  if (inSheet(e.target) && phone()) {
+    // Right away, before iOS decides where to scroll for the keyboard.
+    html.classList.add('sheet-typing');
+    kbExpectedUntil = Date.now() + 2000;
+    fitViewport();
+    keepInView(e.target);
+  }
+  settle(e.target);
 });
 // Leaving a field for the next one keeps the keyboard up, so wait a moment
 // before deciding it's gone (taking the room away would jump the page).
-document.addEventListener('focusout', () => setTimeout(fitViewport, 150));
+document.addEventListener('focusout', () => setTimeout(endSheetTyping, 150));
 // Typing can move a field down (a note growing a line), so check again.
 document.addEventListener('input', (e) => {
   if (typingIn(e.target)) keepInView(e.target);
@@ -149,6 +192,7 @@ export function openSheet({ title, body = '', className = '', onClose } = {}) {
       open.splice(open.indexOf(api), 1);
       if (!open.length) document.body.classList.remove('sheet-open');
       if (opener && opener.isConnected && opener.focus) opener.focus({ preventScroll: true });
+      endSheetTyping();
       if (onClose) onClose(result);
     },
   };
