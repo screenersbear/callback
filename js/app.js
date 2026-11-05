@@ -980,6 +980,15 @@ const CONTACT_FIELDS = [
   { key: 'website', label: 'Website', word: 'website', type: 'text', mode: 'url', placeholder: 'example.com' },
 ];
 
+// Instagram fields put the @ in front for you (a pasted link stays a link).
+const looksLikeLink = (s) => /[/:]|instagram\.com|^www\./i.test(s);
+function atHandle(v) {
+  const s = String(v || '').trim().replace(/^@+/, '@');
+  return s && !s.startsWith('@') && !looksLikeLink(s) ? `@${s}` : s;
+}
+// What gets saved: a lone @ counts as nothing typed.
+const handleValue = (v) => (atHandle(v) === '@' ? '' : atHandle(v));
+
 function contactLink(p, key) {
   const v = p[key];
   if (key === 'email') return `<a href="mailto:${esc(v)}">${esc(v)}</a>`;
@@ -1167,7 +1176,7 @@ function contactSheet(p, key) {
     body: `<p class="sheet-person">${esc(p.name)}</p>
     <form class="form" novalidate>
       <label class="field"><span class="field-label">${esc(f.label)}</span>
-        <input name="value" type="${f.type}" inputmode="${f.mode}" value="${esc(p[key] || '')}" placeholder="${esc(f.placeholder)}" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+        <input name="value" type="${f.type}" inputmode="${f.mode}" value="${esc(key === 'instagram' ? atHandle(p[key]) : p[key] || '')}" placeholder="${esc(f.placeholder)}" autocomplete="off" autocapitalize="off" spellcheck="false"${key === 'instagram' ? ' autocorrect="off" data-handle' : ''}></label>
       <p class="field-error" data-error="value" hidden></p>
       ${had ? `<button type="button" class="btn danger wide" data-delete>Remove ${esc(f.word)}</button>` : ''}
       <button type="submit" class="modal-cta primary">Save</button>
@@ -1183,7 +1192,8 @@ function contactSheet(p, key) {
   };
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const value = String(new FormData(form).get('value') || '').trim();
+    let value = String(new FormData(form).get('value') || '').trim();
+    if (key === 'instagram') value = handleValue(value);
     if (!value) {
       if (had) await save('');
       else s.close();
@@ -2547,7 +2557,7 @@ function quickAddSheet() {
       <p class="hint">For meeting lots of people at once. Each one starts as a light touch: every ${span(c.lightTouch)}, with small gestures like reacting to a post.</p>
       ${field('name', 'Name', 'autocomplete="off" autocapitalize="words" placeholder="Who did you meet?" required')}
       <p class="field-error" data-error="name" hidden>Add a name first.</p>
-      ${field('instagram', 'Instagram (optional)', 'autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="@handle"')}
+      ${field('instagram', 'Instagram (optional)', 'autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="@handle" data-handle')}
       ${field('note', 'Note (optional)', 'autocomplete="off" maxlength="140" placeholder="Model, wants to shoot outdoors"')}
       <div class="picker-row"><span class="field-label">Circle (optional)</span>
         <button type="button" class="picker-btn" data-pick="circles"></button></div>
@@ -2608,7 +2618,7 @@ function quickAddSheet() {
     }
     const values = {
       name,
-      instagram: input('instagram').value.trim(),
+      instagram: handleValue(input('instagram').value),
       note: input('note').value.replace(/\s+/g, ' ').trim(),
       where: input('where').value.trim(),
       followed: form.querySelector('[name="firstTouch"]:checked').value === 'followed',
@@ -2712,7 +2722,7 @@ function personForm(p, preset = {}) {
         <summary>Contact details and notes</summary>
         ${field('email', 'Email', v.email, 'type="email" autocomplete="off" inputmode="email"')}
         ${field('phone', 'Phone', v.phone, 'type="tel" autocomplete="off"')}
-        ${field('instagram', 'Instagram', v.instagram, 'autocomplete="off" placeholder="@handle"')}
+        ${field('instagram', 'Instagram', atHandle(v.instagram), 'autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="@handle" data-handle')}
         ${field('website', 'Website', v.website, 'autocomplete="off" inputmode="url" placeholder="example.com"')}
         <label class="field"><span class="field-label">How we met</span><textarea name="howWeMet" rows="2" placeholder="Introduced by Sam at the Rialto screening">${esc(v.howWeMet || '')}</textarea></label>
         ${field('tags', 'Tags', (v.tags || []).join(', '), 'autocomplete="off" placeholder="commercial, nyc, fashion"')}
@@ -2833,7 +2843,7 @@ function personForm(p, preset = {}) {
       organizationId,
       email: get('email'),
       phone: get('phone'),
-      instagram: get('instagram'),
+      instagram: handleValue(get('instagram')),
       website: get('website'),
       howWeMet: get('howWeMet'),
       tags: parseTags(get('tags')),
@@ -4220,6 +4230,18 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('input', (e) => {
   const t = e.target;
   if (t.matches && t.matches('textarea.pd-value, textarea.log-note, textarea.point-input')) fitHeight(t);
+  if (t.matches && t.matches('input[data-handle]') && !e.isComposing) {
+    // The @ goes in with the first letter. Typing or pasting a link drops it.
+    const was = t.value;
+    let now = was.replace(/^\s+/, '').replace(/^@+/, '@');
+    if (now.startsWith('@') && looksLikeLink(now.slice(1))) now = now.slice(1);
+    else if (now) now = atHandle(now);
+    if (now !== was) {
+      const caret = Math.max(0, (t.selectionStart ?? was.length) + now.length - was.length);
+      t.value = now;
+      t.setSelectionRange(caret, caret);
+    }
+  }
   if (t.id === 'peopleSearch') {
     S.ui.people.q = t.value;
     updatePeopleList();
