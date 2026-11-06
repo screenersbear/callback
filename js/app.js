@@ -4650,9 +4650,11 @@ const COMMANDS = {
   log: () => {
     const p = openPerson();
     if (p) logSheet(p);
+    else if (inMacApp) macFind.start('log');
     else toast('Open someone first, then log a touchpoint.');
   },
-  find: () => findCommand(),
+  // In the Mac app the bar's search finds anyone; on Orgs it searches orgs.
+  find: () => (inMacApp && SPLIT_LIST[parseRoute().name] !== 'orgs' ? macFind.start() : findCommand()),
   next: () => stepList(1),
   prev: () => stepList(-1),
   back: () => history.back(),
@@ -4687,13 +4689,222 @@ document.addEventListener('keydown', (e) => {
 // The Mac app's menu.
 if (window.callbackApp && window.callbackApp.onCommand) window.callbackApp.onCommand(runCommand);
 
+// The Mac app's bar
+//
+// The Mac app hides the grey Mac title bar, so the page draws its own bar
+// across the top: the name, a search that finds anyone from any page, Log
+// touchpoint and Quick add. The window buttons sit at its left (their spot is
+// set in Callback Mac/main.js) and dragging its empty parts moves the window.
+// The website and the phone don't get it.
+
+// Name matches first (start of the name, then the start of any word, then
+// anywhere in it), then org, role, email, notes, how you met, tags and
+// circles. Parked people come after the others at the same level.
+function findMatches(query, max = 8) {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const hits = [];
+  for (const p of S.people) {
+    const name = (p.name || '').toLowerCase();
+    let rank;
+    if (name.startsWith(q)) rank = 0;
+    else if (name.split(/\s+/).some((w) => w.startsWith(q))) rank = 1;
+    else if (name.includes(q)) rank = 2;
+    else {
+      const org = orgOf(p);
+      const other = [org && org.name, p.role, p.email, p.notes, p.howWeMet, ...(p.tags || []), ...circlesOf(p).map((c) => c.name)];
+      if (!other.some((v) => v && v.toLowerCase().includes(q))) continue;
+      rank = 3;
+    }
+    if (p.warmth === 'parked') rank += 0.5;
+    hits.push([rank, p]);
+  }
+  return hits.sort((a, b) => a[0] - b[0] || a[1].name.localeCompare(b[1].name)).slice(0, max).map(([, p]) => p);
+}
+
+const MAC_LOG_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+
+function macBarHTML() {
+  return `<header class="mac-bar" id="macBar">
+    <span class="mac-brand">${LOGO}<span class="mac-brand-name">Callback</span></span>
+    <div class="mac-find" role="search">
+      <input type="search" class="mac-find-input" id="macFind" placeholder="Find someone" autocomplete="off" spellcheck="false"
+        aria-label="Find someone" role="combobox" aria-controls="macFindList" aria-expanded="false" aria-autocomplete="list">
+      <kbd class="mac-find-key" aria-hidden="true">⌘F</kbd>
+      <div class="mac-find-list" id="macFindList" role="listbox" hidden></div>
+    </div>
+    <span class="mac-bar-space"></span>
+    <button type="button" class="mac-bar-btn is-ghost" data-mac-cmd="log" aria-label="Log touchpoint" title="Log touchpoint (⌘L)">${MAC_LOG_ICON}<span class="mac-bar-label">Log touchpoint</span></button>
+    <button type="button" class="mac-bar-btn" data-mac-cmd="quick-add" title="Quick add (⇧⌘N)">${QUICK_ICON}<span>Quick add</span></button>
+  </header>`;
+}
+
+// The bar's search. start() focuses it; start('log') asks who you reached
+// out to, then opens Log touchpoint for whoever you pick.
+const macFind = (() => {
+  let input, list;
+  let mode = null;
+  let hits = [];
+  let at = 0;
+  let addName = '';
+
+  const dueNow = () => {
+    const t = buildToday({ people: S.people, touchpointsByPerson: S.tpsByPerson, news: S.news, loops: S.loops }, todayStr());
+    return [...t.justMet, ...t.overdue, ...t.due].slice(0, 8);
+  };
+
+  const row = (p, i) => {
+    const org = orgOf(p);
+    const sub = [org && org.name, p.role].filter(Boolean).join(' · ');
+    return `<a class="mac-find-item${i === at ? ' is-active' : ''}" id="macFind-${i}" role="option" aria-selected="${i === at}" href="#/person/${esc(p.id)}" data-i="${i}">
+      <span class="mac-find-who"><span class="mac-find-name">${esc(p.name)}</span>${sub ? `<span class="mac-find-sub">${esc(sub)}</span>` : ''}</span>
+      ${warmthBadge(p.warmth)}</a>`;
+  };
+
+  function draw() {
+    const q = input.value.trim();
+    hits = q ? findMatches(q) : mode === 'log' ? dueNow() : [];
+    addName = q && !hits.length ? q : '';
+    const open = !!q || mode === 'log';
+    if (at >= hits.length) at = 0;
+    list.hidden = !open;
+    input.setAttribute('aria-expanded', String(open));
+    input.setAttribute('aria-activedescendant', open && hits.length ? `macFind-${at}` : '');
+    if (!open) {
+      list.innerHTML = '';
+      return;
+    }
+    let html = mode === 'log' ? `<p class="mac-find-head">Log a touchpoint for${!q && hits.length ? ' · due now' : ''}</p>` : '';
+    html += hits.map(row).join('');
+    if (addName) {
+      html += `<p class="mac-find-empty">No one matches “${esc(addName)}”.</p>
+        <button type="button" class="mac-find-add is-active" data-add tabindex="-1">+ Add “${esc(addName)}” as a new person</button>`;
+    } else if (!hits.length) {
+      html += '<p class="mac-find-empty">Type their name.</p>';
+    }
+    list.innerHTML = html;
+  }
+
+  function reset() {
+    mode = null;
+    at = 0;
+    input.value = '';
+    input.placeholder = 'Find someone';
+    draw();
+  }
+
+  function pick(p) {
+    const logFor = mode === 'log';
+    reset();
+    input.blur();
+    const go = `#/person/${p.id}`;
+    const thenLog = () => {
+      if (logFor) logSheet(S.personById.get(p.id) || p);
+    };
+    if (location.hash === go) return thenLog();
+    S.ui.revealRow = true;
+    window.addEventListener('hashchange', thenLog, { once: true });
+    location.hash = go;
+  }
+
+  function addNew() {
+    const name = addName;
+    reset();
+    input.blur();
+    personForm(null, { name });
+  }
+
+  function start(how = null) {
+    // A form is open over the bar: leave it alone rather than lose what's typed.
+    if (!input || document.body.classList.contains('sheet-open')) return;
+    mode = how;
+    input.placeholder = how === 'log' ? 'Who did you reach out to?' : 'Find someone';
+    at = 0;
+    input.focus();
+    input.select();
+    draw();
+  }
+
+  function init() {
+    document.documentElement.classList.add('mac-app');
+    document.body.insertAdjacentHTML('afterbegin', macBarHTML());
+    input = document.getElementById('macFind');
+    list = document.getElementById('macFindList');
+    input.addEventListener('input', () => {
+      at = 0;
+      draw();
+    });
+    input.addEventListener('focus', draw);
+    // Clicking away closes the list; what you typed stays for next time.
+    input.addEventListener('blur', () => {
+      if (mode === 'log') {
+        mode = null;
+        input.placeholder = 'Find someone';
+      }
+      list.hidden = true;
+      input.setAttribute('aria-expanded', 'false');
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (!hits.length) return;
+        at = (at + (e.key === 'ArrowDown' ? 1 : -1) + hits.length) % hits.length;
+        draw();
+        const el = document.getElementById(`macFind-${at}`);
+        if (el) el.scrollIntoView({ block: 'nearest' });
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (hits[at]) pick(hits[at]);
+        else if (addName) addNew();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        if (input.value) {
+          input.value = '';
+          draw();
+        } else {
+          reset();
+          input.blur();
+        }
+      }
+    });
+    // Keep the box focused while clicking in the list.
+    list.addEventListener('mousedown', (e) => e.preventDefault());
+    list.addEventListener('click', (e) => {
+      const item = e.target.closest('.mac-find-item');
+      if (item) {
+        e.preventDefault();
+        pick(hits[Number(item.dataset.i)]);
+      } else if (e.target.closest('[data-add]')) addNew();
+    });
+    list.addEventListener('mousemove', (e) => {
+      const item = e.target.closest('.mac-find-item');
+      if (!item || Number(item.dataset.i) === at) return;
+      list.querySelector('.mac-find-item.is-active')?.classList.remove('is-active');
+      at = Number(item.dataset.i);
+      item.classList.add('is-active');
+      input.setAttribute('aria-activedescendant', item.id);
+    });
+    document.getElementById('macBar').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-mac-cmd]');
+      if (b) runCommand(b.dataset.macCmd);
+    });
+    if (window.callbackApp.onFullscreen) {
+      window.callbackApp.onFullscreen((on) => document.documentElement.classList.toggle('mac-fullscreen', on));
+    }
+  }
+
+  return { init, start };
+})();
+
+if (inMacApp) macFind.init();
+
 function shortcutsSheet() {
   const mac = inMacApp;
   const rows = [
     [mac ? '⌘N' : 'N', 'New person'],
     [mac ? '⇧⌘N' : 'Q', 'Quick add'],
-    [mac ? '⌘L' : 'L', 'Log a touchpoint for the person you have open'],
-    [mac ? '⌘F' : '/', 'Search'],
+    [mac ? '⌘L' : 'L', mac ? 'Log a touchpoint for the person you have open, or pick someone' : 'Log a touchpoint for the person you have open'],
+    [mac ? '⌘F' : '/', mac ? 'Find someone (on Orgs, search orgs)' : 'Search'],
     ['↑ ↓', 'Previous or next in the list'],
     [mac ? '⌘1 to ⌘5' : '1 to 6', 'Today, Week, People, Circles, Orgs' + (mac ? '' : ', Settings')],
     ...(mac ? [['⌘,', 'Settings'], ['⌘[', 'Back'], ['⌘E', 'Export a backup'], ['⌘O', 'Import a backup']] : []),
