@@ -51,8 +51,8 @@ const S = {
     collapsed: new Set(['today-light']),
     scroll: new Map(),
     backTo: null,
-    people: { q: '', sort: 'contact', sortOpen: false, warmth: new Set(), rel: new Set(), interest: new Set(), circles: new Set(), loops: false, dream: false, light: false, role: '', tag: '', org: '', showParked: false, filtersOpen: false },
-    circle: { sort: 'contact', sortOpen: false, light: false },
+    people: { q: '', sort: 'contact', reverse: false, sortOpen: false, warmth: new Set(), rel: new Set(), interest: new Set(), circles: new Set(), loops: false, dream: false, light: false, role: '', tag: '', org: '', showParked: false, filtersOpen: false },
+    circle: { sort: 'contact', reverse: false, sortOpen: false, light: false },
     circlesReorder: false,
     orgsQ: '',
   },
@@ -702,6 +702,25 @@ const SORTS = {
   warmth: 'Warmth',
   added: 'Date added',
 };
+// Each sort's two orders: its usual one first, then the other way round.
+const SORT_ORDERS = {
+  contact: ['Longest ago first', 'Most recent first'],
+  name: ['A to Z', 'Z to A'],
+  next: ['Soonest first', 'Latest first'],
+  warmth: ['Warmest first', 'Coldest first'],
+  added: ['Newest first', 'Oldest first'],
+};
+const sortLabel = (ui) => `Sort: ${SORTS[ui.sort]}${ui.reverse ? `, ${SORT_ORDERS[ui.sort][1]}` : ''}`;
+// The sort choices and the order under them (People, and a circle's members).
+function sortPanelHTML(ui, scope = '') {
+  const sc = scope ? ` data-scope="${scope}"` : '';
+  const chip = (on, attrs, label) => `<button type="button" class="chip${on ? ' active' : ''}" ${attrs}${sc} aria-pressed="${on}">${esc(label)}</button>`;
+  return `<div class="sort-panel"${ui.sortOpen ? '' : ' hidden'}>
+    <div class="filters">${Object.entries(SORTS).map(([k, label]) => chip(ui.sort === k, `data-action="set-sort" data-sort="${k}"`, label)).join('')}</div>
+    <p class="filter-label">Order</p>
+    <div class="filters">${SORT_ORDERS[ui.sort].map((label, i) => chip(ui.reverse === !!i, `data-action="set-order" data-reverse="${i}"`, label)).join('')}</div>
+  </div>`;
+}
 const WARMTH_ORDER = { client: 0, active: 1, warm: 2, cold: 3, parked: 4 };
 
 // `added`: also say when they were added (when that's the sort).
@@ -749,11 +768,12 @@ function filteredPeople() {
         .some((v) => v && v.toLowerCase().includes(q));
     });
   }
-  return sortPeople(list, f.sort);
+  return sortPeople(list, f.sort, f.reverse);
 }
 
-// The People sorts, also used for a circle's members.
-function sortPeople(list, sort) {
+// The People sorts, also used for a circle's members. `reverse` flips the
+// sort itself; people who tie stay A to Z.
+function sortPeople(list, sort, reverse = false) {
   const today = todayStr();
   const since = (p) => {
     const last = tpsOf(p.id)[0];
@@ -761,14 +781,20 @@ function sortPeople(list, sort) {
   };
   const byName = (a, b) => a.name.localeCompare(b.name);
   const sorters = {
-    contact: (a, b) => since(b) - since(a) || byName(a, b),
+    contact: (a, b) => {
+      const sa = since(a);
+      const sb = since(b);
+      return sa === sb ? 0 : sb - sa;
+    },
     name: byName,
-    next: (a, b) => (a.nextTouchpointDate || '').localeCompare(b.nextTouchpointDate || '') || byName(a, b),
-    warmth: (a, b) => WARMTH_ORDER[a.warmth] - WARMTH_ORDER[b.warmth] || byName(a, b),
+    next: (a, b) => (a.nextTouchpointDate || '').localeCompare(b.nextTouchpointDate || ''),
+    warmth: (a, b) => WARMTH_ORDER[a.warmth] - WARMTH_ORDER[b.warmth],
     // Newest first.
-    added: (a, b) => (b.createdAt || '').localeCompare(a.createdAt || '') || byName(a, b),
+    added: (a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''),
   };
-  return list.sort(sorters[sort] || sorters.contact);
+  const by = sorters[sort] || sorters.contact;
+  const dir = reverse ? -1 : 1;
+  return list.sort((a, b) => dir * by(a, b) || byName(a, b));
 }
 
 function activeFilterCount() {
@@ -858,13 +884,11 @@ function renderPeople() {
     ${S.people.length ? `
     <input type="search" class="search" id="peopleSearch" placeholder="Search name, org, notes" value="${esc(f.q)}" autocomplete="off" aria-label="Search people">
     <div class="toolbar">
-      <button type="button" class="filter-toggle" data-action="toggle-sort" aria-expanded="${f.sortOpen}">Sort: ${esc(SORTS[f.sort])}</button>
+      <button type="button" class="filter-toggle" data-action="toggle-sort" aria-expanded="${f.sortOpen}">${esc(sortLabel(f))}</button>
       <button type="button" class="filter-toggle${n ? ' is-on' : ''}" data-action="toggle-filters" aria-expanded="${f.filtersOpen}">Filter: ${n ? n : 'All'}</button>
       <label class="check"><input type="checkbox" data-filter="parked"${f.showParked ? ' checked' : ''}> Show parked</label>
     </div>
-    <div class="filters"${f.sortOpen ? '' : ' hidden'}>
-      ${Object.entries(SORTS).map(([k, label]) => `<button type="button" class="chip${f.sort === k ? ' active' : ''}" data-action="set-sort" data-sort="${k}">${esc(label)}</button>`).join('')}
-    </div>
+    ${sortPanelHTML(f)}
     <div class="filters-panel" id="filtersPanel"${f.filtersOpen ? '' : ' hidden'}>${filtersHTML()}</div>` : ''}
     <div class="card-list" id="peopleList">${peopleListHTML()}</div>`;
 }
@@ -1670,14 +1694,12 @@ function renderCircle(id) {
   const membersHTML = `
     <div class="toolbar circle-tools">
       <button type="button" class="primary small-btn" data-action="circle-add-people" data-id="${cid}">+ Add people</button>
-      ${members.length > 1 ? `<button type="button" class="filter-toggle" data-action="toggle-sort" data-scope="circle" aria-expanded="${ui.sortOpen}">Sort: ${esc(SORTS[ui.sort])}</button>` : ''}
+      ${members.length > 1 ? `<button type="button" class="filter-toggle" data-action="toggle-sort" data-scope="circle" aria-expanded="${ui.sortOpen}">${esc(sortLabel(ui))}</button>` : ''}
       ${lightCount || ui.light ? `<button type="button" class="filter-toggle${ui.light ? ' is-on' : ''}" data-action="filter-light" data-scope="circle" aria-pressed="${ui.light}">Light touch</button>` : ''}
     </div>
-    ${members.length > 1 ? `<div class="filters"${ui.sortOpen ? '' : ' hidden'}>
-      ${Object.entries(SORTS).map(([k, label]) => `<button type="button" class="chip${ui.sort === k ? ' active' : ''}" data-action="set-sort" data-scope="circle" data-sort="${k}">${esc(label)}</button>`).join('')}
-    </div>` : ''}
+    ${members.length > 1 ? sortPanelHTML(ui, 'circle') : ''}
     ${shown.length
-      ? sortPeople([...shown], ui.sort).map(row).join('')
+      ? sortPeople([...shown], ui.sort, ui.reverse).map(row).join('')
       : members.length
         ? `<p class="hint">Nobody in ${esc(c.name)} is a light touch.</p>`
         : `<p class="hint">Nobody in ${esc(c.name)} yet. Add people here, or from anyone's page.</p>`}`;
@@ -4111,7 +4133,14 @@ const ACTIONS = {
   },
   'set-sort': (el) => {
     const ui = el.dataset.scope === 'circle' ? S.ui.circle : S.ui.people;
+    // A new sort starts in its usual order.
+    if (ui.sort !== el.dataset.sort) ui.reverse = false;
     ui.sort = el.dataset.sort;
+    render();
+  },
+  'set-order': (el) => {
+    const ui = el.dataset.scope === 'circle' ? S.ui.circle : S.ui.people;
+    ui.reverse = el.dataset.reverse === '1';
     render();
   },
   'toggle-filters': () => {
