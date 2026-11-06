@@ -1936,8 +1936,43 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
 }
 /* A narrow open page (smaller Mac window) stacks its two columns. */
 @container (max-width: 760px) {
-  .split-detail .detail-cols { display: block; }
+  .split-detail .detail-cols, .pick-panel .detail-cols { display: block; }
 }
+
+/* Big window (1500px and up, set in app.js): Today is a board, a column per
+   section, each scrolling on its own, and whoever you click opens on the
+   right. The weekly review gets columns too. The page itself stays put.
+   The sizes match BOARD in app.js. */
+#app:has(> .view.is-board[data-route]) { max-width: none; padding-bottom: 0; overflow-x: clip; }
+.view.is-board { height: 100dvh; box-sizing: border-box; display: flex; flex-direction: column; }
+.view.is-board > :not(.dash) { flex: none; }
+.view.is-board > .dash { flex: 1; min-height: 0; align-items: stretch; }
+.view.is-board > .dash > .stats-row { align-self: start; }
+.view.is-board .dash-main { display: flex; flex-direction: column; min-height: 0; }
+.view.is-board .dash-main > :not(.board) { flex: none; }
+.board { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(var(--board-cols), minmax(0, 1fr)); gap: 20px; }
+.board-col { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 32px; }
+.board-col .card-list:has(> .item-card) { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+.board .item-actions .btn { padding: 8px 10px; font-size: 12px; letter-spacing: 0.6px; }
+.board [data-pick] { cursor: pointer; }
+.board .item-card.is-picked { box-shadow: inset 8px 0 0 var(--accent); }
+.board .light-row.is-picked, .board .reply-row.is-picked { box-shadow: inset 8px 0 0 var(--accent); padding-left: 16px; }
+.dash.has-pick { grid-template-columns: 172px minmax(0, 1fr) clamp(600px, 50%, 1000px); }
+.pick-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-right: -32px;
+  padding: 0 32px 40px;
+  border-left: 3px solid var(--ink);
+  container-type: inline-size;
+}
+.pick-panel.is-opening { animation: slideLeft 0.2s ease; }
+.pick-panel .detail-top { padding-top: 0; }
+.pick-close svg { width: 16px; height: 16px; margin-right: 4px; }
+.pick-links { display: flex; gap: 20px; }
+html.mac-app .view.is-board { height: calc(100dvh - var(--mac-bar-h)); }
 @keyframes slideLeft {
   from { transform: translateX(40px); opacity: 0; }
   to { transform: translateX(0); opacity: 1; }

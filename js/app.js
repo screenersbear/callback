@@ -57,6 +57,11 @@ const S = {
     circle: { sort: 'contact', reverse: false, sortOpen: false, light: false },
     circlesReorder: false,
     orgsQ: '',
+    // Today's board in a big window: who's open on the right ({ id, focus }),
+    // and the board's people in order, to move on to the next one.
+    pick: null,
+    boardOrder: [],
+    revealPick: false,
   },
 };
 
@@ -474,7 +479,7 @@ function renderToday() {
   </div>`;
   // On a phone the numbers sit in a row on top; with the side rail they
   // stack in a column on the left and the rest of Today fills the right.
-  const dash = (rest) => `${html}<div class="dash">${stats}<div class="dash-main">${conflictBannerHTML()}${exportReminderHTML(today)}${rest}</div></div>`;
+  const dash = (rest, aside = '') => `${html}<div class="dash${aside ? ' has-pick' : ''}">${stats}<div class="dash-main">${conflictBannerHTML()}${exportReminderHTML(today)}${rest}</div>${aside}</div>`;
 
   const sections = [];
   const card = (kind) => (p) => personCard(p, kind, t.dueNews.get(p.id));
@@ -507,11 +512,16 @@ function renderToday() {
   if (!sections.length) return dash(caughtUpHTML(today) + light);
   const blocks = sections.map(([key, title, n, inner], i) => ({ key, n, html: sectionBlock(key, title, n, inner, i % 2 ? 'navy' : 'yellow') }));
   if (light) blocks.push({ key: 'today-light', n: t.light.length, html: light });
+  // A big window (full screen, or a big Mac window) gets the board: a column
+  // per section, as many as fit, and whoever you click opens on the right.
+  if (bigQuery.matches) {
+    const pick = S.ui.pick && S.personById.get(S.ui.pick.id) ? S.ui.pick : null;
+    return dash(boardHTML(blocks, boardFit(!!pick)), pick ? pickPanelHTML(pick.id) : '');
+  }
   if (!wideQuery.matches) return dash(blocks.map((b) => b.html).join(''));
   // A wide window gets two columns. Each section goes to the shorter one so
   // far, judged by how tall its cards run, so the first two sit side by side
   // at the top and neither column runs on alone.
-  const PER_ITEM = { justmet: 3, overdue: 3, due: 3, resurfaced: 3, loops: 1.2, news: 1.2, coming: 1.2, replies: 0.6, 'today-light': 0.5 };
   const cols = [{ h: 0, html: '' }, { h: 0, html: '' }];
   for (const b of blocks) {
     const col = cols[0].h <= cols[1].h ? cols[0] : cols[1];
@@ -521,12 +531,87 @@ function renderToday() {
   return dash(`<div class="today-cols">${cols.map((c) => `<div class="today-col">${c.html}</div>`).join('')}</div>`);
 }
 
+// How tall a section's cards run, roughly, per item.
+const PER_ITEM = { justmet: 3, overdue: 3, due: 3, resurfaced: 3, loops: 1.2, news: 1.2, coming: 1.2, replies: 0.6, 'today-light': 0.5 };
+
+// Big windows: Today becomes a board and the weekly review gets columns.
+// The sizes here match the board's in style.css.
+const bigQuery = window.matchMedia('(min-width: 1500px)');
+const BOARD = { rail: 200, pad: 32, stats: 172, gap: 28, col: 340, colGap: 20, panelMin: 600, panelMax: 1000 };
+
+// How many columns fit beside the numbers, and beside the open person.
+function boardFit(withPanel) {
+  const dash = window.innerWidth - BOARD.rail - 2 * BOARD.pad;
+  let main = dash - BOARD.stats - BOARD.gap;
+  if (withPanel) main -= Math.min(BOARD.panelMax, Math.max(BOARD.panelMin, dash * 0.5)) + BOARD.gap;
+  return Math.max(1, Math.floor((main + BOARD.colGap) / (BOARD.col + BOARD.colGap)));
+}
+
+// A column per section while there's room. With more sections than columns,
+// each goes to the shortest column so far.
+function boardHTML(blocks, fit) {
+  const cols = Array.from({ length: Math.min(fit, blocks.length) }, () => ({ h: 0, html: '' }));
+  for (const b of blocks) {
+    const col = cols.reduce((a, c) => (c.h < a.h ? c : a));
+    col.h += 1 + b.n * (PER_ITEM[b.key] || 1);
+    col.html += b.html;
+  }
+  return `<div class="board" data-fit="${fit}" style="--board-cols: ${cols.length}">${cols.map((c) => `<div class="board-col">${c.html}</div>`).join('')}</div>`;
+}
+
+// The person you clicked on the board: their whole page, on the right.
+function pickPanelHTML(id) {
+  const p = S.personById.get(id);
+  return `<aside class="pick-panel" data-id="${esc(id)}" aria-label="${esc(p.name)}">${renderPerson(id, { panel: true })}</aside>`;
+}
+
+const boardOn = () => view.classList.contains('is-board') && parseRoute().name === 'today';
+
+// Everyone on the board, in the order you see them (column by column).
+// `shown` leaves out folded sections.
+function boardPeople(shown = false) {
+  const els = [...view.querySelectorAll('.board [data-pick]')].filter((el) => !shown || !el.closest('[hidden]'));
+  return [...new Set(els.map((el) => el.dataset.pick))];
+}
+
+function pickPerson(id, focus = null) {
+  S.ui.pick = { id, focus };
+  S.ui.revealPick = true;
+  render();
+}
+
+function closePick() {
+  S.ui.pick = null;
+  render();
+}
+
+// Down and up on the board go to the next or previous person.
+function stepBoard(dir) {
+  const ids = boardPeople(true);
+  if (!ids.length) return;
+  const at = S.ui.pick ? ids.indexOf(S.ui.pick.id) : -1;
+  const next = ids[at < 0 ? (dir > 0 ? 0 : ids.length - 1) : Math.min(ids.length - 1, Math.max(0, at + dir))];
+  if (S.ui.pick && next === S.ui.pick.id) return;
+  pickPerson(next);
+}
+
+// Once the open person leaves the board (logged, snoozed, done), the one
+// after them opens, or the one before if they were last.
+function nextPick(id, order) {
+  if (!S.personById.get(id)) return null;
+  const prev = S.ui.boardOrder;
+  const at = prev.indexOf(id);
+  if (at < 0) return null;
+  const next = prev.slice(at + 1).find((x) => order.includes(x)) || prev.slice(0, at).reverse().find((x) => order.includes(x));
+  return next ? { id: next, focus: null } : null;
+}
+
 // A touchpoint still waiting on a reply. The row opens it on the person's
 // page; the buttons settle it right here.
 function replyRow(t) {
   const p = S.personById.get(t.personId);
   const id = esc(t.id);
-  return `<div class="reply-row">
+  return `<div class="reply-row" data-pick="${esc(t.personId)}" data-focus="${id}">
     <a class="light-main" href="#/person/${esc(t.personId)}/${id}"><span class="light-name">${esc(p.name)}</span>
       <span class="reply-what">${esc(touchTypeLabel(t.type))} <span class="dot">·</span> ${esc(fmtDate(t.date))}</span>
       ${t.note ? `<span class="light-idea">${esc(t.note)}</span>` : ''}</a>
@@ -542,7 +627,7 @@ function replyRow(t) {
 // and Snooze. Never late: a missed one just carries on to the next sitting.
 function lightRow(p) {
   const id = esc(p.id);
-  return `<div class="light-row">
+  return `<div class="light-row" data-pick="${id}">
     <a class="light-main" href="#/person/${id}"><span class="light-who"><span class="light-name">${esc(p.name)}</span>${circleChips(p)}</span>
       <span class="light-idea">${esc(shownIdea(p).text)}</span></a>
     <span class="light-actions">
@@ -653,7 +738,7 @@ function personCard(p, kind, news = null) {
     ? '<div class="idea"><span class="idea-label">Idea</span><p class="idea-text">Congratulate them, or send something that fits the moment.</p></div>'
     : ideaHTML(p);
   const stage = kind === 'justMet' ? null : firstStage(p);
-  return `<article class="item-card${kind === 'overdue' || (kind === 'justMet' && (p.firstContactDeadline || today) < today) ? ' is-overdue' : ''}">
+  return `<article class="item-card${kind === 'overdue' || (kind === 'justMet' && (p.firstContactDeadline || today) < today) ? ' is-overdue' : ''}" data-pick="${id}">
     ${itemHead(p)}
     ${stage ? '<p class="first-line"><span class="first-tag">First contact</span></p>' : ''}
     <p class="item-facts">${facts.join(' <span class="dot">·</span> ')}</p>
@@ -679,7 +764,7 @@ function newsCard(n, { coming = false } = {}) {
   const id = esc(p.id);
   const when = n.date === today ? 'Today' : coming ? `${fmtDate(n.date)}, ${relDay(n.date, today)}` : cap(relDay(n.date, today));
   const idea = (n.repeatsYearly && yearlyIdea([n], tpsOf(p.id), today, { light: p.lightTouch })) || 'Congratulate them, or send something that fits the moment.';
-  return `<article class="item-card news-card">
+  return `<article class="item-card news-card" data-pick="${id}">
     ${itemHead(p)}
     <p class="news-line"><span class="news-when">${esc(when)}</span>${esc(n.description)}${n.repeatsYearly ? ' <span class="yearly-tag">Every year</span>' : ''}</p>
     <p class="item-facts">${esc(sinceText(p, today))}</p>
@@ -716,7 +801,7 @@ function loopCard(l, { coming = false } = {}) {
   const when = `${fmtDate(l.dueDate)}, ${relDay(l.dueDate, today)}`;
   if (coming) {
     const theirs = l.direction === 'theyOwe';
-    return `<article class="item-card loop-card ${theirs ? 'is-theyowe' : 'is-iowe'}">
+    return `<article class="item-card loop-card ${theirs ? 'is-theyowe' : 'is-iowe'}" data-pick="${pid}">
       <p class="loop-kicker">${loopIcon(l.direction)}<span>On ${theirs ? 'their' : 'your'} side</span></p>
       <p class="loop-desc">${theirs ? `Waiting on ${esc(midSentence(l.description))} from ${who}.` : `You promised ${who}: ${esc(l.description)}`}</p>
       <p class="item-facts"><b>${theirs ? 'Expected' : 'Due'} ${esc(when)}</b></p>
@@ -727,7 +812,7 @@ function loopCard(l, { coming = false } = {}) {
     </article>`;
   }
   if (l.direction === 'theyOwe') {
-    return `<article class="item-card loop-card is-theyowe">
+    return `<article class="item-card loop-card is-theyowe" data-pick="${pid}">
       <p class="loop-kicker">${loopIcon('theyOwe')}<span>On their side</span></p>
       <p class="loop-desc">Still waiting on ${esc(midSentence(l.description))} from ${who}.</p>
       <p class="item-facts"><b>Expected ${esc(fmtDate(l.dueDate))}</b> <span class="dot">·</span> ${esc(relDay(l.dueDate, today))}. A gentle nudge?</p>
@@ -738,7 +823,7 @@ function loopCard(l, { coming = false } = {}) {
       </div>
     </article>`;
   }
-  return `<article class="item-card loop-card is-iowe${n > 0 ? ' is-overdue' : ''}">
+  return `<article class="item-card loop-card is-iowe${n > 0 ? ' is-overdue' : ''}" data-pick="${pid}">
     <p class="loop-kicker">${loopIcon('iOwe')}<span>On your side</span></p>
     <p class="loop-desc">You promised ${who}: ${esc(l.description)}</p>
     <p class="item-facts"><b>${n === 0 ? 'Due today' : `Due ${esc(relDay(l.dueDate, today))}`}</b></p>
@@ -964,9 +1049,12 @@ function notFoundHTML(what, fallback, label) {
     <div class="empty"><p class="empty-title">This ${what} isn't here anymore.</p><p>It may have been deleted, or replaced by an import.</p></div>`;
 }
 
-function renderPerson(id) {
+// `panel`: shown beside Today's board, with Close instead of Back. Its
+// sections fold on their own, apart from the board's.
+function renderPerson(id, { panel = false } = {}) {
   const p = S.personById.get(id);
   if (!p) return notFoundHTML('person', '#/people', 'People');
+  const k = (key) => (panel ? `pick-${key}` : key);
   const today = todayStr();
   const tps = tpsOf(id);
   const next = p.nextTouchpointDate || today;
@@ -1038,18 +1126,23 @@ function renderPerson(id) {
     ${prompt}
     <button type="button" class="hero-cta log-cta" data-action="log" data-id="${pid}">Log touchpoint</button>
     ${p.warmth === 'parked' ? '' : ideaHTML(p)}
-    ${sectionBlock('details', 'Details', null, detailsHTML(p), 'navy')}
-    ${sectionBlock('personal', 'Personal', null, personalHTML(p), 'yellow')}
-    ${sectionBlock('connections', 'Connections', null, connectionsHTML(p), 'navy')}`;
+    ${sectionBlock(k('details'), 'Details', null, detailsHTML(p), 'navy')}
+    ${sectionBlock(k('personal'), 'Personal', null, personalHTML(p), 'yellow')}
+    ${sectionBlock(k('connections'), 'Connections', null, connectionsHTML(p), 'navy')}`;
 
   const right = `
-    ${sectionBlock('news', 'Their news', newsOf(id).length, newsListHTML(p), 'yellow')}
-    ${sectionBlock('loops', 'Open loops', openLoopsOf(id).length, loopsHTML(p), 'navy')}
-    ${sectionBlock('timeline', 'Touchpoints', tps.length, timelineHTML(p, tps), 'yellow')}`;
+    ${sectionBlock(k('news'), 'Their news', newsOf(id).length, newsListHTML(p), 'yellow')}
+    ${sectionBlock(k('loops'), 'Open loops', openLoopsOf(id).length, loopsHTML(p), 'navy')}
+    ${sectionBlock(k('timeline'), 'Touchpoints', tps.length, timelineHTML(p, tps), 'yellow')}`;
 
+  const top = panel
+    ? `<div class="detail-top"><button type="button" class="back-btn pick-close" data-action="close-pick">${X_ICON_SMALL}Close</button>
+      <span class="pick-links"><a class="text-btn" href="#/person/${pid}">Full page</a>
+      <button type="button" class="text-btn" data-action="edit-person" data-id="${pid}">Edit</button></span></div>`
+    : `<div class="detail-top">${backButton('#/people', 'Back')}
+      <button type="button" class="text-btn" data-action="edit-person" data-id="${pid}">Edit</button></div>`;
   return `
-    <div class="detail-top">${backButton('#/people', 'Back')}
-      <button type="button" class="text-btn" data-action="edit-person" data-id="${pid}">Edit</button></div>
+    ${top}
     <div class="detail-cols"><div class="detail-col">${left}</div><div class="detail-col">${right}</div></div>`;
 }
 
@@ -2083,7 +2176,7 @@ function renderWeek() {
       ${statBox(w.replies.length, 'Replies received', null, 'replies')}
       ${statBox(`${w.added.length}<small>/${g.newPeople}</small>`, 'New people added', null, 'added')}
     </div>
-    <div class="dash-main">
+    <div class="dash-main">${weekCols([`
     ${w.light.length ? `<p class="week-split">${plural(w.regular.length, 'touchpoint')}, ${plural(w.light.length, 'light touch', 'light touches')}</p>` : ''}
     <div class="goals">
       ${goalBar('Touchpoints', w.regular.length, g.touchpoints)}
@@ -2093,11 +2186,18 @@ function renderWeek() {
     <section class="section-block">
       <h2 class="heading-yellow static"><label for="pointNew">What worked this week?</label></h2>
       ${pointsEditorHTML(ws, 'pointNew')}
-    </section>
-    ${sectionBlock('week-logged', 'Logged this week', w.tps.length, logged || '<p class="hint">Nothing logged yet this week. Today has a list of who to reach out to.</p>', 'navy')}
-    ${sectionBlock('week-past', 'Past weeks', pastWeeks.length || null, pastHTML, 'yellow')}
+    </section>`,
+    sectionBlock('week-logged', 'Logged this week', w.tps.length, logged || '<p class="hint">Nothing logged yet this week. Today has a list of who to reach out to.</p>', 'navy'),
+    sectionBlock('week-past', 'Past weeks', pastWeeks.length || null, pastHTML, 'yellow')])}
     </div>
     </div>`;
+}
+
+// In a big window the weekly review's three parts sit in columns, each
+// scrolling on its own; otherwise one after the other.
+function weekCols(parts) {
+  if (!bigQuery.matches) return parts.join('');
+  return `<div class="board" style="--board-cols: ${parts.length}">${parts.map((p) => `<div class="board-col">${p}</div>`).join('')}</div>`;
 }
 
 // What worked, as a running list. The box on top adds a point (Enter or
@@ -2725,12 +2825,54 @@ function render() {
   const list = splitList(r.name);
   const oldList = view.querySelector('.split-list');
   const listY = oldList && oldList.dataset.list === list ? oldList.scrollTop : 0;
+  // The board's columns and the open person keep their scroll.
+  const oldPanel = view.querySelector('.pick-panel');
+  const pick = S.ui.pick;
+  const panelY = oldPanel && pick && oldPanel.dataset.id === pick.id ? oldPanel.scrollTop : 0;
+  const colsY = same ? [...view.querySelectorAll('.board-col')].map((c) => c.scrollTop) : [];
+  if (pick && pick.focus) S.ui.collapsed.delete('pick-timeline');
   view.innerHTML = list ? splitHTML(r, list) : ROUTES[r.name](r.id);
   view.classList.toggle('is-split', !!list);
   if (list) {
     view.querySelector('.split-list').scrollTop = listY;
     markSelected();
   }
+  const board = view.querySelector('.board');
+  view.classList.toggle('is-board', !!board);
+  if (board) {
+    const cols = view.querySelectorAll('.board-col');
+    if (cols.length === colsY.length) cols.forEach((c, i) => { c.scrollTop = colsY[i]; });
+  }
+  if (r.name === 'today' && bigQuery.matches && S.people.length) {
+    if (!board) S.ui.pick = null;
+    else if (pick) {
+      const order = boardPeople();
+      if (!order.includes(pick.id)) {
+        S.ui.pick = nextPick(pick.id, order);
+        S.ui.revealPick = true;
+        return render();
+      }
+    }
+    if (board) S.ui.boardOrder = boardPeople();
+  }
+  if (board && S.ui.pick) {
+    const id = S.ui.pick.id;
+    const on = [...board.querySelectorAll('[data-pick]')].filter((el) => el.dataset.pick === id);
+    on.forEach((el) => el.classList.add('is-picked'));
+    if (S.ui.revealPick && on[0]) on[0].scrollIntoView({ block: 'nearest' });
+    const panel = view.querySelector('.pick-panel');
+    if (panel) {
+      if (!oldPanel) panel.classList.add('is-opening');
+      panel.scrollTop = panelY;
+      const tp = S.ui.pick.focus && [...panel.querySelectorAll('.tl-item')].find((li) => li.dataset.id === S.ui.pick.focus);
+      if (tp) {
+        tp.scrollIntoView({ block: 'center' });
+        tp.classList.add('is-focus');
+      }
+      S.ui.pick.focus = null;
+    }
+  }
+  S.ui.revealPick = false;
   view.dataset.route = r.name;
   fitBrandTitle();
   view.querySelectorAll('textarea.pd-value').forEach(fitHeight);
@@ -2753,6 +2895,32 @@ function render() {
 }
 
 wideQuery.addEventListener('change', () => render());
+bigQuery.addEventListener('change', () => render());
+
+// Resizing a big window can fit more or fewer board columns.
+let boardResize = 0;
+window.addEventListener('resize', () => {
+  clearTimeout(boardResize);
+  boardResize = setTimeout(() => {
+    const b = view.querySelector('.board[data-fit]');
+    if (b && Number(b.dataset.fit) !== boardFit(!!view.querySelector('.pick-panel'))) render();
+  }, 120);
+});
+
+// On Today's board, a click on someone (anywhere on their card but its
+// buttons) opens them on the right instead of going to their page.
+view.addEventListener('click', (e) => {
+  if (!boardOn()) return;
+  const host = e.target.closest('.board [data-pick]');
+  if (!host) return;
+  const link = e.target.closest('a[href^="#/person/"]');
+  if (!link && e.target.closest('button, a, input, textarea, select, label, [data-action]')) return;
+  e.preventDefault();
+  if (link) {
+    const [, , id, focus] = link.getAttribute('href').split('/');
+    pickPerson(decodeURIComponent(id), focus ? decodeURIComponent(focus) : null);
+  } else pickPerson(host.dataset.pick, host.dataset.focus || null);
+});
 
 window.addEventListener('hashchange', (e) => {
   const from = new URL(e.oldURL).hash || '#/today';
@@ -3356,7 +3524,8 @@ function personForm(p, preset = {}) {
       if (!ok) return;
       await db.deletePerson(p.id);
       s.close();
-      location.hash = '#/people';
+      // Deleted from the panel beside Today's board: stay on Today.
+      if (!boardOn()) location.hash = '#/people';
       await refresh();
       toast(`${p.name} deleted`);
     });
@@ -4416,8 +4585,10 @@ const ACTIONS = {
   snooze: (el) => snoozeSheet(person(el)),
   'change-date': (el) => dateSheet(person(el)),
   'open-person': (el) => {
-    location.hash = `#/person/${el.dataset.id}`;
+    if (boardOn() && el.closest('.board')) pickPerson(el.dataset.id);
+    else location.hash = `#/person/${el.dataset.id}`;
   },
+  'close-pick': () => closePick(),
   'change-warmth': (el) => warmthSheet(person(el)),
   'change-rel': (el) => relationshipSheet(person(el)),
   'change-interest': (el) => interestSheet(person(el)),
@@ -4972,7 +5143,8 @@ const inMacApp = !!(window.callbackApp && window.callbackApp.mac);
 
 function openPerson() {
   const r = parseRoute();
-  return r.name === 'person' ? S.personById.get(r.id) || null : null;
+  if (r.name === 'person') return S.personById.get(r.id) || null;
+  return boardOn() && S.ui.pick ? S.personById.get(S.ui.pick.id) || null : null;
 }
 
 // Down and up go to the next or previous row in the side list.
@@ -5012,8 +5184,13 @@ const COMMANDS = {
   },
   // In the Mac app the bar's search finds anyone; on Orgs it searches orgs.
   find: () => (inMacApp && SPLIT_LIST[parseRoute().name] !== 'orgs' ? macFind.start() : findCommand()),
-  next: () => stepList(1),
-  prev: () => stepList(-1),
+  // Snooze has no button for someone just met or only on your dream list.
+  snooze: () => {
+    const p = openPerson();
+    if (p && !dreamOnly(p) && (p.warmth === 'parked' || firstStage(p) !== 'justMet')) snoozeSheet(p);
+  },
+  next: () => (boardOn() ? stepBoard(1) : stepList(1)),
+  prev: () => (boardOn() ? stepBoard(-1) : stepList(-1)),
   back: () => history.back(),
   export: () => exportJSON(),
   import: () => importJSON(),
@@ -5027,7 +5204,7 @@ function runCommand(name) {
 }
 
 // In the browser: plain keys, only when you're not typing and nothing is open.
-const KEYS = { n: 'new-person', q: 'quick-add', l: 'log', '/': 'find', '?': 'shortcuts', ArrowDown: 'next', ArrowUp: 'prev' };
+const KEYS = { n: 'new-person', q: 'quick-add', l: 'log', s: 'snooze', '/': 'find', '?': 'shortcuts', ArrowDown: 'next', ArrowUp: 'prev' };
 TAB_ORDER.forEach((t, i) => { KEYS[String(i + 1)] = `go-${t}`; });
 
 const isTyping = (el) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
@@ -5035,10 +5212,16 @@ const isTyping = (el) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELE
 document.addEventListener('keydown', (e) => {
   if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
   if (isTyping(document.activeElement) || document.body.classList.contains('sheet-open')) return;
+  if (e.key === 'Escape' && boardOn() && S.ui.pick) {
+    e.preventDefault();
+    closePick();
+    return;
+  }
   const name = KEYS[e.key];
   if (!name) return;
-  // The arrows only move through a side list; anywhere else they scroll.
-  if ((name === 'next' || name === 'prev') && !view.classList.contains('is-split')) return;
+  // The arrows only move through a side list or Today's board; anywhere
+  // else they scroll.
+  if ((name === 'next' || name === 'prev') && !view.classList.contains('is-split') && !boardOn()) return;
   e.preventDefault();
   runCommand(name);
 });
@@ -5262,10 +5445,11 @@ function shortcutsSheet() {
     [mac ? '⇧⌘N' : 'Q', 'Quick add'],
     [mac ? '⌘L' : 'L', mac ? 'Log a touchpoint for the person you have open, or pick someone' : 'Log a touchpoint for the person you have open'],
     [mac ? '⌘F' : '/', mac ? 'Find someone (on Orgs, search orgs)' : 'Search'],
-    ['↑ ↓', 'Previous or next in the list'],
+    ['S', 'Snooze the person you have open'],
+    ['↑ ↓', 'Previous or next in the list, or on Today in a big window'],
     [mac ? '⌘1 to ⌘5' : '1 to 6', 'Today, People, Week, Circles, Orgs' + (mac ? '' : ', Settings')],
     ...(mac ? [['⌘,', 'Settings'], ['⌘[', 'Back'], ['⌘E', 'Export a backup'], ['⌘O', 'Import a backup']] : []),
-    ['Esc', 'Close a form or popup'],
+    ['Esc', 'Close a form, a popup or the person open beside Today'],
   ];
   openSheet({
     title: 'Keyboard shortcuts',

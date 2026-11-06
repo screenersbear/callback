@@ -130,8 +130,11 @@ if (vv) {
   fitViewport();
 }
 
+// Esc closes the top popup and nothing else (not the person beside Today).
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && open.length) open[open.length - 1].close();
+  if (e.key !== 'Escape' || !open.length) return;
+  e.preventDefault();
+  open[open.length - 1].close();
 });
 
 // A bottom sheet on phones, a centered panel on wide screens.
