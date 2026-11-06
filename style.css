@@ -1984,7 +1984,7 @@ html.mac-app .view.is-board { height: calc(100dvh - var(--mac-bar-h)); }
    spot is set in Callback Mac/main.js) and moves the window when you drag
    its empty parts. Everything you click in it opts out of dragging. */
 .mac-bar { display: none; }
-html.mac-app { --mac-bar-h: 56px; }
+html.mac-app { --mac-bar-h: 72px; }
 html.mac-app .mac-bar {
   position: fixed;
   top: 0;
@@ -1994,38 +1994,38 @@ html.mac-app .mac-bar {
   height: var(--mac-bar-h);
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 0 16px 0 88px;
+  gap: 20px;
+  padding: 0 20px 0 92px;
   background: var(--hero);
   border-bottom: 4px solid var(--accent);
   -webkit-app-region: drag;
   -webkit-user-select: none;
   user-select: none;
 }
-html.mac-fullscreen .mac-bar { padding-left: 20px; }
+html.mac-fullscreen .mac-bar { padding-left: 24px; }
 .mac-bar > .mac-find, .mac-bar > .mac-bar-btn { -webkit-app-region: no-drag; }
 .mac-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex: none;
   font-family: var(--font-title);
-  font-size: 17px;
+  font-size: 19px;
   letter-spacing: 1px;
   text-transform: uppercase;
   color: var(--accent);
 }
-.mac-brand .brand-logo { width: 28px; height: 28px; box-shadow: 0 0 0 2px var(--accent); }
-.mac-find { position: relative; flex: 0 1 360px; min-width: 150px; }
+.mac-brand .brand-logo { width: 32px; height: 32px; box-shadow: 0 0 0 2px var(--accent); }
+.mac-find { position: relative; flex: 0 1 400px; min-width: 150px; }
 .mac-find-input {
   width: 100%;
-  height: 36px;
-  padding: 0 44px 0 12px;
+  height: 42px;
+  padding: 0 48px 0 14px;
   border: 3px solid var(--accent);
   border-radius: 0;
   background: var(--field);
   color: var(--text);
-  font-size: 15px;
+  font-size: 16px;
   letter-spacing: 0.5px;
   -webkit-appearance: none;
   appearance: none;
@@ -2091,8 +2091,8 @@ html.mac-fullscreen .mac-bar { padding-left: 20px; }
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  height: 36px;
-  padding: 0 16px;
+  height: 42px;
+  padding: 0 18px;
   flex: none;
   background: var(--accent);
   color: var(--on-accent);
