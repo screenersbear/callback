@@ -2,12 +2,17 @@
 // GitHub repository you own.
 //
 // Every device keeps working on its own, offline too. A sync reads the file,
-// merges it in the way Import backup's Merge does (the newer copy of each
-// record wins, deletions carry over), then writes the merged result back if
-// this device had anything new. GitHub refuses a write made on top of an
-// older copy, so when two devices sync at once the second one reads again
-// and merges first; nothing is lost. The repository's history keeps every
-// version, so it's a backup as well.
+// combines it with this device's records field by field (js/merge.js: what
+// changed on one side is taken, changes to different fields of the same
+// record are both kept, and a real clash is held and asked about), then
+// writes the result back if this device had anything new. GitHub refuses a
+// write made on top of an older copy, so when two devices sync at once the
+// second one reads again and merges first; nothing is lost. The
+// repository's history keeps every version, so it's a backup as well.
+//
+// Device-only values (db meta): 'sync' (repository, key, status),
+// 'syncBase' (each record as last agreed, for telling who changed what) and
+// 'syncConflicts' (clashes waiting for an answer).
 //
 // The repository name and key are kept with this device's own values (db
 // meta): never in a backup, never in the file. One day this can sit behind
@@ -15,6 +20,7 @@
 
 import * as db from './db.js';
 import { nowISO } from './util.js';
+import { STORES, dataKey, planMerge, fileData, nextBase, resolvedRecord, keyOf } from './merge.js';
 
 const FILE = 'callback.json';
 const GITHUB = 'https://api.github.com';
@@ -71,16 +77,6 @@ function fromBase64(b64) {
   return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
 }
 
-// The same data in the same order of keys, so an unchanged device can tell
-// it has nothing new to send.
-function canonical(v) {
-  if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
-  if (v && typeof v === 'object') {
-    return `{${Object.keys(v).filter((k) => v[k] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(',')}}`;
-  }
-  return v === undefined ? 'null' : JSON.stringify(v);
-}
-
 async function readRemote(cfg) {
   const path = `/repos/${cfg.repo}/contents/${FILE}`;
   const res = await call(cfg, path);
@@ -103,8 +99,7 @@ async function readRemote(cfg) {
   }
   try {
     const payload = JSON.parse(text);
-    db.readExport(payload);
-    return { sha: meta.sha, payload };
+    return { sha: meta.sha, payload, data: db.readExport(payload) };
   } catch (err) {
     throw new SyncError(err instanceof SyntaxError ? `${FILE} in ${cfg.repo} isn't a Callback file. Use a repository just for Callback.` : err.message, 'file');
   }
@@ -141,17 +136,31 @@ export async function syncNow(newCfg = null) {
   if (!cfg) return { off: true };
   let changedHere = false;
   let done = false;
+  let conflicts = [];
+  let base = null;
   try {
+    // A device joining (or moving to another repository) starts afresh.
+    const oldBase = cfg.joined ? await db.getMeta('syncBase') : null;
     for (let tries = 0; tries < 4 && !done; tries++) {
       const remote = await readRemote(cfg);
+      const theirs = remote.data || Object.fromEntries(STORES.map((s) => [s, []]));
+      let held = new Set();
+      conflicts = [];
       if (remote.payload) {
         const incomingWins = cfg.joined ? [] : await joinRule(remote.payload);
-        const counts = await db.importAll(remote.payload, 'merge', { quiet: true, incomingWins });
-        if (counts.changed) changedHere = true;
+        const plan = planMerge((await db.exportAll()).data, theirs, oldBase, { incomingWins, now: nowISO() });
+        if (await db.applySync(plan.puts, plan.dels)) changedHere = true;
+        held = plan.held;
+        const from = remote.payload.syncedFrom && remote.payload.syncedFrom !== cfg.device ? remote.payload.syncedFrom : null;
+        conflicts = plan.conflicts.map((c) => ({ ...c, from, foundAt: nowISO() }));
       }
-      const local = await db.exportAll();
-      if (remote.payload && canonical(local.data) === canonical(remote.payload.data)) done = true;
-      else done = !!(await writeRemote(cfg, JSON.stringify(local, null, 2), remote.sha));
+      const out = fileData((await db.exportAll()).data, theirs, held);
+      if (remote.payload && dataKey(out) === dataKey(theirs)) done = true;
+      else {
+        const text = JSON.stringify({ app: 'callback', version: db.SCHEMA_VERSION, exportedAt: nowISO(), syncedFrom: cfg.device || null, data: out }, null, 2);
+        done = !!(await writeRemote(cfg, text, remote.sha));
+      }
+      if (done) base = nextBase(out, oldBase, held);
     }
     if (!done) throw new SyncError('Another device kept syncing at the same moment. Callback tries again shortly.', 'busy');
   } catch (err) {
@@ -159,12 +168,90 @@ export async function syncNow(newCfg = null) {
     if (!newCfg) await db.setMeta('sync', { ...cfg, lastError: e.message, lastErrorKind: e.kind, lastErrorAt: nowISO() });
     throw e;
   }
+  const before = new Set(((await db.getMeta('syncConflicts')) || []).map((c) => keyOf(c.store, c.id)));
+  await db.setMeta('syncBase', base);
+  await db.setMeta('syncConflicts', conflicts);
   await db.setMeta('sync', { ...cfg, joined: true, lastSyncAt: nowISO(), lastError: null, lastErrorKind: null });
-  return { changedHere };
+  const fresh = conflicts.filter((c) => !before.has(keyOf(c.store, c.id))).length;
+  return { changedHere, conflicts: conflicts.length, newConflicts: fresh };
 }
 
 export async function turnOff() {
   await db.setMeta('sync', null);
+  await db.setMeta('syncBase', null);
+  await db.setMeta('syncConflicts', []);
+}
+
+export async function getConflicts() {
+  return (await db.getMeta('syncConflicts')) || [];
+}
+
+// ---- Answering a conflict ----
+// side: 'mine' or 'theirs' for a record changed on both; 'keep' or 'delete'
+// when one side deleted it. The answer is saved here as the newest copy and
+// the last-agreed copy is moved on, so the next sync sends it out.
+
+export function resolve(c, side) {
+  const p = chain.then(() => applyAnswer(c, side));
+  chain = p.catch(() => {});
+  return p.then((r) => {
+    request(0);
+    return r;
+  });
+}
+
+async function applyAnswer(c, side) {
+  const base = (await db.getMeta('syncBase')) || {};
+  const setBase = (s, id, rec) => {
+    base[s] = base[s] || {};
+    if (rec) base[s][id] = rec;
+    else delete base[s][id];
+  };
+  const here = (await db.exportAll()).data;
+  const cur = (s, id) => here[s].find((r) => r.id === id) || null;
+  const puts = Object.fromEntries(STORES.map((s) => [s, []]));
+  const dels = Object.fromEntries(STORES.map((s) => [s, []]));
+  const now = nowISO();
+  const tomb = (x) => ({ id: x.id, store: x.store, deletedAt: now, createdAt: now, updatedAt: now });
+  const all = [{ store: c.store, id: c.id, theirs: c.theirs }, ...(c.children || [])];
+  let stale = false;
+
+  if (c.kind === 'both') {
+    const mine = cur(c.store, c.id);
+    // Changed again here since the question came up: ask afresh next sync.
+    if (!mine || mine.updatedAt !== c.mine.updatedAt) stale = true;
+    else {
+      puts[c.store].push({ ...resolvedRecord(c, side), updatedAt: now });
+      setBase(c.store, c.id, c.theirs);
+    }
+  } else if (c.kind === 'deletedThere') {
+    for (const x of all) {
+      const mine = cur(x.store, x.id);
+      if (side === 'keep') {
+        if (mine) puts[x.store].push({ ...mine, updatedAt: now });
+      } else {
+        if (mine) dels[x.store].push(x.id);
+        puts.tombstones.push(tomb(x));
+      }
+      setBase(x.store, x.id, null);
+    }
+  } else if (c.kind === 'deletedHere') {
+    for (const x of all) {
+      if (!x.theirs) continue;
+      if (side === 'keep') {
+        puts[x.store].push(x.theirs);
+        dels.tombstones.push(x.id);
+      } else if (!here.tombstones.some((t) => t.id === x.id)) {
+        puts.tombstones.push(tomb(x));
+      }
+      setBase(x.store, x.id, x.theirs);
+    }
+  }
+  await db.applySync(puts, dels);
+  await db.setMeta('syncBase', base);
+  const left = (await getConflicts()).filter((x) => keyOf(x.store, x.id) !== keyOf(c.store, c.id));
+  await db.setMeta('syncConflicts', left);
+  return { stale };
 }
 
 // ---- When to sync ----

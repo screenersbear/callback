@@ -419,6 +419,20 @@ export async function importAll(payload, mode, { quiet = false, incomingWins = [
   return counts;
 }
 
+// Sync's own changes (js/merge.js plans them): puts and dels per store, in
+// one write. Quiet, so they aren't sent straight back.
+export async function applySync(puts, dels) {
+  const changed = SYNCED.some((s) => (puts[s] || []).length || (dels[s] || []).length);
+  if (!changed) return false;
+  await write(SYNCED, (st) => {
+    for (const s of SYNCED) {
+      for (const id of dels[s] || []) st(s).delete(id);
+      for (const r of puts[s] || []) st(s).put(r);
+    }
+  }, { quiet: true });
+  return true;
+}
+
 // Wipes every record on this device (meta included).
 export async function eraseAll() {
   await write([...SYNCED, 'meta'], (st) => [...SYNCED, 'meta'].forEach((s) => st(s).clear()));

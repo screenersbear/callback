@@ -1440,6 +1440,14 @@ details.loop-done[open] summary { margin-bottom: 8px; }
 .x-icon { width: 0.6em; height: 0.6em; display: block; }
 
 .sheet-message { margin: 0 0 14px; font-size: 16px; }
+/* Changed on two devices: each differing field, the two versions side by side. */
+.conflict-count { margin: 0 0 6px; font-size: 14px; color: var(--text-dim); }
+.conflict-field { margin: 0 0 14px; }
+.conflict-name { margin: 0 0 6px; font-size: 15px; font-weight: 700; }
+.conflict-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.conflict-pair > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; border: 3px solid var(--line); padding: 10px 12px; }
+.conflict-who { font-size: 13px; color: var(--text-dim); }
+.conflict-val { font-size: 15px; overflow-wrap: anywhere; white-space: pre-wrap; }
 /* Keyboard shortcuts popup. */
 .shortcut-list { display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; margin: 0 0 14px; align-items: baseline; }
 .shortcut-list dt { white-space: nowrap; }

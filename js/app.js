@@ -21,6 +21,7 @@ import {
 } from './model.js';
 import { openSheet, confirmSheet, choiceSheet, toast, closeAllSheets } from './ui.js';
 import * as sync from './sync.js';
+import { getPath } from './merge.js';
 
 const APP_VERSION = '1.0.0';
 const view = document.getElementById('view');
@@ -69,10 +70,11 @@ function groupBy(list, key) {
 }
 
 async function load() {
-  const [people, orgs, circles, tps, news, loops, ideas, weeks, settings, lastExportAt, installedAt, reminderUntil, lastLogType, syncCfg] =
+  const [people, orgs, circles, tps, news, loops, ideas, weeks, settings, lastExportAt, installedAt, reminderUntil, lastLogType, syncCfg, conflicts] =
     await Promise.all([
       db.getPeople(), db.getOrganizations(), db.getCircles(), db.getTouchpoints(), db.getNews(), db.getOpenLoops(), db.getIdeas(), db.getWeeks(), db.getSettings(),
       db.getMeta('lastExportAt'), db.getMeta('installedAt'), db.getMeta('exportReminderUntil'), db.getMeta('lastLogType'), sync.syncConfig(),
+      sync.getConflicts(),
     ]);
   S.people = people.sort((a, b) => a.name.localeCompare(b.name));
   S.orgs = orgs.sort((a, b) => a.name.localeCompare(b.name));
@@ -91,7 +93,7 @@ async function load() {
   S.ideas = ideas;
   setIdeaLibrary(ideas);
   S.loopsByPerson = groupBy(loops, 'personId');
-  S.meta = { lastExportAt, installedAt, reminderUntil, lastLogType, sync: syncCfg };
+  S.meta = { lastExportAt, installedAt, reminderUntil, lastLogType, sync: syncCfg, conflicts };
 }
 
 // The People sort and its order (and a circle's) stay until you change
@@ -470,6 +472,7 @@ function renderToday() {
     ${statBox(`${week.regular.length}<small>/${g.touchpoints}</small>`, 'Touchpoints this week', null, 'touchpoints')}
     ${statBox(`${week.added.length}<small>/${g.newPeople}</small>`, 'New people this week', null, 'added')}
   </div>`;
+  html += conflictBannerHTML();
   html += exportReminderHTML(today);
 
   const sections = [];
@@ -2308,7 +2311,9 @@ function syncSettingsHTML() {
   return `<h3 class="set-sub">Sync between devices</h3>
     <p class="set-fact">On, through <b>${esc(c.repo)}</b>. Last synced: <b>${c.lastSyncAt ? esc(agoText(c.lastSyncAt)) : 'not yet'}</b></p>
     ${c.lastError ? `<p class="field-error">${esc(c.lastError)}</p>` : ''}
+    ${S.meta.conflicts.length ? `<p class="set-fact">${S.meta.conflicts.length === 1 ? 'One thing was' : `${S.meta.conflicts.length} things were`} changed on two devices at once and ${S.meta.conflicts.length === 1 ? 'needs' : 'need'} your pick.</p>` : ''}
     <div class="button-stack">
+      ${S.meta.conflicts.length ? '<button type="button" class="primary small-btn" data-action="sync-conflicts">Choose</button>' : ''}
       <button type="button" class="primary small-btn" data-action="sync-now">Sync now</button>
       <button type="button" class="secondary small-btn" data-action="sync-setup">Change key</button>
       <button type="button" class="secondary small-btn" data-action="sync-off">Turn off sync</button>
@@ -2387,9 +2392,13 @@ function syncSheet() {
 let syncWarned = false;
 async function onSyncResult(r) {
   const busy = isTyping(document.activeElement) || document.body.classList.contains('sheet-open');
-  if (r.changedHere) {
+  if (r.changedHere || (r.conflicts !== undefined && r.conflicts !== S.meta.conflicts.length) || r.newConflicts) {
     await load();
     if (!busy) render();
+    if (r.newConflicts) {
+      if (busy) toast('Something was changed on two devices at once. Pick which to keep on Today.');
+      else conflictSheet();
+    }
     return;
   }
   S.meta.sync = await sync.syncConfig();
@@ -2398,6 +2407,186 @@ async function onSyncResult(r) {
     syncWarned = true;
     toast('Sync needs a look: see Settings, Your data.');
   }
+}
+
+// ---- Changed on both devices ----
+// js/merge.js finds a record changed on two devices before they caught up
+// (the same field changed to different values, or deleted on one and
+// changed on the other). Nothing is overwritten until you pick here;
+// sync.resolve saves the pick and sends it out.
+
+function conflictBannerHTML() {
+  const n = S.meta.conflicts.length;
+  if (!n) return '';
+  return `<div class="reminder">
+    <p><b>${n === 1 ? 'Something was' : `${n} things were`} changed on two devices at once.</b> Pick which version to keep.</p>
+    <div class="prompt-actions">
+      <button type="button" class="btn primary" data-action="sync-conflicts">Choose</button>
+    </div>
+  </div>`;
+}
+
+const FIELD_NAMES = {
+  people: {
+    name: 'Name', organizationId: 'Organization', role: 'Role', email: 'Email', phone: 'Phone', instagram: 'Instagram',
+    website: 'Website', howWeMet: 'How you met', tags: 'Tags', notes: 'Notes', cadenceOverrideDays: 'Own rhythm',
+    dreamList: 'Dream list', circleIds: 'Circles', lightTouch: 'Light touch', nextTouchpointDate: 'Next touchpoint',
+    warmth: 'Warmth', relationshipTypes: 'Relationship', interest: 'Interest', birthday: 'Birthday', details: 'Details',
+    introducedById: 'Introduced by', introducedByName: 'Introduced by', canIntroduceToIds: 'Can introduce you to',
+    customIdea: 'Your idea for them', firstContact: 'First contact', firstContactDeadline: 'First contact by',
+    pastOrganizations: 'Previously',
+  },
+  touchpoints: { date: 'Date', type: 'Type', note: 'Note', direction: 'Who reached out', responded: 'Reply', lightTouch: 'Light touch' },
+  organizations: { name: 'Name', type: 'Type', website: 'Website', notes: 'Notes' },
+  circles: { name: 'Name', description: 'Description' },
+  news: { description: 'What', date: 'Date', repeatsYearly: 'Every year' },
+  weeks: { points: 'Plan' },
+  ideas: { text: 'Idea', hidden: 'Hidden' },
+};
+const RHYTHM_NAMES = {
+  coldFollowUp: 'Cold: follow up after', coldLastTry: 'Cold: last try after', coldWait: 'Cold: wait for a reply',
+  warm: 'Warm rhythm', active: 'Active rhythm', client: 'Client rhythm', parked: 'Parked rhythm', lightTouch: 'Light touch rhythm',
+};
+const GOAL_NAMES = { touchpoints: 'Weekly goal: touchpoints', newPeople: 'Weekly goal: new people' };
+
+function fieldName(store, path) {
+  const [group, key] = path.split('.');
+  if (store === 'settings' && group === 'cadence' && RHYTHM_NAMES[key]) return RHYTHM_NAMES[key];
+  if (store === 'settings' && group === 'goals' && GOAL_NAMES[key]) return GOAL_NAMES[key];
+  if (FIELD_NAMES[store] && FIELD_NAMES[store][path]) return FIELD_NAMES[store][path];
+  return cap(path.split('.').pop().replace(/([A-Z])/g, ' $1').toLowerCase());
+}
+
+function fieldValue(store, path, v) {
+  const key = path.split('.').pop();
+  const names = (ids, map, none) => ids.map((id) => (map.get(id) || {}).name || none).join(', ');
+  if (v === null || v === undefined || v === '' || (Array.isArray(v) && !v.length)) return 'Nothing';
+  if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+  if (store === 'settings' && typeof v === 'number') return path.startsWith('cadence.') ? span(v) : String(v);
+  if (key === 'cadenceOverrideDays') return span(v);
+  if (key === 'warmth') return WARMTH_INFO[v] ? WARMTH_INFO[v].label : String(v);
+  if (key === 'interest') return interestInfo(v).label;
+  if (key === 'relationshipTypes') return v.map((k) => relationshipInfo(k).label).join(', ');
+  if (key === 'type' && store === 'touchpoints') return touchTypeLabel(v);
+  if (key === 'responded') return respondedLabel(v);
+  if (key === 'organizationId') return (S.orgById.get(v) || {}).name || 'An organization';
+  if (key === 'circleIds') return names(v, S.circleById, 'A circle');
+  if (key === 'introducedById') return (S.personById.get(v) || {}).name || 'Someone';
+  if (key === 'canIntroduceToIds') return names(v, S.personById, 'Someone');
+  if (key === 'birthday' && typeof v === 'object') return birthdayText(v);
+  if (key === 'details') return v.map((d) => [d.label, d.value].filter(Boolean).join(': ')).join('; ');
+  if (key === 'points') return v.map((x) => x.text).filter(Boolean).join('; ');
+  if (key === 'pastOrganizations') return names(v.map((x) => x.organizationId), S.orgById, 'An organization');
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) return fmtDate(v);
+  if (Array.isArray(v)) return v.map((x) => (x && typeof x === 'object' ? x.text || x.name || x.label || '' : String(x))).filter(Boolean).join(', ') || 'Nothing';
+  if (typeof v === 'object') return Object.values(v).filter((x) => x !== null && typeof x !== 'object').join(', ');
+  const text = String(v);
+  return text.length > 160 ? `${text.slice(0, 157)}...` : text;
+}
+
+function recordTitle(store, rec) {
+  const person = (id) => (S.personById.get(id) || {}).name || 'someone';
+  const day = (d) => (d ? fmtDate(d, { weekday: false }) : 'a day');
+  if (!rec) return 'Something';
+  if (store === 'people') return rec.name || 'Someone';
+  if (store === 'organizations') return rec.name || 'An organization';
+  if (store === 'circles') return `The ${rec.name || ''} circle`;
+  if (store === 'touchpoints') return `${touchTypeLabel(rec.type)} with ${person(rec.personId)} on ${day(rec.date)}`;
+  if (store === 'news') return `${rec.description || 'News'} for ${person(rec.personId)}`;
+  if (store === 'openLoops') return `A promise with ${person(rec.personId)}`;
+  if (store === 'ideas') return 'One of your ideas';
+  if (store === 'weeks') return `Your plan for the week of ${day(rec.weekStart)}`;
+  if (store === 'settings') return 'Your settings';
+  return 'Something';
+}
+
+function hereName() {
+  const d = deviceLabel();
+  if (d === 'the Mac app') return 'this Mac';
+  if (d === 'a browser') return 'this browser';
+  if (d === 'Android') return 'this phone';
+  return `this ${d}`;
+}
+function thereName(c) {
+  const d = c.from;
+  if (!d) return 'your other device';
+  if (d === 'the Mac app') return 'your Mac';
+  if (d === 'a browser') return 'your browser';
+  if (d === 'Android') return 'your Android phone';
+  return `your ${d}`;
+}
+
+function conflictHTML(c, n, total) {
+  const here = hereName();
+  const there = thereName(c);
+  const title = recordTitle(c.store, c.mine || c.theirs);
+  const count = total > 1 ? `<p class="conflict-count">${n} of ${total}</p>` : '';
+  if (c.kind === 'both') {
+    const mineNewer = (c.mine.updatedAt || '') >= (c.theirs.updatedAt || '');
+    const side = (p, who, rec, isNewer) => `<div><span class="conflict-who">${esc(cap(who))}${isNewer ? ' (newer)' : ''}</span>
+      <span class="conflict-val">${esc(fieldValue(c.store, p, getPath(rec, p)))}</span></div>`;
+    const rows = c.loud.map((p) => `<div class="conflict-field">
+        <p class="conflict-name">${esc(fieldName(c.store, p))}</p>
+        <div class="conflict-pair">${side(p, there, c.theirs, !mineNewer)}${side(p, here, c.mine, mineNewer)}</div>
+      </div>`).join('');
+    return `${count}<p class="sheet-message"><b>${esc(title)}</b> was changed on ${esc(here)} and on ${esc(there)} before they caught up. Everything else is combined, but ${c.loud.length === 1 ? 'this differs' : 'these differ'}:</p>
+      ${rows}
+      <div class="sheet-actions">
+        <button type="button" class="btn ${mineNewer ? 'secondary' : 'primary'}" data-pick="theirs">Keep ${esc(there)}'s</button>
+        <button type="button" class="btn ${mineNewer ? 'primary' : 'secondary'}" data-pick="mine">Keep ${esc(here)}'s</button>
+      </div>`;
+  }
+  const [gone, changed] = c.kind === 'deletedThere' ? [there, here] : [here, there];
+  const tps = (c.children || []).filter((x) => x.store === 'touchpoints' && (c.kind === 'deletedThere' ? x.mine : x.theirs)).length;
+  const more = c.store === 'people' && tps ? ` Deleting also removes their ${tps === 1 ? 'touchpoint' : `${tps} touchpoints`}.` : '';
+  return `${count}<p class="sheet-message"><b>${esc(title)}</b> was deleted on ${esc(gone)}, but changed on ${esc(changed)} before they caught up.${more}</p>
+    <div class="sheet-actions">
+      <button type="button" class="btn secondary" data-pick="delete">Delete</button>
+      <button type="button" class="btn primary" data-pick="keep">Keep</button>
+    </div>`;
+}
+
+let conflictOpen = false;
+async function conflictSheet() {
+  if (conflictOpen) return;
+  let list = await sync.getConflicts();
+  if (!list.length) {
+    await refresh();
+    toast('Nothing to pick: your devices agree.');
+    return;
+  }
+  conflictOpen = true;
+  const total = list.length;
+  const s = openSheet({
+    title: 'Changed on two devices',
+    onClose: async () => {
+      conflictOpen = false;
+      await refresh();
+    },
+  });
+  const show = () => {
+    s.body.innerHTML = conflictHTML(list[0], total - list.length + 1, total);
+  };
+  s.body.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-pick]');
+    if (!btn) return;
+    s.body.querySelectorAll('[data-pick]').forEach((b) => { b.disabled = true; });
+    try {
+      const r = await sync.resolve(list[0], btn.dataset.pick);
+      if (r && r.stale) toast('That one changed again here, so Callback checks it once more.');
+    } catch (err) {
+      toast(err && err.message ? err.message : "That didn't save. Try again.");
+      show();
+      return;
+    }
+    list = list.slice(1);
+    if (list.length) show();
+    else {
+      s.close();
+      toast(total === 1 ? 'Sorted. Your pick goes to your other devices.' : 'All sorted. Your picks go to your other devices.');
+    }
+  });
+  show();
 }
 
 function ideasSettingsHTML() {
@@ -4516,13 +4705,15 @@ const ACTIONS = {
     toast(changed.length ? `Updated ${plural(changed.length, 'person', 'people')}` : 'Everyone was already up to date');
   },
   'sync-setup': () => syncSheet(),
+  'sync-conflicts': () => conflictSheet(),
   'sync-now': async (el) => {
     el.disabled = true;
     el.textContent = 'Syncing...';
     try {
       const r = await sync.queued();
       await refresh();
-      toast(r.changedHere ? 'Synced. Changes from your other devices are in.' : 'Synced. Everything was already up to date.');
+      if (r.newConflicts) conflictSheet();
+      else toast(r.changedHere ? 'Synced. Changes from your other devices are in.' : 'Synced. Everything was already up to date.');
     } catch (e) {
       await refresh();
       toast(e.message);
