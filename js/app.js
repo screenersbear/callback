@@ -2753,8 +2753,8 @@ function personForm(p, preset = {}) {
           <input name="override" type="number" min="1" max="3650" inputmode="numeric" value="${esc(v.cadenceOverrideDays || '')}" placeholder="Leave empty to follow their warmth">
           <span class="field-hint">Defaults: warm every ${span(c.warm)}, active ${span(c.active)}, on a project ${span(c.client)}.</span></label>
       </details>
-      ${isNew ? '' : '<button type="button" class="btn danger wide" data-delete>Delete person</button>'}
       <button type="submit" class="modal-cta primary">${isNew ? 'Add person' : 'Save changes'}</button>
+      ${isNew ? '' : '<button type="button" class="btn danger wide" data-delete>Delete person</button>'}
     </form>`,
   });
   const form = s.body.querySelector('form');
