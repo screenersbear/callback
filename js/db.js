@@ -136,13 +136,23 @@ async function getByIndex(store, index, value) {
   return done(db.transaction(store).objectStore(store).index(index).getAll(value));
 }
 
+// Sync (js/sync.js) listens here so it can send what this device saved.
+let syncedChange = null;
+export function onSyncedChange(fn) {
+  syncedChange = fn;
+}
+
 // One readwrite transaction across `stores`; fn queues requests synchronously.
-async function write(stores, fn) {
+// quiet: a write that came from sync itself, so it isn't sent back.
+async function write(stores, fn, { quiet = false } = {}) {
   const db = await open();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(stores, 'readwrite');
     fn((name) => tx.objectStore(name));
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => {
+      resolve();
+      if (!quiet && syncedChange && stores.some((s) => SYNCED.includes(s))) syncedChange();
+    };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error || new Error('Save was cancelled.'));
   });
@@ -350,7 +360,9 @@ const newer = (a, b) => (a.updatedAt || '') > (b.updatedAt || '');
 
 // mode 'replace': clear everything, then load the file.
 // mode 'merge': match records by id and keep whichever copy is newer.
-export async function importAll(payload, mode) {
+// Sync merges quietly, and when a device first joins, the stores in
+// incomingWins (settings) take the shared copy even if this one is newer.
+export async function importAll(payload, mode, { quiet = false, incomingWins = [] } = {}) {
   const incoming = readExport(payload);
   const puts = Object.fromEntries(SYNCED.map((s) => [s, []]));
   const dels = Object.fromEntries(SYNCED.map((s) => [s, []]));
@@ -368,7 +380,7 @@ export async function importAll(payload, mode) {
         const t = tombs.get(r.id);
         if (t && (t.deletedAt || '') >= (r.updatedAt || '')) continue;
         const mine = local[s].get(r.id);
-        if (!mine || newer(r, mine)) puts[s].push(r);
+        if (!mine || newer(r, mine) || incomingWins.includes(s)) puts[s].push(r);
       }
     }
     for (const t of incoming.tombstones) {
@@ -391,15 +403,18 @@ export async function importAll(payload, mode) {
     }
   }
 
-  await write(SYNCED, (st) => {
-    if (mode === 'replace') for (const s of SYNCED) st(s).clear();
-    for (const s of SYNCED) {
-      for (const id of dels[s]) st(s).delete(id);
-      for (const r of puts[s]) st(s).put(r);
-    }
-  });
+  const changed = mode === 'replace' || SYNCED.some((s) => puts[s].length || dels[s].length);
+  if (changed) {
+    await write(SYNCED, (st) => {
+      if (mode === 'replace') for (const s of SYNCED) st(s).clear();
+      for (const s of SYNCED) {
+        for (const id of dels[s]) st(s).delete(id);
+        for (const r of puts[s]) st(s).put(r);
+      }
+    }, { quiet });
+  }
 
-  const counts = {};
+  const counts = { changed };
   for (const s of ['people', 'organizations', 'touchpoints', 'news']) counts[s] = puts[s].length;
   return counts;
 }

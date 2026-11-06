@@ -20,6 +20,7 @@ import {
   relTypesOf, relFields,
 } from './model.js';
 import { openSheet, confirmSheet, choiceSheet, toast, closeAllSheets } from './ui.js';
+import * as sync from './sync.js';
 
 const APP_VERSION = '1.0.0';
 const view = document.getElementById('view');
@@ -68,10 +69,10 @@ function groupBy(list, key) {
 }
 
 async function load() {
-  const [people, orgs, circles, tps, news, loops, ideas, weeks, settings, lastExportAt, installedAt, reminderUntil, lastLogType] =
+  const [people, orgs, circles, tps, news, loops, ideas, weeks, settings, lastExportAt, installedAt, reminderUntil, lastLogType, syncCfg] =
     await Promise.all([
       db.getPeople(), db.getOrganizations(), db.getCircles(), db.getTouchpoints(), db.getNews(), db.getOpenLoops(), db.getIdeas(), db.getWeeks(), db.getSettings(),
-      db.getMeta('lastExportAt'), db.getMeta('installedAt'), db.getMeta('exportReminderUntil'), db.getMeta('lastLogType'),
+      db.getMeta('lastExportAt'), db.getMeta('installedAt'), db.getMeta('exportReminderUntil'), db.getMeta('lastLogType'), sync.syncConfig(),
     ]);
   S.people = people.sort((a, b) => a.name.localeCompare(b.name));
   S.orgs = orgs.sort((a, b) => a.name.localeCompare(b.name));
@@ -90,7 +91,7 @@ async function load() {
   S.ideas = ideas;
   setIdeaLibrary(ideas);
   S.loopsByPerson = groupBy(loops, 'personId');
-  S.meta = { lastExportAt, installedAt, reminderUntil, lastLogType };
+  S.meta = { lastExportAt, installedAt, reminderUntil, lastLogType, sync: syncCfg };
 }
 
 // The People sort and its order (and a circle's) stay until you change
@@ -583,6 +584,9 @@ function caughtUpHTML(today) {
 
 function exportReminderHTML(today) {
   if (S.meta.reminderUntil && S.meta.reminderUntil > today) return '';
+  // Syncing counts as a backup: the repository keeps every version.
+  const synced = S.meta.sync && S.meta.sync.lastSyncAt;
+  if (synced && daysBetween(toDateStr(new Date(synced)), today) <= 30) return '';
   const ref = S.meta.lastExportAt || S.meta.installedAt;
   if (!ref) return '';
   const days = daysBetween(toDateStr(new Date(ref)), today);
@@ -2261,13 +2265,16 @@ function renderSettings() {
       </div>`, 'navy')}
 
     ${sectionBlock('set-data', 'Your data', null, `
-      <p>Everything lives on this device, in this browser. Nothing is sent anywhere. Export a backup now and then so it's safe, and to move to another device.</p>
+      ${S.meta.sync
+        ? "<p>Everything lives on this device and syncs with your private GitHub repository, which keeps every version. You can still export a backup any time.</p>"
+        : "<p>Everything lives on this device, in this browser. Nothing is sent anywhere unless you turn on sync below. Export a backup now and then so it's safe, and to move to another device.</p>"}
       <p class="set-fact">Last backup: <b>${S.meta.lastExportAt ? esc(fmtTimestamp(S.meta.lastExportAt)) : 'never'}</b></p>
       <div class="button-stack">
         <button type="button" class="primary small-btn" data-action="export-json">Export backup (JSON)</button>
         <button type="button" class="secondary small-btn" data-action="import-json">Import backup</button>
         <button type="button" class="secondary small-btn" data-action="import-contacts">Add people from your contacts</button>
-      </div>`, 'yellow')}
+      </div>
+      ${syncSettingsHTML()}`, 'yellow')}
 
     ${sectionBlock('set-cal', 'Calendar', null, `
       <p>Download your next 90 days of touchpoints as a calendar file, one all-day event per person. ${events.length ? `Right now that's ${plural(events.length, 'event')}.` : 'Nothing is scheduled in the next 90 days yet.'}</p>
@@ -2280,6 +2287,117 @@ function renderSettings() {
       <p>Callback is part of a set of free photography apps for Patreon members, alongside Documenting Fictions and Ref.</p>
       <p class="set-fact">Version ${APP_VERSION}</p>
       <button type="button" class="btn danger" data-action="erase-all">Erase everything on this device</button>`, 'navy')}`;
+}
+
+// ---- Sync between devices (js/sync.js) ----
+
+function agoText(iso) {
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  return fmtTimestamp(iso);
+}
+
+function syncSettingsHTML() {
+  const c = S.meta.sync;
+  if (!c) {
+    return `<h3 class="set-sub">Sync between devices</h3>
+      <p>Keep your phone and computer in step through a private GitHub repository of your own. Each device keeps working offline and catches up when it's back online.</p>
+      <button type="button" class="secondary small-btn" data-action="sync-setup">Set up sync</button>`;
+  }
+  return `<h3 class="set-sub">Sync between devices</h3>
+    <p class="set-fact">On, through <b>${esc(c.repo)}</b>. Last synced: <b>${c.lastSyncAt ? esc(agoText(c.lastSyncAt)) : 'not yet'}</b></p>
+    ${c.lastError ? `<p class="field-error">${esc(c.lastError)}</p>` : ''}
+    <div class="button-stack">
+      <button type="button" class="primary small-btn" data-action="sync-now">Sync now</button>
+      <button type="button" class="secondary small-btn" data-action="sync-setup">Change key</button>
+      <button type="button" class="secondary small-btn" data-action="sync-off">Turn off sync</button>
+    </div>`;
+}
+
+function deviceLabel() {
+  const ua = navigator.userAgent;
+  if (window.callbackApp) return 'the Mac app';
+  if (/iPhone/.test(ua)) return 'iPhone';
+  if (/iPad/.test(ua)) return 'iPad';
+  if (/Android/.test(ua)) return 'Android';
+  return 'a browser';
+}
+
+function syncSheet() {
+  const c = S.meta.sync;
+  const s = openSheet({
+    title: c ? 'Change sync key' : 'Set up sync',
+    body: `<form class="form" novalidate>
+      <p class="hint">Callback keeps one file, callback.json, in a private GitHub repository of yours. Every device you turn this on for reads and writes it. If two devices already have people, they're combined and nothing is deleted.</p>
+      <details class="paste-box"${c ? '' : ' open'}>
+        <summary>How to make the repository and key</summary>
+        <ol class="field-hint sync-steps">
+          <li>On github.com, make a new <b>private</b> repository, like callback-data, and tick Add a README file.</li>
+          <li>In your GitHub settings: Developer settings, Personal access tokens, Fine-grained tokens, Generate new token.</li>
+          <li>Repository access: <b>Only select repositories</b>, then pick that repository.</li>
+          <li>Permissions, Repository permissions: <b>Contents, Read and write</b>.</li>
+          <li>Generate it and paste it below. Use the same repository and key on each device.</li>
+        </ol>
+      </details>
+      <label class="field"><span class="field-label">Repository</span>
+        <input name="repo" value="${esc(c ? c.repo : '')}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="your-name/callback-data"></label>
+      <p class="field-error" data-error="repo" hidden>Write it as owner/name, like your-name/callback-data.</p>
+      <label class="field"><span class="field-label">Key</span>
+        <input name="token" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="github_pat_..."></label>
+      <p class="field-hint">Kept on this device only. It's never in a backup or in the synced file.</p>
+      <p class="field-error" data-error="token" hidden>Paste the key from GitHub.</p>
+      <p class="field-error" data-error="sync" hidden></p>
+      <button type="submit" class="modal-cta primary" data-save>${c ? 'Save and sync' : 'Turn on sync'}</button>
+    </form>`,
+  });
+  const form = s.body.querySelector('form');
+  const showError = (k, msg) => {
+    const el = form.querySelector(`[data-error="${k}"]`);
+    if (msg) el.textContent = msg;
+    el.hidden = false;
+  };
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const repo = form.repo.value.trim().replace(/^https?:\/\/github\.com\//, '').replace(/\.git$|\/$/g, '');
+    const token = form.token.value.trim();
+    form.querySelectorAll('.field-error').forEach((el) => { el.hidden = true; });
+    if (!sync.validRepo(repo)) return showError('repo');
+    if (!token) return showError('token');
+    const btn = form.querySelector('[data-save]');
+    const label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Connecting...';
+    try {
+      const sameRepo = c && c.repo === repo;
+      const r = await sync.queued({ repo, token, device: deviceLabel(), joined: !!(sameRepo && c.joined) });
+      s.close();
+      await refresh();
+      toast(r.changedHere ? 'Sync is on. Your other devices\' changes are in.' : 'Sync is on.');
+    } catch (ex) {
+      showError('sync', ex.message || 'That did not work. Check the repository and key.');
+      btn.disabled = false;
+      btn.textContent = label;
+    }
+  });
+}
+
+// What the automatic syncs report: bring in other devices' changes, keep the
+// Settings status fresh, and say once if sync needs a look.
+let syncWarned = false;
+async function onSyncResult(r) {
+  const busy = isTyping(document.activeElement) || document.body.classList.contains('sheet-open');
+  if (r.changedHere) {
+    await load();
+    if (!busy) render();
+    return;
+  }
+  S.meta.sync = await sync.syncConfig();
+  if (parseRoute().name === 'settings' && !busy) render();
+  if (r.error && r.error.kind !== 'offline' && r.error.kind !== 'busy' && !syncWarned) {
+    syncWarned = true;
+    toast('Sync needs a look: see Settings, Your data.');
+  }
 }
 
 function ideasSettingsHTML() {
@@ -4397,10 +4515,34 @@ const ACTIONS = {
     await refresh();
     toast(changed.length ? `Updated ${plural(changed.length, 'person', 'people')}` : 'Everyone was already up to date');
   },
+  'sync-setup': () => syncSheet(),
+  'sync-now': async (el) => {
+    el.disabled = true;
+    el.textContent = 'Syncing...';
+    try {
+      const r = await sync.queued();
+      await refresh();
+      toast(r.changedHere ? 'Synced. Changes from your other devices are in.' : 'Synced. Everything was already up to date.');
+    } catch (e) {
+      await refresh();
+      toast(e.message);
+    }
+  },
+  'sync-off': async () => {
+    const ok = await confirmSheet({
+      title: 'Turn off sync?',
+      message: 'Everything stays on this device; it just stops catching up with your other devices. The key is forgotten here, and the repository keeps its copy.',
+      confirmLabel: 'Turn off sync',
+    });
+    if (!ok) return;
+    await sync.turnOff();
+    await refresh();
+    toast('Sync is off on this device.');
+  },
   'erase-all': async () => {
     const ok = await confirmSheet({
       title: 'Erase everything?',
-      message: `This deletes all ${plural(S.people.length, 'person', 'people')}, touchpoints, organizations and notes from this device. Export a backup first if you might want them back.`,
+      message: `This deletes all ${plural(S.people.length, 'person', 'people')}, touchpoints, organizations and notes from this device${S.meta.sync ? ', and turns sync off here (your repository keeps its copy)' : ''}. Export a backup first if you might want them back.`,
       confirmLabel: 'Erase everything',
       danger: true,
     });
@@ -4972,6 +5114,7 @@ async function start() {
     if (!(await db.getMeta('installedAt'))) await db.setMeta('installedAt', nowISO());
     await loadListSorts();
     await refresh();
+    sync.startAutoSync(onSyncResult);
     await activeWeekly();
     await offerFollowCleanup();
   } catch (err) {

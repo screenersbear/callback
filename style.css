@@ -1328,6 +1328,16 @@ details.loop-done[open] summary { margin-bottom: 8px; }
 }
 .set-unit { font-size: 14px; color: var(--text-dim); width: 72px; }
 .set-fact { font-size: 15px; }
+/* Sync between devices, under Your data in Settings. */
+.set-sub {
+  margin: 28px 0 8px;
+  padding-top: 20px;
+  border-top: 3px solid var(--line);
+  font-size: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+.sync-steps { margin: 0 0 12px; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
 .section-block p { margin: 0 0 12px; }
 .section-block > div > .small-btn + .hint { margin-top: 10px; }
 .button-stack { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
