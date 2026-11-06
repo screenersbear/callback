@@ -483,8 +483,20 @@ function renderToday() {
       <div class="light-list">${t.light.map(lightRow).join('')}</div>`, sections.length % 2 ? 'navy' : 'yellow')
     : '';
   if (!sections.length) return html + caughtUpHTML(today) + light;
-  // Wrapped so a wide window can lay the sections out in two columns.
-  return `${html}<div class="today-sections">${sections.map(([key, title, n, inner], i) => sectionBlock(key, title, n, inner, i % 2 ? 'navy' : 'yellow')).join('')}${light}</div>`;
+  const blocks = sections.map(([key, title, n, inner], i) => ({ key, n, html: sectionBlock(key, title, n, inner, i % 2 ? 'navy' : 'yellow') }));
+  if (light) blocks.push({ key: 'today-light', n: t.light.length, html: light });
+  if (!wideQuery.matches) return html + blocks.map((b) => b.html).join('');
+  // A wide window gets two columns. Each section goes to the shorter one so
+  // far, judged by how tall its cards run, so the first two sit side by side
+  // at the top and neither column runs on alone.
+  const PER_ITEM = { justmet: 3, overdue: 3, due: 3, resurfaced: 3, loops: 1.2, news: 1.2, coming: 1.2, replies: 0.6, 'today-light': 0.5 };
+  const cols = [{ h: 0, html: '' }, { h: 0, html: '' }];
+  for (const b of blocks) {
+    const col = cols[0].h <= cols[1].h ? cols[0] : cols[1];
+    col.h += 1 + b.n * (PER_ITEM[b.key] || 1); // folding a section doesn't move the others
+    col.html += b.html;
+  }
+  return `${html}<div class="today-cols">${cols.map((c) => `<div class="today-col">${c.html}</div>`).join('')}</div>`;
 }
 
 // A touchpoint still waiting on a reply. The row opens it on the person's
@@ -4735,7 +4747,8 @@ async function start() {
     view.innerHTML = `<div class="empty"><p class="empty-title">Callback couldn't open its storage.</p>
       <p>${esc(err && err.message ? err.message : 'Your browser may be blocking site data, for example in a private window.')}</p></div>`;
   }
-  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  // The Mac app serves its own files, so it needs no offline cache.
+  if ('serviceWorker' in navigator && location.protocol !== 'file:' && !window.callbackApp) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   }
 }
