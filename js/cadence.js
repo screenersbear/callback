@@ -26,7 +26,7 @@ export const DEFAULT_SETTINGS = {
     coldLastTry: 21, // days after the follow-up
     coldWait: 7, // days to wait for a reply after the last try
     warm: 42,
-    active: 30,
+    active: 7, // a live lead goes cold fast (was 30 until 11-05)
     client: 90,
     parked: 180,
     lightTouch: 90, // weak ties, whatever their warmth

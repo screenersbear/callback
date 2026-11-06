@@ -4454,10 +4454,41 @@ async function offerFollowCleanup() {
 // ---------------------------------------------------------------------------
 // Start
 
+// One-time change (11-05): Active went from every 30 days to every 7, since
+// a live lead goes cold in a month. A saved 30 (the old default) becomes 7,
+// and Active people whose next touchpoint came from the 30-day rhythm (30
+// days after their last touchpoint) move up to 7 days after it, today at the
+// earliest, never later. Snoozed or hand-picked dates, custom rhythms and
+// light touches stay as they are, and so does an Active rhythm you'd changed.
+async function activeWeekly() {
+  if (await db.getMeta('activeWeeklyDone')) return;
+  if (S.settings.cadence.active === 30) {
+    S.settings = await db.saveSettings({ ...S.settings, cadence: { ...S.settings.cadence, active: 7 } });
+  }
+  const days = S.settings.cadence.active;
+  if (days === 7) {
+    const today = todayStr();
+    const moved = [];
+    for (const p of S.people) {
+      if (p.warmth !== 'active' || p.lightTouch || Number(p.cadenceOverrideDays) > 0) continue;
+      const last = tpsOf(p.id).reduce((m, t) => (!m || t.date > m.date ? t : m), null);
+      if (!last || p.nextTouchpointDate !== addDays(last.date, 30)) continue;
+      const next = [addDays(last.date, days), today].sort().pop();
+      if (next < p.nextTouchpointDate) moved.push({ ...p, nextTouchpointDate: next });
+    }
+    if (moved.length) {
+      await db.savePeople(moved);
+      await refresh();
+    }
+  }
+  await db.setMeta('activeWeeklyDone', nowISO());
+}
+
 async function start() {
   try {
     if (!(await db.getMeta('installedAt'))) await db.setMeta('installedAt', nowISO());
     await refresh();
+    await activeWeekly();
     await offerFollowCleanup();
   } catch (err) {
     view.innerHTML = `<div class="empty"><p class="empty-title">Callback couldn't open its storage.</p>
