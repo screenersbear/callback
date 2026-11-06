@@ -1822,8 +1822,11 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
 @media (min-width: 900px) {
   body { padding-left: 200px; }
 
+  /* Pages start right after the rail; on a wide window the spare room
+     goes on the right, not on both sides. */
   #app {
     max-width: 920px;
+    margin: 0;
     padding: 0 32px 64px;
   }
 
@@ -1831,8 +1834,8 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
      with the column below. 100% here is the column's own width. */
   .hero-band {
     width: calc(100vw - 200px);
-    margin-left: calc(50% - (100vw - 200px) / 2);
-    padding: 28px calc((100vw - 200px - 100%) / 2) 24px;
+    margin-left: -32px;
+    padding: 28px calc(100vw - 200px - 32px - 100%) 24px 32px;
     display: flex;
     align-items: center;
     justify-content: space-between;
