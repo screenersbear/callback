@@ -1939,7 +1939,7 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
   .split-detail .detail-cols, .pick-panel .detail-cols { display: block; }
 }
 
-/* Big window (1500px and up, set in app.js): Today is a board, a column per
+/* Big window (1400px and up, set in app.js): Today is a board, a column per
    section, each scrolling on its own, and whoever you click opens on the
    right. The weekly review gets columns too. The page itself stays put.
    The sizes match BOARD in app.js. */
@@ -1954,10 +1954,10 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
 .board-col { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 32px; }
 .board-col .card-list:has(> .item-card) { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
 .board .item-actions .btn { padding: 8px 10px; font-size: 12px; letter-spacing: 0.6px; }
-.board [data-pick] { cursor: pointer; }
+.view[data-route="today"] [data-pick] { cursor: pointer; }
 .board .item-card.is-picked { box-shadow: inset 8px 0 0 var(--accent); }
 .board .light-row.is-picked, .board .reply-row.is-picked { box-shadow: inset 8px 0 0 var(--accent); padding-left: 16px; }
-.dash.has-pick { grid-template-columns: 172px minmax(0, 1fr) clamp(600px, 50%, 1000px); }
+.dash.has-pick { grid-template-columns: 172px minmax(0, 1fr) clamp(560px, 50%, 1000px); }
 .pick-panel {
   min-width: 0;
   min-height: 0;

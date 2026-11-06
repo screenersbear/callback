@@ -535,9 +535,11 @@ function renderToday() {
 const PER_ITEM = { justmet: 3, overdue: 3, due: 3, resurfaced: 3, loops: 1.2, news: 1.2, coming: 1.2, replies: 0.6, 'today-light': 0.5 };
 
 // Big windows: Today becomes a board and the weekly review gets columns.
+// 1400 is the narrowest window where the open person and one column still
+// fit side by side (a full-screen 14 or 16 inch Mac is 1496 or wider).
 // The sizes here match the board's in style.css.
-const bigQuery = window.matchMedia('(min-width: 1500px)');
-const BOARD = { rail: 200, pad: 32, stats: 172, gap: 28, col: 340, colGap: 20, panelMin: 600, panelMax: 1000 };
+const bigQuery = window.matchMedia('(min-width: 1400px)');
+const BOARD = { rail: 200, pad: 32, stats: 172, gap: 28, col: 340, colGap: 20, panelMin: 560, panelMax: 1000 };
 
 // How many columns fit beside the numbers, and beside the open person.
 function boardFit(withPanel) {
@@ -2907,14 +2909,20 @@ window.addEventListener('resize', () => {
   }, 120);
 });
 
-// On Today's board, a click on someone (anywhere on their card but its
-// buttons) opens them on the right instead of going to their page.
+// A click anywhere on someone's card on Today (but its buttons) opens
+// them: on the board, on the right; otherwise their page. Selecting text
+// doesn't count.
 view.addEventListener('click', (e) => {
-  if (!boardOn()) return;
-  const host = e.target.closest('.board [data-pick]');
+  if (parseRoute().name !== 'today') return;
+  const host = e.target.closest('[data-pick]');
   if (!host) return;
   const link = e.target.closest('a[href^="#/person/"]');
   if (!link && e.target.closest('button, a, input, textarea, select, label, [data-action]')) return;
+  if (!link && String(window.getSelection() || '').trim()) return;
+  if (!boardOn()) {
+    if (!link) location.hash = `#/person/${host.dataset.pick}${host.dataset.focus ? `/${host.dataset.focus}` : ''}`;
+    return;
+  }
   e.preventDefault();
   if (link) {
     const [, , id, focus] = link.getAttribute('href').split('/');
