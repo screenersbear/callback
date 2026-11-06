@@ -93,6 +93,23 @@ async function load() {
   S.meta = { lastExportAt, installedAt, reminderUntil, lastLogType };
 }
 
+// The People sort and its order (and a circle's) stay until you change
+// them, even after the app closes. They're kept with this device's own
+// values (db meta), which backups and sync don't carry, so sorting on the
+// Mac never changes the phone's and never touches the synced settings.
+async function loadListSorts() {
+  const saved = await db.getMeta('listSorts');
+  for (const k of ['people', 'circle']) {
+    const v = saved && saved[k];
+    if (v && SORTS[v.sort]) Object.assign(S.ui[k], { sort: v.sort, reverse: !!v.reverse });
+  }
+}
+
+function saveListSorts() {
+  const keep = (u) => ({ sort: u.sort, reverse: u.reverse });
+  db.setMeta('listSorts', { people: keep(S.ui.people), circle: keep(S.ui.circle) }).catch(() => {});
+}
+
 async function refresh() {
   await load();
   render();
@@ -4304,11 +4321,13 @@ const ACTIONS = {
     // A new sort starts in its usual order.
     if (ui.sort !== el.dataset.sort) ui.reverse = false;
     ui.sort = el.dataset.sort;
+    saveListSorts();
     render();
   },
   'set-order': (el) => {
     const ui = el.dataset.scope === 'circle' ? S.ui.circle : S.ui.people;
     ui.reverse = el.dataset.reverse === '1';
+    saveListSorts();
     render();
   },
   'toggle-filters': () => {
@@ -4610,7 +4629,7 @@ async function offerFollowCleanup() {
 // One set of commands. On a computer the single keys below work in any
 // browser; the Mac app's menu sends the same commands with ⌘ shortcuts.
 
-const TAB_ORDER = ['today', 'week', 'people', 'circles', 'orgs', 'settings'];
+const TAB_ORDER = ['today', 'people', 'week', 'circles', 'orgs', 'settings'];
 const inMacApp = !!(window.callbackApp && window.callbackApp.mac);
 
 function openPerson() {
@@ -4906,7 +4925,7 @@ function shortcutsSheet() {
     [mac ? '⌘L' : 'L', mac ? 'Log a touchpoint for the person you have open, or pick someone' : 'Log a touchpoint for the person you have open'],
     [mac ? '⌘F' : '/', mac ? 'Find someone (on Orgs, search orgs)' : 'Search'],
     ['↑ ↓', 'Previous or next in the list'],
-    [mac ? '⌘1 to ⌘5' : '1 to 6', 'Today, Week, People, Circles, Orgs' + (mac ? '' : ', Settings')],
+    [mac ? '⌘1 to ⌘5' : '1 to 6', 'Today, People, Week, Circles, Orgs' + (mac ? '' : ', Settings')],
     ...(mac ? [['⌘,', 'Settings'], ['⌘[', 'Back'], ['⌘E', 'Export a backup'], ['⌘O', 'Import a backup']] : []),
     ['Esc', 'Close a form or popup'],
   ];
@@ -4951,6 +4970,7 @@ async function activeWeekly() {
 async function start() {
   try {
     if (!(await db.getMeta('installedAt'))) await db.setMeta('installedAt', nowISO());
+    await loadListSorts();
     await refresh();
     await activeWeekly();
     await offerFollowCleanup();
