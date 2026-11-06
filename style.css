@@ -1881,6 +1881,17 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
 
   .detail-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: start; }
   .card-list:has(> .item-card) { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); }
+
+  /* Today and the weekly review: the three numbers stack as near-squares
+     in a column on the left, the rest of the page fills the right. */
+  .dash { display: grid; grid-template-columns: 172px minmax(0, 1fr); gap: 28px; align-items: start; }
+  .dash > .stats-row { grid-template-columns: 1fr; gap: 12px; margin-bottom: 0; }
+  .dash .stat-box { aspect-ratio: 1 / 0.86; justify-content: center; padding: 16px 10px 12px; }
+  .dash-main { min-width: 0; container-type: inline-size; }
+}
+/* Too narrow beside the numbers for Today's two columns: one after the other. */
+@container (max-width: 700px) {
+  .dash-main .today-cols { display: block; }
 }
 
 /* Wide window (the Mac app, or a big browser window): People, Orgs and

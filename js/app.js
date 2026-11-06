@@ -467,13 +467,14 @@ function renderToday() {
 
   const week = weekStats(weekStartStr(today));
   const g = S.settings.goals;
-  html += `<div class="stats-row">
+  const stats = `<div class="stats-row">
     ${statBox(t.justMet.length + t.overdue.length + t.due.length, 'To reach out', null, 'reach')}
     ${statBox(`${week.regular.length}<small>/${g.touchpoints}</small>`, 'Touchpoints this week', null, 'touchpoints')}
     ${statBox(`${week.added.length}<small>/${g.newPeople}</small>`, 'New people this week', null, 'added')}
   </div>`;
-  html += conflictBannerHTML();
-  html += exportReminderHTML(today);
+  // On a phone the numbers sit in a row on top; with the side rail they
+  // stack in a column on the left and the rest of Today fills the right.
+  const dash = (rest) => `${html}<div class="dash">${stats}<div class="dash-main">${conflictBannerHTML()}${exportReminderHTML(today)}${rest}</div></div>`;
 
   const sections = [];
   const card = (kind) => (p) => personCard(p, kind, t.dueNews.get(p.id));
@@ -503,10 +504,10 @@ function renderToday() {
       <p class="light-intro">${plural(t.light.length, 'light touch', 'light touches')} this week. Small gestures, easy to do in one sitting.</p>
       <div class="light-list">${t.light.map(lightRow).join('')}</div>`, sections.length % 2 ? 'navy' : 'yellow')
     : '';
-  if (!sections.length) return html + caughtUpHTML(today) + light;
+  if (!sections.length) return dash(caughtUpHTML(today) + light);
   const blocks = sections.map(([key, title, n, inner], i) => ({ key, n, html: sectionBlock(key, title, n, inner, i % 2 ? 'navy' : 'yellow') }));
   if (light) blocks.push({ key: 'today-light', n: t.light.length, html: light });
-  if (!wideQuery.matches) return html + blocks.map((b) => b.html).join('');
+  if (!wideQuery.matches) return dash(blocks.map((b) => b.html).join(''));
   // A wide window gets two columns. Each section goes to the shorter one so
   // far, judged by how tall its cards run, so the first two sit side by side
   // at the top and neither column runs on alone.
@@ -517,7 +518,7 @@ function renderToday() {
     col.h += 1 + b.n * (PER_ITEM[b.key] || 1); // folding a section doesn't move the others
     col.html += b.html;
   }
-  return `${html}<div class="today-cols">${cols.map((c) => `<div class="today-col">${c.html}</div>`).join('')}</div>`;
+  return dash(`<div class="today-cols">${cols.map((c) => `<div class="today-col">${c.html}</div>`).join('')}</div>`);
 }
 
 // A touchpoint still waiting on a reply. The row opens it on the person's
@@ -2076,11 +2077,13 @@ function renderWeek() {
   return `
     <header class="topbar"><h1>Weekly review</h1></header>
     <p class="week-range">This week <span class="dot">·</span> ${esc(weekRange(ws))}</p>
+    <div class="dash">
     <div class="stats-row">
       ${statBox(`${w.regular.length}<small>/${g.touchpoints}</small>`, 'Touchpoints logged', null, 'touchpoints')}
       ${statBox(w.replies.length, 'Replies received', null, 'replies')}
       ${statBox(`${w.added.length}<small>/${g.newPeople}</small>`, 'New people added', null, 'added')}
     </div>
+    <div class="dash-main">
     ${w.light.length ? `<p class="week-split">${plural(w.regular.length, 'touchpoint')}, ${plural(w.light.length, 'light touch', 'light touches')}</p>` : ''}
     <div class="goals">
       ${goalBar('Touchpoints', w.regular.length, g.touchpoints)}
@@ -2092,7 +2095,9 @@ function renderWeek() {
       ${pointsEditorHTML(ws, 'pointNew')}
     </section>
     ${sectionBlock('week-logged', 'Logged this week', w.tps.length, logged || '<p class="hint">Nothing logged yet this week. Today has a list of who to reach out to.</p>', 'navy')}
-    ${sectionBlock('week-past', 'Past weeks', pastWeeks.length || null, pastHTML, 'yellow')}`;
+    ${sectionBlock('week-past', 'Past weeks', pastWeeks.length || null, pastHTML, 'yellow')}
+    </div>
+    </div>`;
 }
 
 // What worked, as a running list. The box on top adds a point (Enter or
