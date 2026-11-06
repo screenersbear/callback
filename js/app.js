@@ -1101,7 +1101,8 @@ function renderPerson(id, { panel = false } = {}) {
           <span class="rel-set">${relLabels(p)}</span><span class="warmth-btn-hint">Change</span></button>
         <button type="button" class="warmth-btn" data-action="change-interest" data-id="${pid}" aria-label="Change interest, now ${esc(interestInfo(p.interest).label)}">
           ${interestLabel(p.interest, { prefix: true })}<span class="warmth-btn-hint">Change</span></button>
-        ${p.dreamList ? dreamBadge() : ''}
+        ${p.dreamList ? `<button type="button" class="warmth-btn" data-action="dream-off" data-id="${pid}" aria-label="On your dream list. Take them off it">
+          ${dreamBadge()}<span class="warmth-btn-hint">Remove</span></button>` : ''}
         ${p.lightTouch ? `<button type="button" class="warmth-btn" data-action="light-off" data-id="${pid}" aria-label="Light touch is on. Turn it off">
           ${lightBadge()}<span class="warmth-btn-hint">Turn off</span></button>` : ''}
       </div>
@@ -3078,6 +3079,27 @@ function wirePasteBox(form) {
   }
 }
 
+// Off the dream list from their page. Someone you haven't reached out to
+// yet then joins the regular rhythm, so the toast says when their first
+// touchpoint is (today, unless a date was already set).
+async function endDream(p) {
+  if (!p || !p.dreamList) return;
+  const wasOnly = dreamOnly(p);
+  await db.savePerson({ ...p, dreamList: false });
+  await refresh();
+  const now = S.personById.get(p.id);
+  const next = now && wasOnly && now.warmth !== 'parked' && !now.lightTouch ? now.nextTouchpointDate || todayStr() : null;
+  toast(`${firstName(p)} is off your dream list.${next ? ` First touchpoint ${relDay(next)}.` : ''}`, {
+    action: {
+      label: 'Undo',
+      run: async () => {
+        await db.savePerson({ ...S.personById.get(p.id), dreamList: true });
+        await refresh();
+      },
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Light touch and quick add
 
@@ -4577,6 +4599,7 @@ const ACTIONS = {
   'edit-person': (el) => personForm(person(el)),
   'quick-add': () => quickAddSheet(),
   'light-off': (el) => endLightTouch(person(el)),
+  'dream-off': (el) => endDream(person(el)),
   'dismiss-engage': async (el) => {
     const p = person(el);
     const latest = p && tpsOf(p.id)[0];
