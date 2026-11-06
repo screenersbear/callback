@@ -211,14 +211,16 @@ export function confirmSheet({ title, message = '', confirmLabel = 'OK', cancelL
 
 // A list of choices; resolves with the chosen key, or null.
 // options: [{ key, label, detail }]
-export function choiceSheet({ title, message = '', options, footer = '' }) {
+// `extra` is HTML shown between the message and the choices; `onOpen` gets
+// the sheet, to wire up anything in it.
+export function choiceSheet({ title, message = '', extra = '', options, footer = '', onOpen }) {
   return new Promise((resolve) => {
     let answer = null;
     const s = openSheet({
       title,
       className: 'sheet-small',
       body: `
-        ${message ? `<p class="sheet-message">${message}</p>` : ''}
+        ${message ? `<p class="sheet-message">${message}</p>` : ''}${extra}
         <div class="choice-list">
           ${options
             .map(
@@ -236,6 +238,7 @@ export function choiceSheet({ title, message = '', options, footer = '' }) {
         s.close();
       })
     );
+    if (onOpen) onOpen(s);
   });
 }
 

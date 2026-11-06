@@ -8,7 +8,7 @@ import {
 import {
   WARMTH, WARMTH_INFO, COLD_STEPS, computeNextDate, warmthChangeFields, cadenceLabel, needsParkPrompt,
   needsWarmPrompt, SNOOZE_OPTIONS, snoozeDate, buildToday, coldState, sortTouchpoints, nextYearly, isDreamOnly,
-  firstContactStage, JUST_MET_DAYS, leavesLightTouch, lightOffFields, isEngaging, ideaStage,
+  firstContactStage, JUST_MET_DAYS, leavesLightTouch, lightOffFields, isEngaging, ideaStage, replyDay, lastContactDay,
 } from './cadence.js';
 import { pickIdea, yearlyIdea, setIdeaLibrary, isOwnIdea } from './ideas.js';
 import { upcomingEvents, buildCalendar } from './ics.js';
@@ -2983,7 +2983,10 @@ function whyText(p, tps, next) {
   if (p.warmth === 'parked') return `${first} is parked, so they come back in ${span(c.parked)}.`;
   const custom = Number(p.cadenceOverrideDays);
   if (custom > 0) return `That's your custom rhythm for ${first}: every ${span(custom)}.`;
-  if (p.lightTouch) return `${cap(span(c.lightTouch))} after the latest touchpoint, because ${first} is a light touch. A small gesture is enough.`;
+  // The rhythm counts from their reply when it came after your touchpoint.
+  const lastDay = tps.reduce((m, t) => (t.date > m ? t.date : m), '');
+  const after = (lastContactDay(tps) || '') > lastDay ? 'their reply' : 'the latest touchpoint';
+  if (p.lightTouch) return `${cap(span(c.lightTouch))} after ${after}, because ${first} is a light touch. A small gesture is enough.`;
   if (p.warmth === 'cold') {
     const { sent, replied } = coldState(p, tps);
     if (replied) return `${first} replied. Nice work.`;
@@ -2991,7 +2994,7 @@ function whyText(p, tps, next) {
     if (sent === 2) return `Last try in ${span(c.coldLastTry)}. That's note 3 of ${COLD_STEPS}.`;
     return `That was the last note in the cold sequence. If ${first} hasn't replied by ${esc(fmtDate(next))}, Callback will ask whether to park them.`;
   }
-  return `${cap(span(c[p.warmth]))} after the latest touchpoint, because ${first} is ${warmthWord(p.warmth)}.`;
+  return `${cap(span(c[p.warmth]))} after ${after}, because ${first} is ${warmthWord(p.warmth)}.`;
 }
 
 function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } = {}) {
@@ -3009,6 +3012,10 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } 
     responded: 'pending',
   };
   const offer = idea && idea.text && idea.text !== v.note ? idea.text : '';
+  // When they replied: the day already saved, or today when an old
+  // touchpoint is marked Replied now. A new log that's Replied straight away
+  // is a back-and-forth, so it follows the When date until you change it.
+  const replyDefault = replyDay(touchpoint) || (editing ? today : v.date);
   const s = openSheet({
     title: editing ? 'Edit touchpoint' : 'Log touchpoint',
     className: 'log-sheet',
@@ -3027,6 +3034,8 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } 
       <fieldset class="field"><legend class="field-label">Did they reply?</legend>
         <div class="seg">${RESPONDED.map((r) => `<label class="seg-option"><input type="radio" name="responded" value="${r.key}"${(v.responded || 'pending') === r.key ? ' checked' : ''}><span>${esc(r.label)}</span></label>`).join('')}</div>
       </fieldset>
+      <label class="field" data-reply-day-field${v.responded === 'yes' ? '' : ' hidden'}><span class="field-label">When did they reply?</span>
+        <input type="date" name="replyDay" value="${esc(replyDefault)}" min="${esc(v.date)}" max="${today}"></label>
       <fieldset class="field"><legend class="field-label">How did they seem? (optional)</legend>
         <input type="hidden" name="interest" value="${esc(v.interest || '')}">
         <div class="interest-picks">${INTEREST_LEVELS.map((i) => `<button type="button" class="interest-pick${v.interest === i.key ? ' is-on' : ''}" data-interest="${i.key}" aria-pressed="${v.interest === i.key}">${interestIcon(i.key)}<span>${esc(i.label)}</span></button>`).join('')}</div>
@@ -3072,6 +3081,20 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } 
       x.setAttribute('aria-pressed', String(on));
     });
   });
+  // "When did they reply?" shows only with Replied picked, and can't be
+  // before the touchpoint itself.
+  const replyField = form.querySelector('[name="replyDay"]');
+  const dateField = form.querySelector('[name="date"]');
+  let replyTouched = editing;
+  form.querySelectorAll('[name="responded"]').forEach((r) => r.addEventListener('change', () => {
+    form.querySelector('[data-reply-day-field]').hidden = form.querySelector('[name="responded"]:checked').value !== 'yes';
+  }));
+  replyField.addEventListener('change', () => { replyTouched = true; });
+  dateField.addEventListener('change', () => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateField.value)) return;
+    replyField.min = dateField.value;
+    if (!replyTouched || replyField.value < dateField.value) replyField.value = dateField.value;
+  });
   const promise = form.querySelector('[name="promise"]');
   if (promise) {
     promise.addEventListener('input', () => {
@@ -3086,8 +3109,14 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } 
     const responded = String(fd.get('responded') || 'pending');
     const type = String(fd.get('type') || 'other');
     let respondedAt = touchpoint ? touchpoint.respondedAt || null : null;
-    if (responded === 'yes' && !respondedAt) respondedAt = nowISO();
-    if (responded !== 'yes') respondedAt = null;
+    if (responded === 'yes') {
+      // Between the touchpoint and today. An unchanged day keeps its time.
+      const raw = String(fd.get('replyDay') || '');
+      const day = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? [date, [raw, today].sort()[0]].sort().pop() : today;
+      if (!respondedAt || replyDay({ responded, respondedAt }) !== day) respondedAt = replyISO(day, today);
+    } else {
+      respondedAt = null;
+    }
 
     const before = tpsOf(p.id);
     const tp = await db.saveTouchpoint({
@@ -3104,8 +3133,10 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } 
     const all = sortTouchpoints([...before.filter((t) => t.id !== tp.id), tp]);
     // A new touchpoint always resets the schedule. An edit only does when it
     // touches the latest touchpoint, so a snooze survives fixing an old typo.
+    // Otherwise a reply marked on an older touchpoint can still move a date
+    // that came from the rhythm (followRhythm).
     const touchesLatest = !editing || all[0].id === tp.id || (before[0] && before[0].id === tp.id);
-    const next = touchesLatest ? computeNextDate(p, all, S.settings, today) : p.nextTouchpointDate;
+    const next = touchesLatest ? computeNextDate(p, all, S.settings, today) : followRhythm(p, before, all);
     // Logging a new touchpoint uses up a typed idea; fixing an old one doesn't.
     const clearedIdea = !editing && !!(p.customIdea || '').trim();
     // How they seemed at their latest touchpoint becomes their current interest.
@@ -3571,27 +3602,85 @@ async function setResponse(t) {
   await markResponse(t, key);
 }
 
-// A reply came in: how did they seem? It goes on the touchpoint and becomes
-// the person's current interest, since a reply is the freshest sign.
-// Closing the popup skips it.
-async function askInterest(t) {
-  const p = S.personById.get(t.personId);
-  return choiceSheet({
-    title: 'How did they seem?',
-    message: `In ${p ? esc(firstName(p)) : 'their'}${p ? "'s" : ''} reply. This shapes the touchpoint ideas.`,
-    options: INTEREST_LEVELS.map((i) => ({ key: i.key, label: i.label, detail: i.blurb, icon: interestIcon(i.key), current: t.interest === i.key })),
+// When a reply came in, as a timestamp. Today keeps the moment you marked it;
+// an earlier day is stored at noon so it stays that day in any time zone.
+function replyISO(day, today = todayStr()) {
+  if (day >= today) return nowISO();
+  const d = parseDate(day);
+  d.setHours(12);
+  return d.toISOString();
+}
+
+// A reply moves the person's next touchpoint only when that date came from
+// their rhythm. A snoozed or hand-picked date stays as it is.
+function followRhythm(p, beforeTps, afterTps) {
+  const was = computeNextDate(p, beforeTps, S.settings);
+  return p.nextTouchpointDate === was ? computeNextDate(p, afterTps, S.settings) : p.nextTouchpointDate;
+}
+
+// "Replied today", with a Change button that swaps in a date field for a
+// reply that came in earlier. `onDay` hears each new day.
+function replyWhenHTML(t, today) {
+  const canChange = t.date < today;
+  return `<div class="reply-when">
+    <span class="reply-when-text">Replied <span data-reply-label>today</span></span>
+    ${canChange ? `<button type="button" class="text-btn inline" data-reply-change>Change</button>
+    <span class="field reply-when-field" hidden><input type="date" data-reply-day value="${today}" min="${esc(t.date)}" max="${today}" aria-label="When they replied"></span>` : ''}
+  </div>`;
+}
+
+function wireReplyWhen(root, t, today, onDay) {
+  const btn = root.querySelector('[data-reply-change]');
+  if (!btn) return;
+  const wrap = root.querySelector('.reply-when-field');
+  const input = wrap.querySelector('[data-reply-day]');
+  btn.addEventListener('click', () => {
+    btn.hidden = true;
+    root.querySelector('[data-reply-label]').hidden = true;
+    wrap.hidden = false;
+    input.focus();
+    try { input.showPicker(); } catch { /* the field is there to tap */ }
+  });
+  input.addEventListener('change', () => {
+    const v = input.value;
+    onDay(/^\d{4}-\d{2}-\d{2}$/.test(v) ? [t.date, [v, today].sort()[0]].sort().pop() : today);
   });
 }
 
+// A reply came in: when, and how did they seem? How they seemed goes on the
+// touchpoint and becomes the person's current interest, since a reply is the
+// freshest sign. Closing the popup skips the interest but keeps the day.
+async function askReply(t) {
+  const p = S.personById.get(t.personId);
+  const today = todayStr();
+  let day = today;
+  const interest = await choiceSheet({
+    title: 'How did they seem?',
+    message: `In ${p ? esc(firstName(p)) : 'their'}${p ? "'s" : ''} reply. This shapes the touchpoint ideas.`,
+    extra: replyWhenHTML(t, today),
+    onOpen: (s) => wireReplyWhen(s.body, t, today, (d) => { day = d; }),
+    options: INTEREST_LEVELS.map((i) => ({ key: i.key, label: i.label, detail: i.blurb, icon: interestIcon(i.key), current: t.interest === i.key })),
+  });
+  return { interest, day };
+}
+
 async function markResponse(t, key) {
-  const interest = key === 'yes' ? await askInterest(t) : null;
-  await db.saveTouchpoint({ ...t, responded: key, respondedAt: key === 'yes' ? t.respondedAt || nowISO() : null, ...(interest ? { interest } : {}) });
+  const { interest, day } = key === 'yes' ? await askReply(t) : { interest: null, day: null };
+  const respondedAt = key === 'yes' ? replyISO(day) : null;
+  const saved = await db.saveTouchpoint({ ...t, responded: key, respondedAt, ...(interest ? { interest } : {}) });
   const p0 = S.personById.get(t.personId);
-  if (interest && p0 && p0.interest !== interest) await db.savePerson({ ...p0, interest });
+  if (p0) {
+    const before = tpsOf(p0.id);
+    const next = followRhythm(p0, before, before.map((x) => (x.id === saved.id ? saved : x)));
+    const fields = { ...(interest && p0.interest !== interest ? { interest } : {}), ...(next !== p0.nextTouchpointDate ? { nextTouchpointDate: next } : {}) };
+    if (Object.keys(fields).length) await db.savePerson({ ...p0, ...fields });
+  }
   await refresh();
   const p = S.personById.get(t.personId);
   if (key === 'yes' && p && p.warmth === 'cold') {
     toast(`${firstName(p)} replied.`, { action: { label: 'Move to Warm', run: () => setWarmth(S.personById.get(p.id), 'warm') } });
+  } else if (p && p0 && p.nextTouchpointDate !== p0.nextTouchpointDate && p.nextTouchpointDate) {
+    toast(`Marked as ${respondedLabel(key).toLowerCase()}. Next touchpoint ${fmtDate(p.nextTouchpointDate)}.`);
   } else {
     toast(`Marked as ${respondedLabel(key).toLowerCase()}`);
   }

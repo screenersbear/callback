@@ -1430,6 +1430,9 @@ details.loop-done[open] summary { margin-bottom: 8px; }
 .x-icon { width: 0.6em; height: 0.6em; display: block; }
 
 .sheet-message { margin: 0 0 14px; font-size: 16px; }
+/* "Replied today" in the How did they seem? popup; Change swaps in a date field. */
+.reply-when { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 0 0 14px; font-size: 16px; }
+.reply-when-field { flex: 1 1 180px; }
 .sheet-person {
   margin: -4px 0 14px;
   font-family: var(--font-title);

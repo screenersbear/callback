@@ -77,7 +77,20 @@ function overrideDays(person) {
   return n > 0 ? Math.round(n) : 0;
 }
 
-// The next touchpoint date for a person, from their most recent touchpoint.
+// The day a reply came in, on this device's calendar (null without one).
+export function replyDay(t) {
+  return t && t.responded === 'yes' && t.respondedAt ? toDateStr(new Date(t.respondedAt)) : null;
+}
+
+// The last contact either way: your latest touchpoint or their latest reply,
+// whichever came later. A reply a few days after your note starts the clock
+// again, so Callback doesn't nudge you two days after they wrote back.
+export function lastContactDay(tps, last = lastTouchpoint(tps)) {
+  return last ? maxDate(last.date, ...tps.map(replyDay)) : null;
+}
+
+// The next touchpoint date for a person, counted from the last contact
+// (lastContactDay), their reply included.
 // Order of rules: parked first (they rest, whatever else is set), then the
 // person's own cadence override, then light touch, then their warmth
 // default, then for cold people the step they're on in the sequence.
@@ -93,19 +106,20 @@ export function computeNextDate(person, tps, settings, today = todayStr()) {
 
   if (!last) return person.nextTouchpointDate || today;
 
+  const from = lastContactDay(tps, last);
   const custom = overrideDays(person);
-  if (custom) return addDays(last.date, custom);
+  if (custom) return addDays(from, custom);
 
-  if (person.lightTouch) return addDays(last.date, c.lightTouch);
+  if (person.lightTouch) return addDays(from, c.lightTouch);
 
   if (person.warmth === 'cold') {
     const { sent } = coldState(person, tps);
     if (sent === 0) return person.nextTouchpointDate || today;
     const gap = sent === 1 ? c.coldFollowUp : sent === 2 ? c.coldLastTry : c.coldWait;
-    return addDays(last.date, gap);
+    return addDays(from, gap);
   }
 
-  return addDays(last.date, c[person.warmth] || c.warm);
+  return addDays(from, c[person.warmth] || c.warm);
 }
 
 // Fields to merge into a person when their warmth changes, so the cold
