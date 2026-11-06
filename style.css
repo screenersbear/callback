@@ -1430,6 +1430,11 @@ details.loop-done[open] summary { margin-bottom: 8px; }
 .x-icon { width: 0.6em; height: 0.6em; display: block; }
 
 .sheet-message { margin: 0 0 14px; font-size: 16px; }
+/* Keyboard shortcuts popup. */
+.shortcut-list { display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; margin: 0 0 14px; align-items: baseline; }
+.shortcut-list dt { white-space: nowrap; }
+.shortcut-list dd { margin: 0; }
+.shortcut-list kbd { font-family: inherit; font-weight: 700; border: 2px solid var(--ink); padding: 1px 6px; }
 /* "Replied today" in the How did they seem? popup; Change swaps in a date field. */
 .reply-when { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 0 0 14px; font-size: 16px; }
 .reply-when-field { flex: 1 1 180px; }
@@ -1858,6 +1863,53 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
 
   .detail-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: start; }
   .card-list:has(> .item-card) { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); }
+}
+
+/* Wide window (the Mac app, or a big browser window): People, Orgs and
+   Circles show the list and the open page side by side. The list keeps its
+   own scroll; the page scrolls with the window. Today spreads into two
+   columns, and the bigger forms open as a panel on the right so the page
+   stays in view. */
+@media (min-width: 1100px) {
+  #app:has(> .view.is-split) { max-width: none; padding: 0; }
+  .split { display: grid; grid-template-columns: minmax(300px, 360px) minmax(0, 1fr); align-items: start; }
+  .split-list {
+    position: sticky;
+    top: 0;
+    height: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0 20px 40px;
+    border-right: 3px solid var(--ink);
+  }
+  .split-detail { container-type: inline-size; min-width: 0; padding: 0 32px 64px; }
+  .split-detail .back-btn { visibility: hidden; }
+  .split-empty { margin-top: 72px; }
+  .split-list .row-card.is-selected { box-shadow: inset 8px 0 0 var(--accent); padding-left: 22px; }
+
+  #app:has(> .view[data-route="today"]) { max-width: 1240px; }
+  .today-sections { columns: 2; column-gap: 32px; }
+  .today-sections > .section-block { break-inside: avoid; display: inline-block; vertical-align: top; width: 100%; }
+  .today-sections .card-list:has(> .item-card) { display: flex; }
+
+  .sheet-overlay:has(> .sheet:not(.sheet-small):not(.sheet-wide)) { justify-content: flex-end; align-items: stretch; padding: 0; }
+  .sheet:not(.sheet-small):not(.sheet-wide) {
+    max-width: 520px;
+    max-height: none;
+    height: 100%;
+    border: none;
+    border-left: 3px solid var(--ink);
+    border-top: 4px solid var(--accent);
+    animation: slideLeft 0.2s ease;
+  }
+}
+/* A narrow open page (smaller Mac window) stacks its two columns. */
+@container (max-width: 760px) {
+  .split-detail .detail-cols { display: block; }
+}
+@keyframes slideLeft {
+  from { transform: translateX(40px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
 }
 
 /* Dark mode details that tokens alone don't cover. */

@@ -483,7 +483,8 @@ function renderToday() {
       <div class="light-list">${t.light.map(lightRow).join('')}</div>`, sections.length % 2 ? 'navy' : 'yellow')
     : '';
   if (!sections.length) return html + caughtUpHTML(today) + light;
-  return html + sections.map(([key, title, n, inner], i) => sectionBlock(key, title, n, inner, i % 2 ? 'navy' : 'yellow')).join('') + light;
+  // Wrapped so a wide window can lay the sections out in two columns.
+  return `${html}<div class="today-sections">${sections.map(([key, title, n, inner], i) => sectionBlock(key, title, n, inner, i % 2 ? 'navy' : 'yellow')).join('')}${light}</div>`;
 }
 
 // A touchpoint still waiting on a reply. The row opens it on the person's
@@ -915,6 +916,7 @@ function renderPeople() {
 function updatePeopleList() {
   const el = document.getElementById('peopleList');
   if (el) el.innerHTML = peopleListHTML();
+  markSelected();
 }
 
 // ---------------------------------------------------------------------------
@@ -2336,6 +2338,42 @@ function parseRoute() {
 
 let currentKey = '';
 
+// Desktop: in a wide window the list and the open person, organization or
+// circle sit side by side, like Mail, and the list keeps its place while
+// you go from one to the next. The phone never sees this.
+const wideQuery = window.matchMedia('(min-width: 1100px)');
+const SPLIT_LIST = { people: 'people', person: 'people', orgs: 'orgs', org: 'orgs', circles: 'circles', circle: 'circles' };
+const SPLIT_EMPTY = {
+  people: ['Pick someone on the left.', 'Their page opens here, and the list stays put.'],
+  orgs: ['Pick an organization on the left.', 'Its page opens here, and the list stays put.'],
+  circles: ['Pick a circle on the left.', 'Its page opens here, and the list stays put.'],
+};
+const splitList = (name) => (wideQuery.matches ? SPLIT_LIST[name] || null : null);
+
+function splitHTML(r, list) {
+  const open = r.name !== list;
+  const [title, text] = SPLIT_EMPTY[list];
+  return `<div class="split">
+    <section class="split-list" data-list="${list}" aria-label="${esc(TITLES[list])}">${ROUTES[list]()}</section>
+    <section class="split-detail">${open ? ROUTES[r.name](r.id) : `<div class="empty split-empty"><p class="empty-title">${title}</p><p>${text}</p>
+      <p class="field-hint">↑ and ↓ move through the list. ${inMacApp ? 'Help, Keyboard Shortcuts lists the rest.' : 'Press ? for all the shortcuts.'}</p></div>`}</section>
+  </div>`;
+}
+
+// The open row in the side list.
+function markSelected() {
+  const r = parseRoute();
+  const href = r.id ? `#/${r.name}/${r.id}` : '';
+  view.querySelectorAll('.split-list a.row-card').forEach((a) => {
+    const on = !!href && a.getAttribute('href') === href;
+    a.classList.toggle('is-selected', on);
+    if (on) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
+    if (on && S.ui.revealRow) a.scrollIntoView({ block: 'nearest' });
+  });
+  S.ui.revealRow = false;
+}
+
 function render() {
   const r = parseRoute();
   const key = `${r.name}/${r.id || ''}`;
@@ -2343,7 +2381,15 @@ function render() {
   const y = window.scrollY;
   const focus = !same && r.name === 'person' && r.focus;
   if (focus) S.ui.collapsed.delete('timeline');
-  view.innerHTML = ROUTES[r.name](r.id);
+  const list = splitList(r.name);
+  const oldList = view.querySelector('.split-list');
+  const listY = oldList && oldList.dataset.list === list ? oldList.scrollTop : 0;
+  view.innerHTML = list ? splitHTML(r, list) : ROUTES[r.name](r.id);
+  view.classList.toggle('is-split', !!list);
+  if (list) {
+    view.querySelector('.split-list').scrollTop = listY;
+    markSelected();
+  }
   view.dataset.route = r.name;
   fitBrandTitle();
   view.querySelectorAll('textarea.pd-value').forEach(fitHeight);
@@ -2364,6 +2410,8 @@ function render() {
   }
   currentKey = key;
 }
+
+wideQuery.addEventListener('change', () => render());
 
 window.addEventListener('hashchange', (e) => {
   const from = new URL(e.oldURL).hash || '#/today';
@@ -4388,6 +4436,7 @@ document.addEventListener('input', (e) => {
     const tmp = document.createElement('div');
     tmp.innerHTML = renderOrgs();
     list.innerHTML = tmp.querySelector('#orgList').innerHTML;
+    markSelected();
   }
 });
 
@@ -4542,6 +4591,109 @@ async function offerFollowCleanup() {
 
 // ---------------------------------------------------------------------------
 // Start
+
+// ---------------------------------------------------------------------------
+// Keyboard shortcuts and the Mac app's menu
+//
+// One set of commands. On a computer the single keys below work in any
+// browser; the Mac app's menu sends the same commands with ⌘ shortcuts.
+
+const TAB_ORDER = ['today', 'week', 'people', 'circles', 'orgs', 'settings'];
+const inMacApp = !!(window.callbackApp && window.callbackApp.mac);
+
+function openPerson() {
+  const r = parseRoute();
+  return r.name === 'person' ? S.personById.get(r.id) || null : null;
+}
+
+// Down and up go to the next or previous row in the side list.
+function stepList(dir) {
+  const rows = [...view.querySelectorAll('.split-list a.row-card')];
+  if (!rows.length) return;
+  const at = rows.findIndex((a) => a.classList.contains('is-selected'));
+  const next = rows[at < 0 ? (dir > 0 ? 0 : rows.length - 1) : Math.min(rows.length - 1, Math.max(0, at + dir))];
+  if (next.classList.contains('is-selected')) return;
+  S.ui.revealRow = true;
+  location.hash = next.getAttribute('href');
+}
+
+// Search the list you're in (organizations on Orgs, otherwise people).
+function findCommand() {
+  closeAllSheets();
+  const id = SPLIT_LIST[parseRoute().name] === 'orgs' ? 'orgSearch' : 'peopleSearch';
+  const focus = () => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.focus();
+    el.select();
+  };
+  if (document.getElementById(id)) return focus();
+  window.addEventListener('hashchange', focus, { once: true });
+  location.hash = id === 'orgSearch' ? '#/orgs' : '#/people';
+}
+
+const COMMANDS = {
+  'new-person': () => personForm(null),
+  'quick-add': () => quickAddSheet(),
+  log: () => {
+    const p = openPerson();
+    if (p) logSheet(p);
+    else toast('Open someone first, then log a touchpoint.');
+  },
+  find: () => findCommand(),
+  next: () => stepList(1),
+  prev: () => stepList(-1),
+  back: () => history.back(),
+  export: () => exportJSON(),
+  import: () => importJSON(),
+  shortcuts: () => shortcutsSheet(),
+  ...Object.fromEntries(TAB_ORDER.map((t) => [`go-${t}`, () => { location.hash = `#/${t}`; }])),
+};
+
+function runCommand(name) {
+  const fn = COMMANDS[name];
+  if (fn) fn();
+}
+
+// In the browser: plain keys, only when you're not typing and nothing is open.
+const KEYS = { n: 'new-person', q: 'quick-add', l: 'log', '/': 'find', '?': 'shortcuts', ArrowDown: 'next', ArrowUp: 'prev' };
+TAB_ORDER.forEach((t, i) => { KEYS[String(i + 1)] = `go-${t}`; });
+
+const isTyping = (el) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+
+document.addEventListener('keydown', (e) => {
+  if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
+  if (isTyping(document.activeElement) || document.body.classList.contains('sheet-open')) return;
+  const name = KEYS[e.key];
+  if (!name) return;
+  // The arrows only move through a side list; anywhere else they scroll.
+  if ((name === 'next' || name === 'prev') && !view.classList.contains('is-split')) return;
+  e.preventDefault();
+  runCommand(name);
+});
+
+// The Mac app's menu.
+if (window.callbackApp && window.callbackApp.onCommand) window.callbackApp.onCommand(runCommand);
+
+function shortcutsSheet() {
+  const mac = inMacApp;
+  const rows = [
+    [mac ? '⌘N' : 'N', 'New person'],
+    [mac ? '⇧⌘N' : 'Q', 'Quick add'],
+    [mac ? '⌘L' : 'L', 'Log a touchpoint for the person you have open'],
+    [mac ? '⌘F' : '/', 'Search'],
+    ['↑ ↓', 'Previous or next in the list'],
+    [mac ? '⌘1 to ⌘5' : '1 to 6', 'Today, Week, People, Circles, Orgs' + (mac ? '' : ', Settings')],
+    ...(mac ? [['⌘,', 'Settings'], ['⌘[', 'Back'], ['⌘E', 'Export a backup'], ['⌘O', 'Import a backup']] : []),
+    ['Esc', 'Close a form or popup'],
+  ];
+  openSheet({
+    title: 'Keyboard shortcuts',
+    className: 'sheet-small',
+    body: `<dl class="shortcut-list">${rows.map(([k, what]) => `<dt><kbd>${esc(k)}</kbd></dt><dd>${esc(what)}</dd>`).join('')}</dl>
+      ${mac ? '' : '<p class="field-hint">They work when you are not typing in a box.</p>'}`,
+  });
+}
 
 // One-time change (11-05): Active went from every 30 days to every 7, since
 // a live lead goes cold in a month. A saved 30 (the old default) becomes 7,
