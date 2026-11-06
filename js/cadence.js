@@ -179,6 +179,8 @@ export function nextYearly(dateStr, from = todayStr()) {
 }
 
 export const YEARLY_LEAD_DAYS = 7;
+// How far ahead an open loop shows under Coming up on Today.
+export const LOOP_LEAD_DAYS = 7;
 
 // Where a yearly item stands today: 'today' on the day, the date itself when
 // it's coming up within a week, or null. It's settled for this year once
@@ -327,11 +329,15 @@ export function buildToday({ people, touchpointsByPerson, news, loops = [], now 
   for (const n of newsToday) if (dueIds.has(n.personId) && !dueNews.has(n.personId)) dueNews.set(n.personId, n);
 
   // Open loops: one on your side shows once it's due and stays until closed;
-  // one on their side shows once it's late, as a nudge. Undated loops never do.
-  const loopsToday = loops
-    .filter((l) => ids.has(l.personId) && l.status !== 'closed' && l.dueDate)
-    .filter((l) => (l.direction === 'theyOwe' ? l.dueDate < today : l.dueDate <= today))
-    .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || (a.direction === 'iOwe' ? -1 : 1));
+  // one on their side shows once it's late, as a nudge. Before that, both
+  // show under Coming up for the week ahead (like birthdays). Undated loops
+  // never do.
+  const openDated = loops.filter((l) => ids.has(l.personId) && l.status !== 'closed' && l.dueDate);
+  const isLoopToday = (l) => (l.direction === 'theyOwe' ? l.dueDate < today : l.dueDate <= today);
+  const byDue = (a, b) => a.dueDate.localeCompare(b.dueDate) || (a.direction === 'iOwe' ? -1 : 1);
+  const loopsToday = openDated.filter(isLoopToday).sort(byDue);
+  const leadEnd = addDays(today, LOOP_LEAD_DAYS);
+  const loopsComing = openDated.filter((l) => !isLoopToday(l) && l.dueDate <= leadEnd).sort(byDue);
 
-  return { justMet, overdue, due, news: newsToday.filter((n) => !dueIds.has(n.personId)), dueNews, comingUp, resurfaced, loops: loopsToday, light, replyChecks };
+  return { justMet, overdue, due, news: newsToday.filter((n) => !dueIds.has(n.personId)), dueNews, comingUp, resurfaced, loops: loopsToday, loopsComing, light, replyChecks };
 }

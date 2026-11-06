@@ -459,14 +459,19 @@ function renderToday() {
   if (t.justMet.length) sections.push(['justmet', 'Just met', t.justMet.length, t.justMet.map(card('justMet')).join('')]);
   if (t.overdue.length) sections.push(['overdue', 'Overdue', t.overdue.length, t.overdue.map(card('overdue')).join('')]);
   if (t.due.length) sections.push(['due', 'Due today', t.due.length, t.due.map(card('due')).join('')]);
-  if (t.loops.length) sections.push(['loops', 'Open loops', t.loops.length, t.loops.map(loopCard).join('')]);
+  if (t.loops.length) sections.push(['loops', 'Open loops', t.loops.length, t.loops.map((l) => loopCard(l)).join('')]);
   if (t.replyChecks.length) {
     sections.push(['replies', 'Did they reply?', t.replyChecks.length, `
       <p class="light-intro">Still waiting, two days or more after you reached out. Mark each one, or tap Not yet and Callback asks again in two days.</p>
       <div class="light-list">${t.replyChecks.map(replyRow).join('')}</div>`]);
   }
   if (t.news.length) sections.push(['news', 'Their news', t.news.length, t.news.map((n) => newsCard(n)).join('')]);
-  if (t.comingUp.length) sections.push(['coming', 'Coming up', t.comingUp.length, t.comingUp.map((n) => newsCard(n, { coming: true })).join('')]);
+  // The week ahead: loops coming due and yearly news, soonest first.
+  const coming = [
+    ...t.loopsComing.map((l) => ({ date: l.dueDate, html: loopCard(l, { coming: true }) })),
+    ...t.comingUp.map((n) => ({ date: n.date, html: newsCard(n, { coming: true }) })),
+  ].sort((a, b) => a.date.localeCompare(b.date));
+  if (coming.length) sections.push(['coming', 'Coming up', coming.length, coming.map((c) => c.html).join('')]);
   if (t.resurfaced.length) {
     sections.push(['resurfaced', 'Resurfaced', t.resurfaced.length, t.resurfaced.map((p) => personCard(p, 'resurfaced')).join('')]);
   }
@@ -661,14 +666,28 @@ function midSentence(text) {
 }
 
 // A loop on Today. One on your side reads as a promise to keep; one on their
-// side reads as a gentle follow-up.
-function loopCard(l) {
+// side reads as a gentle follow-up. Under Coming up (`coming`), before it's
+// due, it's a heads-up.
+function loopCard(l, { coming = false } = {}) {
   const p = S.personById.get(l.personId);
   const today = todayStr();
   const pid = esc(p.id);
   const lid = esc(l.id);
   const n = daysBetween(l.dueDate, today);
   const who = `<a href="#/person/${pid}">${esc(firstName(p))}</a>`;
+  const when = `${fmtDate(l.dueDate)}, ${relDay(l.dueDate, today)}`;
+  if (coming) {
+    const theirs = l.direction === 'theyOwe';
+    return `<article class="item-card loop-card ${theirs ? 'is-theyowe' : 'is-iowe'}">
+      <p class="loop-kicker">${loopIcon(l.direction)}<span>On ${theirs ? 'their' : 'your'} side</span></p>
+      <p class="loop-desc">${theirs ? `Waiting on ${esc(midSentence(l.description))} from ${who}.` : `You promised ${who}: ${esc(l.description)}`}</p>
+      <p class="item-facts"><b>${theirs ? 'Expected' : 'Due'} ${esc(when)}</b></p>
+      <div class="item-actions">
+        <button type="button" class="btn primary" data-action="close-loop" data-id="${lid}">${theirs ? 'Got it' : 'Done'}</button>
+        <button type="button" class="btn secondary" data-action="open-person" data-id="${pid}">Open</button>
+      </div>
+    </article>`;
+  }
   if (l.direction === 'theyOwe') {
     return `<article class="item-card loop-card is-theyowe">
       <p class="loop-kicker">${loopIcon('theyOwe')}<span>On their side</span></p>
