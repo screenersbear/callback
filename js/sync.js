@@ -120,6 +120,20 @@ async function writeRemote(cfg, text, sha) {
   return (await res.json()).content.sha;
 }
 
+// A device joining takes the shared settings (goals, rhythms), since its own
+// may just be fresh defaults. But when the shared copy has nobody in it yet
+// (an empty device connected first) and this one has your people, this
+// device's settings are the real ones: they're marked newest so they win on
+// every device. Whichever device connects first, nothing real is lost.
+async function joinRule(payload) {
+  const theirs = (payload.data.people || []).length;
+  const mine = (await db.getPeople()).length;
+  if (theirs || !mine) return ['settings'];
+  const s = await db.getSettings();
+  if (s.updatedAt) await db.saveSettings(s);
+  return [];
+}
+
 // One sync. Pass cfg to try a new repository or key before keeping it.
 // Returns { changedHere } (true when the other devices' changes came in).
 export async function syncNow(newCfg = null) {
@@ -131,8 +145,8 @@ export async function syncNow(newCfg = null) {
     for (let tries = 0; tries < 4 && !done; tries++) {
       const remote = await readRemote(cfg);
       if (remote.payload) {
-        // A device joining takes the shared settings (goals, rhythms) too.
-        const counts = await db.importAll(remote.payload, 'merge', { quiet: true, incomingWins: cfg.joined ? [] : ['settings'] });
+        const incomingWins = cfg.joined ? [] : await joinRule(remote.payload);
+        const counts = await db.importAll(remote.payload, 'merge', { quiet: true, incomingWins });
         if (counts.changed) changedHere = true;
       }
       const local = await db.exportAll();
@@ -180,6 +194,11 @@ export function startAutoSync(handler) {
       // Leaving the app with something unsent: send it now.
       request(0);
     }
+  });
+  // On the Mac, switching back to the window doesn't count as the page
+  // showing again, so coming to the front syncs too.
+  window.addEventListener('focus', () => {
+    if (Date.now() - lastRun > 15000) request(0);
   });
   window.addEventListener('online', () => request(0));
   setInterval(() => {
