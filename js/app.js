@@ -127,6 +127,15 @@ const tpsOf = (id) => S.tpsByPerson.get(id) || [];
 const newsOf = (id) => S.newsByPerson.get(id) || [];
 const loopsOf = (id) => S.loopsByPerson.get(id) || [];
 const openLoopsOf = (id) => loopsOf(id).filter((l) => l.status !== 'closed');
+// The promise made with a touchpoint. Newer ones carry its id; older ones were
+// saved a moment after it, in the same Log touchpoint.
+function tpLoop(tp) {
+  const list = loopsOf(tp.personId);
+  const at = Date.parse(tp.createdAt);
+  return list.find((l) => l.touchpointId === tp.id)
+    || list.find((l) => !l.touchpointId && Math.abs(Date.parse(l.createdAt) - at) < 5000)
+    || null;
+}
 const orgOf = (p) => (p && p.organizationId ? S.orgById.get(p.organizationId) : null);
 // A person's circles in your order. Ids of deleted circles are skipped.
 const circlesOf = (p) => S.circles.filter((c) => (p.circleIds || []).includes(c.id));
@@ -3604,6 +3613,10 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } 
   // touchpoint is marked Replied now. A new log that's Replied straight away
   // is a back-and-forth, so it follows the When date until you change it.
   const replyDefault = replyDay(touchpoint) || (editing ? today : v.date);
+  // Editing shows the promise made with this touchpoint, so it can be changed
+  // or taken off, or one added that was missed when logging.
+  const made = editing ? tpLoop(touchpoint) : null;
+  const madeDir = made ? made.direction : LOOP_DIRECTIONS[0].key;
   const s = openSheet({
     title: editing ? 'Edit touchpoint' : 'Log touchpoint',
     className: 'log-sheet',
@@ -3628,14 +3641,15 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } 
         <input type="hidden" name="interest" value="${esc(v.interest || '')}">
         <div class="interest-picks">${INTEREST_LEVELS.map((i) => `<button type="button" class="interest-pick${v.interest === i.key ? ' is-on' : ''}" data-interest="${i.key}" aria-pressed="${v.interest === i.key}">${interestIcon(i.key)}<span>${esc(i.label)}</span></button>`).join('')}</div>
       </fieldset>
-      ${editing ? '' : `<div class="field promise-field">
+      <div class="field promise-field">
         <label class="field"><span class="field-label">Anything promised? (optional)</span>
-          <input name="promise" maxlength="140" autocomplete="off" placeholder="Send her a print of the window frame"></label>
-        <div class="promise-more" hidden>
-          <div class="seg">${LOOP_DIRECTIONS.map((d, i) => `<label class="seg-option"><input type="radio" name="promiseDir" value="${d.key}"${i === 0 ? ' checked' : ''}><span>${esc(d.label)}</span></label>`).join('')}</div>
-          <label class="field"><span class="field-label">By when? (optional)</span><input type="date" name="promiseDue"></label>
+          <input name="promise" maxlength="140" autocomplete="off" value="${esc(made ? made.description : '')}" placeholder="Send her a print of the window frame"></label>
+        ${made && made.status === 'closed' ? '<p class="field-hint">Done already.</p>' : ''}
+        <div class="promise-more"${made ? '' : ' hidden'}>
+          <div class="seg">${LOOP_DIRECTIONS.map((d) => `<label class="seg-option"><input type="radio" name="promiseDir" value="${d.key}"${madeDir === d.key ? ' checked' : ''}><span>${esc(d.label)}</span></label>`).join('')}</div>
+          <label class="field"><span class="field-label">By when? (optional)</span><input type="date" name="promiseDue" value="${esc(made && made.dueDate ? made.dueDate : '')}"></label>
         </div>
-      </div>`}
+      </div>
       ${editing ? '<button type="button" class="btn danger wide" data-delete>Delete touchpoint</button>' : ''}
       <button type="submit" class="modal-cta primary">${editing ? 'Save changes' : 'Save touchpoint'}</button>
     </form>`,
@@ -3734,16 +3748,26 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } 
     // "Anything promised?" becomes an open loop alongside the touchpoint.
     const promised = String(fd.get('promise') || '').trim();
     let loop = null;
-    if (!editing && promised) {
+    let promiseNote = '';
+    if (promised) {
       const due = String(fd.get('promiseDue') || '');
-      loop = await db.saveOpenLoop({
+      const fields = {
         personId: p.id,
+        touchpointId: tp.id,
         direction: String(fd.get('promiseDir') || 'iOwe'),
         description: promised,
         dueDate: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : null,
-        status: 'open',
-        closedAt: null,
-      });
+      };
+      if (!made) {
+        loop = await db.saveOpenLoop({ ...fields, status: 'open', closedAt: null });
+        promiseNote = 'added';
+      } else if (['touchpointId', 'direction', 'description', 'dueDate'].some((k) => (made[k] || null) !== fields[k])) {
+        await db.saveOpenLoop({ ...made, ...fields });
+        promiseNote = 'saved';
+      }
+    } else if (made) {
+      await db.deleteOpenLoop(made.id);
+      promiseNote = 'removed';
     }
     const lightEnded = !!loop && person.lightTouch;
     if (lightEnded) person = await db.savePerson({ ...person, ...lightOffFields(person, all, S.settings, today) });
@@ -3753,7 +3777,13 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } 
 
     if (editing) {
       s.close();
-      toast('Touchpoint saved');
+      if (promiseNote === 'removed') {
+        toast('Touchpoint saved. Promise taken off.', { action: { label: 'Undo', run: async () => { await db.saveOpenLoop(made); await refresh(); } } });
+      } else if (lightEnded) {
+        toast(`Touchpoint and promise saved. ${firstName(person)} is off light touch now, since something real is in motion.`);
+      } else {
+        toast(promiseNote ? 'Touchpoint and promise saved' : 'Touchpoint saved');
+      }
       return;
     }
     showLogged(s, person, all, { clearedIdea, loop, lightEnded });
