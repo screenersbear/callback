@@ -15,6 +15,7 @@ const TAU = Math.PI * 2;
 const EYE = 5; // the viewer's distance, in head sizes: a touch of perspective
 const HEAD = { x: 0.5, r: 0.3 }; // in stage widths; it sits at the bottom
 const REST_YAW = -0.32; // at rest it looks a little to the left, not at you
+const REST_PITCH = 0.24; // and tips its chin up a little, as if thinking
 const SKY = 0.57; // bubble heights (SLOTS) are given against this much sky
 const BUB = { rx: 0.16, ry: 0.1 }; // a bubble's size, in stage widths
 
@@ -420,7 +421,7 @@ const st = {
   tiltV: 0,
   drag: null,
   lookYaw: REST_YAW,
-  lookPitch: 0,
+  lookPitch: REST_PITCH,
   glance: null,
   nextGlance: 2,
   blinkAt: 3,
@@ -513,7 +514,7 @@ function wireHead(hit) {
     if (!d.moved) return;
     const k = Math.PI / (geom().R * 2);
     st.spin = d.spin0 + dx * k;
-    st.tilt = clamp(d.tilt0 - dy * k * 0.8, -0.75, 0.75);
+    st.tilt = clamp(d.tilt0 - dy * k * 0.8, -0.95, 0.5);
     const now = performance.now();
     const dt = Math.max(1, now - d.lt) / 1000;
     d.v = mix(d.v, ((e.clientX - d.lx) * k) / dt, 0.5);
@@ -697,11 +698,11 @@ function step(dt) {
   const gb = st.glance && st.bubbles.get(st.glance.key);
   // Only a little: it mostly holds still and lets you turn it.
   let yawT = REST_YAW + (calm ? 0 : 0.035 * Math.sin(t * 0.37));
-  let pitchT = (live.length ? 0.06 : 0) + (calm ? 0 : 0.012 * Math.sin(t * 0.51));
+  let pitchT = REST_PITCH + (live.length ? 0.03 : 0) + (calm ? 0 : 0.012 * Math.sin(t * 0.51));
   if (gb && st.w) {
     const g = geom();
     yawT = clamp(REST_YAW * 0.5 + (gb.x - HEAD.x) * 0.6, -0.45, 0.3);
-    pitchT = clamp(((g.hy - (gb.y / SKY) * g.sky) / st.w) * 0.35, 0.04, 0.2);
+    pitchT = clamp(((g.hy - (gb.y / SKY) * g.sky) / st.w) * 0.35 + REST_PITCH * 0.5, REST_PITCH * 0.7, REST_PITCH + 0.14);
   }
   const rate = gb ? 4 : 1.5;
   st.lookYaw = approach(st.lookYaw, yawT, rate, dt);

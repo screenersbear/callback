@@ -2286,3 +2286,78 @@ html.mac-app .sheet-overlay, html.mac-app .toast { -webkit-app-region: no-drag; 
   .tab-icon .ic-hand { display: block; }
   .tab-icon .ic-std { display: none; }
 }
+
+/* People on a phone: written by hand like Today, with everyone drawn
+   holding hands in a ring below (ring.js), unless List is on. */
+html:has(.ring-wrap) { background: var(--bg); }
+#app:has(.ring-wrap) { padding-bottom: 0; }
+.people-hand .stat-scrib { display: block; width: 92%; height: 12px; margin: 2px auto 0; overflow: visible; }
+.hand-row { display: flex; align-items: flex-end; gap: 14px; margin: -2px 0 6px; }
+.hand-btn {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  background: none;
+  border: 0;
+  padding: 4px 2px 0;
+  color: var(--text);
+  font-family: var(--font-hand);
+  font-size: 19px;
+  font-weight: 400;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.hand-btn-text { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.hand-ic { width: 19px; height: 19px; flex: none; overflow: visible; }
+.hand-ic path { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.hand-list { margin-left: auto; }
+/* List on: circled, the way you'd circle it on paper. */
+.hand-circle { display: none; position: absolute; left: -9px; right: -9px; top: -3px; height: 32px; width: calc(100% + 18px); overflow: visible; pointer-events: none; }
+.hand-circle path { fill: none; stroke: var(--hero); stroke-width: 2; stroke-linecap: round; }
+.hand-list[aria-pressed="true"] .hand-circle { display: block; }
+.hand-btn:focus-visible { outline: 2px dashed var(--hero); outline-offset: 4px; }
+.hand-search { position: relative; display: block; margin: 6px 0 2px; }
+.hand-search input {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  padding: 6px 2px 9px;
+  color: var(--text);
+  font-family: var(--font-hand);
+  font-size: 20px;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.hand-search input::placeholder { color: var(--text-dim); opacity: 0.6; }
+.hand-rule { position: absolute; left: 0; bottom: 0; width: 100%; height: 10px; overflow: visible; pointer-events: none; }
+.hand-rule path { fill: none; stroke: var(--hero); stroke-width: 2; stroke-linecap: round; }
+.hand-search input:focus + .hand-rule path { stroke-width: 2.8; }
+.toolbar.hand-tools { gap: 0 18px; margin: 4px 0 2px; }
+.hand-tool {
+  background: none;
+  border: 0;
+  padding: 6px 0;
+  color: var(--text);
+  font-family: var(--font-hand);
+  font-size: 17px;
+  font-weight: 400;
+  cursor: pointer;
+}
+.hand-tool.is-on, .hand-tool[aria-expanded="true"] { color: var(--hero); }
+.hand-check { font-family: var(--font-hand); font-size: 17px; font-weight: 400; min-height: 34px; gap: 6px; }
+.hand-check input { width: 17px; height: 17px; accent-color: var(--hero); }
+.people-hand .sort-panel, .people-hand .filters-panel { margin-top: 6px; }
+.ring-wrap { margin: 0 -16px; }
+.ring { position: relative; color: var(--hero); }
+.ring-canvas { display: block; touch-action: pan-y; outline: none; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+.ring-canvas:focus-visible { outline: 2px dashed var(--hero); outline-offset: -6px; }
+.ring-wrap .empty { margin: 24px 16px; }
+
+/* Picking how someone is drawn: the figures in the app's segmented row. */
+.fig-seg .seg-option span { flex-direction: column; gap: 2px; padding: 8px 4px 6px; }
+.fig-pic { width: 34px; height: 56px; display: block; overflow: visible; }
+.fig-pic path { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }

@@ -23,6 +23,7 @@ import { openSheet, confirmSheet, choiceSheet, toast, closeAllSheets } from './u
 import * as sync from './sync.js';
 import { getPath } from './merge.js';
 import { mountMind } from './mind.js';
+import { mountRing, figureSVG } from './ring.js';
 
 const APP_VERSION = '1.0.0';
 const view = document.getElementById('view');
@@ -54,7 +55,7 @@ const S = {
     collapsed: new Set(['today-light']),
     scroll: new Map(),
     backTo: null,
-    people: { q: '', sort: 'contact', reverse: false, sortOpen: false, warmth: new Set(), rel: new Set(), interest: new Set(), circles: new Set(), loops: false, dream: false, light: false, role: '', tag: '', org: '', showParked: false, filtersOpen: false },
+    people: { q: '', sort: 'contact', reverse: false, sortOpen: false, warmth: new Set(), rel: new Set(), interest: new Set(), circles: new Set(), loops: false, dream: false, light: false, role: '', tag: '', org: '', showParked: false, filtersOpen: false, view: readPeopleView() },
     circle: { sort: 'contact', reverse: false, sortOpen: false, light: false },
     circlesReorder: false,
     orgsQ: '',
@@ -1101,9 +1102,83 @@ function filtersHTML() {
     ${activeFilterCount() ? '<button type="button" class="text-btn" data-action="clear-filters">Clear filters</button>' : ''}`;
 }
 
+// People on a phone: written by hand like Today, and everyone drawn holding
+// hands in a ring (ring.js) unless List is on. The choice stays on this
+// device.
+function readPeopleView() {
+  try { return localStorage.getItem('callback.peopleView') === 'list' ? 'list' : 'ring'; } catch { return 'ring'; }
+}
+const ringOn = () => phoneQuery.matches && S.people.length > 0 && S.ui.people.view !== 'list';
+let ringPeople = [];
+
+// How big someone stands in the ring: the closer you are, the bigger.
+const RING_SIZE = { client: 1, active: 0.9, warm: 0.8, cold: 0.7, parked: 0.6 };
+function ringSize(p) {
+  let s = RING_SIZE[p.warmth] ?? 0.75;
+  if (p.lightTouch) s = Math.min(s, 0.72);
+  if (dreamOnly(p)) s = Math.min(s, 0.66);
+  return s;
+}
+const FIGURES = [['man', 'Man'], ['woman', 'Woman'], ['person', 'Person']];
+const figureOf = (p) => (FIGURES.some(([k]) => k === p.figure) ? p.figure : 'person');
+const ringData = (list) => ({
+  people: list.map((p) => ({ id: p.id, name: firstName(p), figure: figureOf(p), size: ringSize(p) })),
+  key: list.map((p) => p.id).join(','),
+});
+const RING_OPTS = { onOpen: (id) => { location.hash = `#/person/${id}`; } };
+
+function ringHTML(list) {
+  if (!list.length) {
+    return `<div class="empty"><p>Nobody matches that.</p>
+      <button type="button" class="btn secondary" data-action="clear-filters">Clear search and filters</button></div>`;
+  }
+  return `<div class="ring-slot" data-ring-slot></div>
+    <ul class="visually-hidden">${list.map((p) => `<li><a href="#/person/${esc(p.id)}">${esc(p.name)}</a></li>`).join('')}</ul>`;
+}
+
+function mountRingIn(root) {
+  const slot = root.querySelector('[data-ring-slot]');
+  if (slot) mountRing(slot, ringData(ringPeople), RING_OPTS);
+}
+
+// A loose line drawn under the search, and the hand-drawn icons.
+const HAND_RULE = '<svg class="hand-rule" viewBox="0 0 300 10" preserveAspectRatio="none" aria-hidden="true"><path vector-effect="non-scaling-stroke" d="M2 6 C 40 3.5 80 7.5 125 5.2 S 210 3.8 250 6 S 290 5 298 4.2"/></svg>';
+const HAND_QUICK = '<svg class="hand-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.2 2.6 C 11 7 8.6 10.4 6.4 13.4 C 8.6 13.2 10.4 13.1 12 13.3 C 11.2 16.2 10.6 18.8 9.8 21.6 C 12.6 17.8 15.2 14.2 17.8 10.6 C 15.9 10.6 14.2 10.8 12.6 11 C 13.1 8.2 13.6 5.4 14.2 2.6"/></svg>';
+const HAND_LIST = '<svg class="hand-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.6 6.2 a1 1 0 1 0 .2 0 M8 6.4 C 11 5.6 15 7 20.6 5.8 M3.6 12 a1 1 0 1 0 .2 0 M8 12.2 C 12 11.4 15.6 12.8 20.2 11.8 M3.6 17.8 a1 1 0 1 0 .2 0 M8 18 C 11.4 17.2 16 18.6 20.8 17.4"/></svg>';
+const HAND_RING = '<svg class="hand-circle" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true"><path vector-effect="non-scaling-stroke" d="M58 4 C 26 2 4 9 5 21 C 6 33 34 38 60 36 C 86 34 97 26 95 16 C 93 7 74 3 50 5 C 40 6 32 8 27 11"/></svg>';
+
+function renderPeopleHand(f, n) {
+  const ring = f.view !== 'list';
+  const list = ring ? filteredPeople() : [];
+  ringPeople = list;
+  return `
+    <header class="topbar"><h1>People</h1>
+      <span class="topbar-actions">
+        <a class="dream-link" href="#/dreams">${DREAM_STAR}Dream list</a>
+      </span></header>
+    <div class="people-hand">
+      <div class="hand-row">
+        <button type="button" class="hand-btn" data-action="add-person"><span class="hand-btn-text">+ Add person</span>${statScrib('Add person')}</button>
+        <button type="button" class="hand-btn" data-action="quick-add"><span class="hand-btn-text">${HAND_QUICK}Quick add</span>${statScrib('Quick add')}</button>
+        <button type="button" class="hand-btn hand-list" data-action="people-view" aria-pressed="${!ring}"><span class="hand-btn-text">${HAND_LIST}List</span>${HAND_RING}${statScrib('List')}</button>
+      </div>
+      <label class="hand-search"><span class="visually-hidden">Search people</span>
+        <input type="search" id="peopleSearch" placeholder="Search name, org, notes" value="${esc(f.q)}" autocomplete="off">${HAND_RULE}</label>
+      <div class="toolbar hand-tools">
+        <button type="button" class="hand-tool" data-action="toggle-sort" aria-expanded="${f.sortOpen}">${esc(sortLabel(f))}</button>
+        <button type="button" class="hand-tool${n ? ' is-on' : ''}" data-action="toggle-filters" aria-expanded="${f.filtersOpen}">Filter: ${n ? n : 'All'}</button>
+        <label class="check hand-check"><input type="checkbox" data-filter="parked"${f.showParked ? ' checked' : ''}> Show parked</label>
+      </div>
+      ${sortPanelHTML(f)}
+      <div class="filters-panel" id="filtersPanel"${f.filtersOpen ? '' : ' hidden'}>${filtersHTML()}</div>
+    </div>
+    ${ring ? `<div class="ring-wrap" id="peopleList">${ringHTML(list)}</div>` : `<div class="card-list" id="peopleList">${peopleListHTML()}</div>`}`;
+}
+
 function renderPeople() {
   const f = S.ui.people;
   const n = activeFilterCount();
+  if (phoneQuery.matches && S.people.length) return renderPeopleHand(f, n);
   return `
     <header class="topbar"><h1>People</h1>
       <span class="topbar-actions">
@@ -1127,6 +1202,12 @@ function renderPeople() {
 
 function updatePeopleList() {
   const el = document.getElementById('peopleList');
+  if (el && el.classList.contains('ring-wrap')) {
+    ringPeople = filteredPeople();
+    el.innerHTML = ringHTML(ringPeople);
+    mountRingIn(el);
+    return;
+  }
   if (el) el.innerHTML = peopleListHTML();
   markSelected();
 }
@@ -2626,7 +2707,7 @@ const FIELD_NAMES = {
   people: {
     name: 'Name', organizationId: 'Organization', role: 'Role', email: 'Email', phone: 'Phone', instagram: 'Instagram',
     website: 'Website', howWeMet: 'How you met', tags: 'Tags', notes: 'Notes', cadenceOverrideDays: 'Own rhythm',
-    dreamList: 'Dream list', circleIds: 'Circles', lightTouch: 'Light touch', nextTouchpointDate: 'Next touchpoint',
+    dreamList: 'Dream list', circleIds: 'Circles', lightTouch: 'Light touch', nextTouchpointDate: 'Next touchpoint', figure: 'Drawing',
     warmth: 'Warmth', relationshipTypes: 'Relationship', interest: 'Interest', birthday: 'Birthday', details: 'Details',
     introducedById: 'Introduced by', introducedByName: 'Introduced by', canIntroduceToIds: 'Can introduce you to',
     customIdea: 'Your idea for them', firstContact: 'First contact', firstContactDeadline: 'First contact by',
@@ -2967,6 +3048,7 @@ function render() {
   view.dataset.route = r.name;
   const mindSlot = view.querySelector('[data-mind-slot]');
   if (mindSlot) mountMind(mindSlot, todayMind, { onOpen: thoughtSheet });
+  mountRingIn(view);
   refreshThought();
   fitBrandTitle();
   view.querySelectorAll('textarea.pd-value').forEach(fitHeight);
@@ -3221,7 +3303,7 @@ const FIRST_TOUCH_HINT = {
   followed: 'Logs today as Followed. The next light touch follows the light touch rhythm.',
 };
 
-async function quickAddPerson({ name, instagram, note, where, followed, circleIds }) {
+async function quickAddPerson({ name, instagram, note, where, followed, circleIds, figure = 'person' }) {
   const today = todayStr();
   const saved = await db.savePerson({
     name,
@@ -3249,6 +3331,7 @@ async function quickAddPerson({ name, instagram, note, where, followed, circleId
     lightTouch: true,
     engagePromptDismissed: null,
     nextTouchpointDate: addDays(today, QUICK_FIRST_DAYS),
+    figure,
   });
   // Already followed, and only when picked for this person: today's
   // touchpoint is the follow, and the next one follows the light touch rhythm.
@@ -3277,6 +3360,7 @@ function quickAddSheet() {
       <p class="hint">For meeting lots of people at once. Each one starts as a light touch: every ${span(c.lightTouch)}, with small gestures like reacting to a post.</p>
       ${field('name', 'Name', 'autocomplete="off" autocapitalize="words" placeholder="Who did you meet?" required')}
       <p class="field-error" data-error="name" hidden>Add a name first.</p>
+      ${figurePickHTML('person')}
       ${field('instagram', 'Instagram (optional)', 'autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="@handle" data-handle')}
       ${field('note', 'Note (optional)', 'autocomplete="off" maxlength="140" placeholder="Model, wants to shoot outdoors"')}
       <div class="picker-row"><span class="field-label">Circle (optional)</span>
@@ -3343,6 +3427,7 @@ function quickAddSheet() {
       where: input('where').value.trim(),
       followed: form.querySelector('[name="firstTouch"]:checked').value === 'followed',
       circleIds: [...circleIds],
+      figure: figureOf({ figure: form.querySelector('[name="figure"]:checked').value }),
     };
     // Cleared and focused right away, before saving, so the keyboard stays
     // up for the next name.
@@ -3350,6 +3435,7 @@ function quickAddSheet() {
     // included, so a follow never carries over to the next person.
     for (const k of ['name', 'instagram', 'note']) input(k).value = '';
     firstTouch('notYet');
+    form.querySelector('[name="figure"][value="person"]').checked = true;
     input('name').focus();
     await quickAddPerson(values);
     added.push(name);
@@ -3374,6 +3460,13 @@ async function offerFirstLog(id, name) {
   else toast(`${name} added. Log the touchpoint from Today when you're ready.`);
 }
 
+// How someone is drawn in the ring on People: picked when adding them.
+function figurePickHTML(value) {
+  return `<fieldset class="field"><legend class="field-label">How they're drawn</legend>
+    <div class="seg fig-seg">${FIGURES.map(([k, label]) => `<label class="seg-option"><input type="radio" name="figure" value="${k}"${value === k ? ' checked' : ''}><span>${figureSVG(k, 'fig-pic')}${label}</span></label>`).join('')}</div>
+    <span class="field-hint">For the drawing of everyone on People, on a phone.</span></fieldset>`;
+}
+
 function personForm(p, preset = {}) {
   const isNew = !p;
   const v = p || { warmth: 'cold', nextTouchpointDate: todayStr(), ...preset };
@@ -3395,6 +3488,7 @@ function personForm(p, preset = {}) {
       </details>` : ''}
       ${field('name', 'Name', v.name, 'autocomplete="off" placeholder="Who is it?" required')}
       <p class="field-error" data-error="name" hidden>Add a name first.</p>
+      ${figurePickHTML(figureOf(v))}
       ${field('role', 'Role', v.role, 'list="roleList" autocomplete="off" placeholder="Casting director, editor, client"')}
       <datalist id="roleList">${ROLE_SUGGESTIONS.map((r) => `<option value="${esc(r)}">`).join('')}</datalist>
       <div class="field"><label class="field-label" for="orgField">Organization</label>
@@ -3576,6 +3670,7 @@ function personForm(p, preset = {}) {
       canIntroduceToIds,
       circleIds: circleIds.filter((id) => S.circleById.has(id)),
       lightTouch: !!fd.get('lightTouch'),
+      figure: figureOf({ figure: get('figure') }),
     };
     const warmth = get('warmth') || 'cold';
     const nextInput = /^\d{4}-\d{2}-\d{2}$/.test(get('next')) ? get('next') : '';
@@ -4992,6 +5087,11 @@ const ACTIONS = {
     const set = S.ui.people.circles;
     if (set.has(el.dataset.c)) set.delete(el.dataset.c);
     else set.add(el.dataset.c);
+    render();
+  },
+  'people-view': () => {
+    S.ui.people.view = S.ui.people.view === 'list' ? 'ring' : 'list';
+    try { localStorage.setItem('callback.peopleView', S.ui.people.view); } catch { /* this device only */ }
     render();
   },
   'clear-filters': () => {
