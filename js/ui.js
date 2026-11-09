@@ -131,62 +131,72 @@ if (vv) {
 }
 
 // iOS 26 home-screen app on an iPhone: right after it opens, iOS sometimes
-// measures the screen about a status bar short at the bottom, and keeps
-// that until a page grows past the screen (going to Week did it), so
-// anything pinned to the bottom sits too high. Measuring the gap and
-// moving the tab bar down by it went wrong whenever iOS put itself right
-// at its own moment: the bar ended up too low (labels coming and going,
-// the icon cut in half). So the bar isn't pinned to iOS's bottom at all:
-// it's placed from the top of the screen, which iOS has right (the page
-// is drawn up under the status bar), at the screen's real height
-// (--screen-h, html.bar-from-top in style.css). Wherever iOS thinks the
-// bottom is, the bar sits on the real one. Only when drawn under the
-// status bar (a top safe area), so the screen's top is the page's top.
-//
-// And iOS is nudged to measure again as the app opens and comes back: the
-// page is made a touch taller than the screen for a moment and scrolled a
-// pixel and back, the way a long page sets it right.
+// has the screen about a status bar short at the bottom, and keeps that
+// until a page grows taller than the screen (going to Week did it). In that
+// state it pins the tab bar to its short bottom (too high), and it doesn't
+// draw anything pinned to the screen below that edge: moving the bar down
+// to the real bottom (by the measured gap, or from the top) only cut it in
+// half. So the bar stays on iOS's bottom, whole, and iOS is made to measure
+// again the way Week does: for a moment the page is made taller than the
+// screen and scrolled a pixel and back. As the app opens, comes back from
+// the background or is shown again, and again a few times while a probe
+// pinned to iOS's bottom still says it's short. Only when the page is
+// drawn up under the status bar (a top safe area), so the screen's top is
+// the page's top; never while typing.
 const iPhoneApp = /iPhone|iPod/.test(navigator.userAgent) && (navigator.standalone === true || matchMedia('(display-mode: standalone)').matches);
-let topProbe = null;
-// For tests: `test` places it the same way on any screen.
-export function fitTabbar(test = false) {
-  if ((!iPhoneApp && !test) || !document.body) return false;
-  if (!topProbe) {
-    topProbe = document.createElement('div');
-    topProbe.setAttribute('aria-hidden', 'true');
-    topProbe.style.cssText = 'position: fixed; left: 0; top: 0; width: 1px; height: 0; visibility: hidden; pointer-events: none; padding-top: var(--test-safe-top, env(safe-area-inset-top));';
-    document.body.appendChild(topProbe);
+let probe = null;
+// How far short of the screen's real bottom iOS has its bottom edge, in px
+// (0 when it's right). `full` stands in for the screen's height in tests.
+export function screenGap(full = 0) {
+  if (!document.body) return 0;
+  if (!probe) {
+    probe = document.createElement('div');
+    probe.setAttribute('aria-hidden', 'true');
+    probe.style.cssText = 'position: fixed; left: 0; bottom: 0; width: 1px; height: 0; visibility: hidden; pointer-events: none; padding-top: var(--test-safe-top, env(safe-area-inset-top));';
+    document.body.appendChild(probe);
   }
-  const under = parseFloat(getComputedStyle(topProbe).paddingTop) > 0;
   const portrait = Math.abs(window.innerWidth - screen.width) < 2;
-  const full = test && test !== true ? test : portrait ? screen.height : screen.width;
-  html.style.setProperty('--screen-h', `${Math.round(full)}px`);
-  html.classList.toggle('bar-from-top', under);
-  return under;
+  const real = full || (portrait ? screen.height : screen.width);
+  html.style.setProperty('--screen-h', `${Math.round(real)}px`);
+  const under = parseFloat(getComputedStyle(probe).paddingTop) > 0;
+  const gap = Math.round(real - probe.getBoundingClientRect().bottom);
+  return under && gap > 8 && gap < 120 ? gap : 0;
 }
-function nudge() {
-  if (!document.body || html.classList.contains('kb-up') || typingIn(document.activeElement)) return;
-  html.classList.add('ios-nudge');
-  requestAnimationFrame(() => {
-    const y = window.scrollY;
-    window.scrollTo(0, y + 1);
-    requestAnimationFrame(() => {
-      window.scrollTo(0, y);
-      html.classList.remove('ios-nudge');
-    });
+let nudging = false;
+// For tests: `full` as in screenGap. Resolves with the gap left after it.
+export function nudgeScreen(tries = 5, full = 0) {
+  return new Promise((done) => {
+    const go = (left) => {
+      if (!left || !screenGap(full) || html.classList.contains('kb-up') || typingIn(document.activeElement)) {
+        nudging = false;
+        done(screenGap(full));
+        return;
+      }
+      nudging = true;
+      html.classList.add('ios-nudge');
+      // Timers, not animation frames: those stop while the app is put away.
+      setTimeout(() => {
+        const y = window.scrollY;
+        window.scrollTo(0, y + 1);
+        setTimeout(() => {
+          window.scrollTo(0, y);
+          setTimeout(() => {
+            html.classList.remove('ios-nudge');
+            setTimeout(() => go(left - 1), 200);
+          }, 120);
+        }, 40);
+      }, 30);
+    };
+    if (nudging) done(screenGap(full));
+    else go(tries);
   });
 }
 if (iPhoneApp) {
-  const fit = () => fitTabbar();
-  ['resize', 'orientationchange', 'pageshow'].forEach((t) => window.addEventListener(t, fit, { passive: true }));
-  document.addEventListener('visibilitychange', () => {
-    fit();
-    if (!document.hidden) setTimeout(nudge, 60);
-  });
-  window.addEventListener('pageshow', () => setTimeout(nudge, 60));
-  if (document.body) fit();
-  else document.addEventListener('DOMContentLoaded', fit);
-  window.addEventListener('load', () => { fit(); setTimeout(nudge, 120); });
+  const soon = (ms) => setTimeout(() => nudgeScreen(), ms);
+  window.addEventListener('load', () => soon(120));
+  window.addEventListener('pageshow', () => soon(80));
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) soon(80); });
+  window.addEventListener('orientationchange', () => soon(300));
 }
 
 // Esc closes the top popup and nothing else (not the person beside Today).
