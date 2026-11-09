@@ -22,6 +22,12 @@
   try {
     var t = localStorage.getItem('callback-appearance');
     if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+    // The app's colour, if it isn't the green (Your buddy, or Settings).
+    var g = localStorage.getItem('callback-green');
+    if (g && /^#[0-9a-f]{6}$/i.test(g)) {
+      document.documentElement.style.setProperty('--green', g);
+      document.querySelector('meta[name="theme-color"]').setAttribute('content', g);
+    }
   } catch (e) {}
 </script>
 <link rel="stylesheet" href="style.css" />

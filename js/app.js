@@ -162,7 +162,7 @@ function parseTags(str) {
 // ---------------------------------------------------------------------------
 // Small pieces of markup
 
-const LOGO = `<svg class="brand-logo" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" fill="#ffd103"/><path d="M346.4 331.8A118 118 0 1 1 346.4 180.2" fill="none" stroke="#12850f" stroke-width="64"/><path d="M402 133L290 226L398 245Z" fill="#12850f"/></svg>`;
+const LOGO = `<svg class="brand-logo" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" fill="#ffd103"/><path d="M346.4 331.8A118 118 0 1 1 346.4 180.2" fill="none" stroke="#12850f" style="stroke: var(--green, #12850f)" stroke-width="64"/><path d="M402 133L290 226L398 245Z" fill="#12850f" style="fill: var(--green, #12850f)"/></svg>`;
 
 const X_ICON_SMALL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 const CHECK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square"><path d="M4 12.5l5 5L20 6.5"/></svg>`;
@@ -618,14 +618,59 @@ function buddySheet() {
   const s = openSheet({
     title: 'Your buddy',
     className: 'buddy-sheet',
-    body: `<p class="hint">Pick how the face on Today looks.</p><div class="buddy-row">${BUDDIES.map(pick).join('')}</div>`,
+    body: `<p class="hint">Pick how the face on Today looks.</p><div class="buddy-row">${BUDDIES.map(pick).join('')}</div>${greenRowHTML("And the app's color.")}`,
   });
   s.body.addEventListener('click', (e) => {
+    const g = e.target.closest('[data-green]');
+    if (g) {
+      // Stays open, so you can try them all.
+      pickGreen(g.dataset.green);
+      return;
+    }
     const b = e.target.closest('[data-buddy]');
     if (!b) return;
     setBuddy(b.dataset.buddy);
     s.close();
   });
+}
+
+// The app's colour: the green it came with, or one of three others. A
+// choice for this device, like light or dark; index.html puts it on the
+// page (--green in style.css) before the first paint.
+const GREENS = [
+  { label: 'Green', hex: '#12850f' },
+  { label: 'Blue', hex: '#1f5bb8' },
+  { label: 'Berry', hex: '#b3195b' },
+  { label: 'Purple', hex: '#6b3fa0' },
+];
+const GREEN_KEY = 'callback-green';
+function greenNow() {
+  let v = null;
+  try { v = localStorage.getItem(GREEN_KEY); } catch { /* the green */ }
+  return GREENS.find((g) => g.hex === v) || GREENS[0];
+}
+function greenRowHTML(hint) {
+  const cur = greenNow();
+  return `<p class="hint green-hint">${hint}</p><div class="green-row" role="group" aria-label="The app's color">${GREENS.map((g) => `<button type="button" class="green-option${g === cur ? ' is-on' : ''}" data-green="${g.hex}" data-action="pick-green" aria-pressed="${g === cur}" aria-label="${g.label}" title="${g.label}" style="--swatch: ${g.hex}"></button>`).join('')}</div>`;
+}
+function pickGreen(hex) {
+  const g = GREENS.find((x) => x.hex === hex) || GREENS[0];
+  try {
+    if (g === GREENS[0]) localStorage.removeItem(GREEN_KEY);
+    else localStorage.setItem(GREEN_KEY, g.hex);
+  } catch { /* private mode: for this visit only */ }
+  const root = document.documentElement;
+  if (g === GREENS[0]) root.style.removeProperty('--green');
+  else root.style.setProperty('--green', g.hex);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', g.hex);
+  document.querySelectorAll('[data-green]').forEach((b) => {
+    const on = b.dataset.green === g.hex;
+    b.classList.toggle('is-on', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
+  // Pictures of the map taken in the old colour aren't used again.
+  for (const k of Object.keys(mapShots)) delete mapShots[k];
 }
 
 function refreshThought() {
@@ -2751,7 +2796,8 @@ function renderSettings() {
         ${[['system', 'Match device'], ['light', 'Light'], ['dark', 'Dark']]
           .map(([k, label]) => `<label class="seg-option"><input type="radio" name="appearance" value="${k}"${appearance === k ? ' checked' : ''}><span>${label}</span></label>`)
           .join('')}
-      </div>`, 'navy')}
+      </div>
+      ${greenRowHTML("The app's color.")}`, 'navy')}
 
     ${sectionBlock('set-data', 'Your data', null, `
       ${S.meta.sync
@@ -4990,6 +5036,7 @@ async function exportICS() {
 const person = (el) => S.personById.get(el.dataset.id);
 
 const ACTIONS = {
+  'pick-green': (el) => pickGreen(el.dataset.green),
   'add-person': (el) => personForm(null, {
     ...(el.dataset.org ? { organizationId: el.dataset.org } : {}),
     ...(el.dataset.dream ? { dreamList: true } : {}),

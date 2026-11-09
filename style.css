@@ -10,11 +10,13 @@
    #12850f green for headers, bars, borders and fills, and "berry blade black"
    (#313d45) for text. Square corners, Arial Black titles in capitals, Courier
    for everything else. Dark mode keeps the green, with deep slate shades for
-   the page and surfaces. */
+   the page and surfaces. The green can be swapped for another colour (Your
+   buddy on Today, or Settings): --green, set on the page by index.html. */
 
 :root {
   --focus-glow: color-mix(in srgb, var(--accent) 45%, transparent);
-  --navy: #12850f;
+  --green: #12850f;
+  --navy: var(--green);
   --yellow: #ffd103;
 
   --bg: #ffffff;
@@ -23,14 +25,14 @@
   --text-dim: rgba(49, 61, 69, 0.72);
   /* Chrome: heading bars, borders, fills. Separate from --text so dark mode
      can lift it while text stays readable. */
-  --ink: #12850f;
+  --ink: var(--green);
   --on-ink: #ffffff;
   --accent: #ffd103;
   --on-accent: #313d45;
-  --hero: #12850f;
+  --hero: var(--green);
   --line: #d9d9d9;
   --field: #ffffff;
-  --overlay: rgba(18, 133, 15, 0.9);
+  --overlay: color-mix(in srgb, var(--green) 90%, transparent);
   --danger: #b3261e;
 
   --font-title: "Arial Black", "Helvetica Neue", Arial, sans-serif;
@@ -49,7 +51,7 @@
     --text-dim: rgba(246, 246, 243, 0.7);
     --ink: #4a5b67;
     --on-ink: #ffffff;
-    --hero: #12850f;
+    --hero: var(--green);
     --line: rgba(255, 255, 255, 0.18);
     --field: #1d252a;
     --overlay: rgba(12, 16, 19, 0.86);
@@ -66,7 +68,7 @@
   --text-dim: rgba(246, 246, 243, 0.7);
   --ink: #4a5b67;
   --on-ink: #ffffff;
-  --hero: #12850f;
+  --hero: var(--green);
   --line: rgba(255, 255, 255, 0.18);
   --field: #1d252a;
   --overlay: rgba(12, 16, 19, 0.86);
@@ -2410,6 +2412,13 @@ html:has(.ring-wrap) { background: var(--bg); }
 .buddy-option span { color: var(--text); line-height: 1.05; text-align: center; }
 .buddy-option.is-on { border: 3px solid var(--ink); padding: 5px 1px 7px; box-shadow: inset 0 -5px 0 var(--accent); }
 .buddy-option:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+/* The app's colour, under the faces (and in Settings): a square of each,
+   the one on marked the way the face picked is. */
+.green-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 4px 0 16px; max-width: 420px; }
+.seg + .green-hint { margin-top: 14px; }
+.green-option { appearance: none; -webkit-appearance: none; height: 44px; padding: 0; background: var(--swatch); border: 2px solid var(--line); cursor: pointer; }
+.green-option.is-on { border: 3px solid var(--text); box-shadow: inset 0 0 0 2px var(--bg), inset 0 -7px 0 var(--accent); }
+.green-option:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .buddy-pic { width: 100%; max-width: 78px; aspect-ratio: 1; display: block; overflow: visible; }
 .buddy-pic path { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
 .mind-head:focus-visible { outline: 2px dashed var(--hero); outline-offset: 4px; border-radius: 50%; }
