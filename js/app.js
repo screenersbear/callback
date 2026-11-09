@@ -4290,7 +4290,8 @@ async function snoozeSheet(p) {
 }
 
 // Changes warmth and recalculates the next date from the latest touchpoint.
-async function setWarmth(p, warmth, { quiet = false } = {}) {
+// Quietly: the new status shows on the page, so no pop-up after it.
+async function setWarmth(p, warmth) {
   if (!p || p.warmth === warmth) return;
   const today = todayStr();
   const rec = { ...p, ...warmthChangeFields(p, warmth, nowISO(), today) };
@@ -4301,20 +4302,6 @@ async function setWarmth(p, warmth, { quiet = false } = {}) {
   else rec.nextTouchpointDate = computeNextDate(rec, tpsOf(p.id), S.settings, today);
   await db.savePerson(rec);
   await refresh();
-  if (quiet) return;
-  const label = warmthWord(warmth);
-  const msg = warmth === 'parked'
-    ? `${p.name} parked. Back ${fmtDate(rec.nextTouchpointDate)}.`
-    : `${p.name} is ${label} now${endsLight ? ', so light touch is off' : ''}. Next touchpoint ${fmtDate(rec.nextTouchpointDate)}.`;
-  toast(msg, {
-    action: {
-      label: 'Undo',
-      run: async () => {
-        await db.savePerson({ ...p });
-        await refresh();
-      },
-    },
-  });
 }
 
 async function interestSheet(p) {
@@ -4327,15 +4314,6 @@ async function interestSheet(p) {
   if (!key || key === p.interest) return;
   await db.savePerson({ ...p, interest: key });
   await refresh();
-  toast(`${firstName(p)} seems ${interestInfo(key).label.toLowerCase()} now.`, {
-    action: {
-      label: 'Undo',
-      run: async () => {
-        await db.savePerson({ ...S.personById.get(p.id), interest: p.interest });
-        await refresh();
-      },
-    },
-  });
 }
 
 // Tick any that fit; at least one stays ticked.
@@ -4379,16 +4357,6 @@ async function relationshipSheet(p) {
   if (endsLight) Object.assign(rec, lightOffFields(rec, tpsOf(p.id), S.settings, todayStr()));
   await db.savePerson(rec);
   await refresh();
-  toast(`${firstName(p)} is marked as ${relWords(rec)}${endsLight ? ', and light touch is off' : ''}.`, {
-    action: {
-      label: 'Undo',
-      run: async () => {
-        const back = { ...relFields(relTypesOf(p)), ...(endsLight ? { lightTouch: true, nextTouchpointDate: p.nextTouchpointDate } : {}) };
-        await db.savePerson({ ...S.personById.get(p.id), ...back });
-        await refresh();
-      },
-    },
-  });
 }
 
 async function warmthSheet(p) {
@@ -4407,7 +4375,6 @@ async function unpark(p) {
   const rec = { ...p, ...warmthChangeFields(p, back, nowISO(), today), nextTouchpointDate: today };
   await db.savePerson(rec);
   await refresh();
-  toast(`${p.name} is ${warmthWord(back)} again and due today.`);
 }
 
 async function repark(p) {
@@ -4415,7 +4382,6 @@ async function repark(p) {
   const next = addDays(today, S.settings.cadence.parked);
   await db.savePerson({ ...p, parkedOn: today, nextTouchpointDate: next });
   await refresh();
-  toast(`Parked again until ${fmtDate(next)}`);
 }
 
 function newsSheet(p, n) {
