@@ -1,3 +1,11 @@
+@font-face {
+  font-family: "Mansalva";
+  src: url("fonts/mansalva-latin.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* Callback: the Documenting Fictions look. White, "mango yellow", the
    #12850f green for headers, bars, borders and fills, and "berry blade black"
    (#313d45) for text. Square corners, Arial Black titles in capitals, Courier
@@ -27,6 +35,8 @@
 
   --font-title: "Arial Black", "Helvetica Neue", Arial, sans-serif;
   --font-body: "Courier New", Courier, monospace;
+  /* Handwriting for phone Today and the phone tab bar (fonts/, SIL OFL). */
+  --font-hand: "Mansalva", "Bradley Hand", "Noteworthy", cursive;
 
   color-scheme: light;
 }
@@ -300,7 +310,7 @@ html:has(.dash.is-mind) { background: var(--bg); }
   position: relative;
   width: 100%;
   aspect-ratio: 1 / 1.08; /* until the script sets its height */
-  color: var(--text);
+  color: var(--hero); /* the drawing is in the app's green */
   -webkit-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
@@ -328,8 +338,8 @@ button.thought {
   touch-action: manipulation;
 }
 button.thought:active { opacity: 1; }
-.thought-n { font-family: var(--font-title); font-size: 20px; line-height: 1; }
-.thought-label { font-size: 12px; line-height: 1.1; white-space: nowrap; }
+.thought-n { font-family: var(--font-hand); font-size: 27px; font-weight: 400; line-height: 1; }
+.thought-label { font-family: var(--font-hand); font-size: 16px; line-height: 1.05; white-space: nowrap; }
 
 /* ---------- Stat boxes ---------- */
 
@@ -2246,3 +2256,33 @@ html.mac-app .sheet-overlay, html.mac-app .toast { -webkit-app-region: no-drag; 
 .week-split { margin: -6px 0 16px; font-size: 15px; font-weight: 700; }
 .stat-note { margin: -4px 0 8px; }
 .quick-count { margin: 0; font-size: 15px; overflow-wrap: anywhere; }
+
+/* ---------- Phone Today's numbers, and the phone tab bar, by hand ----------
+   No boxes: the number and what it counts, handwritten in berry blade black,
+   with a loose yellow line drawn under each (app.js statScrib). Last in the
+   file so it wins over the dark-mode box outline. */
+
+.stat-scrib { display: none; }
+.dash.is-mind > .stats-row { gap: 8px; }
+.dash.is-mind .stat-box,
+.dash.is-mind .stat-box:active {
+  background: none;
+  border: 0;
+  box-shadow: none;
+  color: var(--text);
+  padding: 2px 2px 0;
+  gap: 2px;
+}
+.dash.is-mind .stat-box::before { display: none; }
+.dash.is-mind .stat-num { font-family: var(--font-hand); font-weight: 400; font-size: 42px; line-height: 1; }
+.dash.is-mind .stat-num small { font-size: 25px; opacity: 1; }
+.dash.is-mind .stat-label { font-family: var(--font-hand); font-weight: 400; font-size: 17px; line-height: 1.05; text-transform: none; letter-spacing: 0; }
+.dash.is-mind .stat-scrib { display: block; width: 84%; height: 14px; margin: auto auto 0; padding-top: 3px; overflow: visible; }
+.stat-scrib path { fill: none; stroke: var(--accent); stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+
+.tab-icon .ic-hand { display: none; }
+@media (max-width: 899px) {
+  .tab { font-family: var(--font-hand); font-size: 15px; font-weight: 400; text-transform: none; letter-spacing: 0; gap: 1px; }
+  .tab-icon .ic-hand { display: block; }
+  .tab-icon .ic-std { display: none; }
+}

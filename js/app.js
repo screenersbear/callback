@@ -432,8 +432,20 @@ function ideaSheet(p) {
 }
 
 // A link, a button that opens what it counts (`stat`), or a plain box.
+// A loose line drawn under a number on phone Today, a little different
+// under each (shown only there; style.css hides it elsewhere).
+function statScrib(label) {
+  const seed = [...label].reduce((a, c) => a + c.charCodeAt(0), 0) % 97;
+  const r = (k) => { const x = Math.sin(seed * 12.9898 + k * 78.233) * 43758.5453; return x - Math.floor(x); };
+  const f = (v) => v.toFixed(1);
+  const a = 8 + r(1) * 2;
+  const m = 6 + (r(2) - 0.5) * 4;
+  const z = 9 + (r(3) - 0.5) * 3;
+  return `<svg class="stat-scrib" viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true"><path vector-effect="non-scaling-stroke" d="M3 ${f(a)} C ${f(30 + r(4) * 8)} ${f(m + 4)} ${f(62 + r(5) * 8)} ${f(m - 2)} 94 ${f(z)} Q 101 ${f(z - 1)} 99 ${f(z - 6)}"/></svg>`;
+}
+
 function statBox(num, label, href, stat) {
-  const inner = `<span class="stat-num">${num}</span><span class="stat-label">${esc(label)}</span>`;
+  const inner = `<span class="stat-num">${num}</span><span class="stat-label">${esc(label)}</span>${statScrib(label)}`;
   if (stat) return `<button type="button" class="stat-box" data-action="stat-sheet" data-stat="${stat}" aria-haspopup="dialog">${inner}</button>`;
   return href ? `<a class="stat-box" href="${href}">${inner}</a>` : `<div class="stat-box">${inner}</div>`;
 }

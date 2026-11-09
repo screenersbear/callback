@@ -950,32 +950,23 @@ function cloud(cx, cy, rx, ry, seed) {
   return pts;
 }
 
-// The trail: one line from the head out to the bubble, bowed a little, that
-// loops round two or three times on the way, each loop bigger than the last.
+// The trail: one line from the head out to the bubble that squiggles on its
+// way, small by the head and wider as it nears the bubble.
 function trail(x0, y0, x1, y1, unit, seed) {
   const len = Math.hypot(x1 - x0, y1 - y0) || 1;
   const ux = (x1 - x0) / len;
   const uy = (y1 - y0) / len;
   const side = seed % 2 ? 1 : -1;
-  const n = len > 64 * unit ? 3 : 2;
   const bow = Math.min(9, len * 0.07) * side;
-  const at = (s) => {
-    const b = bow * Math.sin(Math.PI * s);
-    return [x0 + ux * s * len - uy * b, y0 + uy * s * len + ux * b];
-  };
-  const spots = Array.from({ length: n }, (_, k) => (k + 0.75) / (n + 0.15));
-  const N = 36;
+  const waves = Math.max(2, len / (24 * unit));
+  const ph0 = hash1(seed) * TAU;
+  const N = Math.ceil(waves * 12);
   const pts = [];
-  let next = 0;
   for (let i = 0; i <= N; i++) {
     const s = i / N;
-    const p = at(s);
-    pts.push([p[0], p[1], s]);
-    if (next < n && s >= spots[next]) {
-      const r = mix(2.6, 5.4, next / (n - 1)) * unit;
-      curl(p[0], p[1], heading(p, at(s + 0.01)), r, -side, 16).forEach((c, j) => pts.push([c[0], c[1], s + j * 0.003]));
-      next++;
-    }
+    const amp = mix(1.6, 4.6, s) * unit * (1 + 0.35 * noise(seed + s * 5)) * Math.min(1, s * 6);
+    const off = bow * Math.sin(Math.PI * s) + amp * Math.sin(ph0 + s * waves * TAU + 0.8 * noise(seed * 2 + s * 3));
+    pts.push([x0 + ux * s * len - uy * off, y0 + uy * s * len + ux * off, s]);
   }
   return pts;
 }
