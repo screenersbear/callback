@@ -2313,7 +2313,9 @@ html.mac-app .sheet-overlay, html.mac-app .toast { -webkit-app-region: no-drag; 
     justify-content: center;
     border-top: none;
     background: var(--bg);
-    padding: 0 0 max(4px, calc(env(safe-area-inset-bottom) - 14px));
+    /* Up off the bottom edge where a thumb rests: about 18 px higher than
+       sitting just over the home indicator. */
+    padding: 0 0 max(22px, calc(env(safe-area-inset-bottom) + 4px));
     touch-action: none;
     user-select: none;
     -webkit-user-select: none;
