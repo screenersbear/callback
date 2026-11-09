@@ -10,7 +10,7 @@
 // One canvas, kept and moved between pages, like ring.js. Where you left
 // each map, and how close you were, is kept while the app is open.
 
-import { bodyLine, shake, trace, armRoots, handBetween, hashStr, lightness } from './ring.js';
+import { bodyLine, bodySash, shake, trace, armRoots, handBetween, hashStr, lightness } from './ring.js';
 
 const TAU = Math.PI * 2;
 const PITCH = 0.62; // how steeply you look down at the ground, in radians
@@ -876,6 +876,8 @@ function drawFigure(pen, f) {
   const { p, hp } = f;
   const path = new Path2D();
   trace(path, shake(bodyLine(f.kind, hp > 70, f.put, f.hands, hp), p.seed, clamp(0.006 * hp, 0.22, 1.2)));
+  const sash = bodySash(f.kind, f.put, hp);
+  if (sash) trace(path, shake(sash, p.seed + 3, clamp(0.005 * hp, 0.2, 1)));
   const lw = clamp(hp / 30, 0.9, 2.6);
   ctx.setLineDash([]);
   ctx.globalAlpha = f.alpha;

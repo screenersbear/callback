@@ -61,9 +61,11 @@ function hashStr(s) {
 // shoulder, up the neck and round the head, down and over the other
 // shoulder, out to the right hand and back under the arm, down the side,
 // round the legs (a loop at each foot) or under a dress, and up the other
-// side to the left hand again. In their own heights: feet at 0, the top of
-// the head at 1. The arms are worked out every frame, out to wherever the
-// hands are, so the body is kept apart from them.
+// side to the left hand again. Big ones twist over at the elbows and knees
+// the way a wire line crosses, and everyone has one loose line of its own
+// running diagonally across the middle from one leg. In their own heights:
+// feet at 0, the top of the head at 1. The arms are worked out every frame,
+// out to wherever the hands are, so the body is kept apart from them.
 
 // Catmull-Rom through some points, for a soft line.
 function spline(ctrl, n) {
@@ -103,49 +105,104 @@ const BUILD = {
   person: { sh: [0.112, 0.748], pit: [0.084, 0.668], waist: [0.082, 0.51], hip: [0.088, 0.42] },
 };
 
+// A leg's edge at height y, along a few [y, x] stops.
+function edgeAt(stops, y) {
+  for (let i = 1; i < stops.length; i++) {
+    const [y0, x0] = stops[i - 1];
+    const [y1, x1] = stops[i];
+    if ((y - y0) * (y - y1) <= 0) return mix(x0, x1, (y - y0) / ((y1 - y0) || 1));
+  }
+  return stops[stops.length - 1][1];
+}
+
+// The body for a figure `hp` pixels tall. Big ones get the wire line's
+// twists at the knees (and, in bodyLine, the elbows); small ones are drawn
+// fuller (wider, a bigger head, the legs close together) so they still read
+// as people and not stick figures.
 const bodies = new Map();
-function bodyOf(kind, fine) {
-  const key = `${kind}|${fine}`;
+function bodyOf(kind, hp) {
+  const hq = Math.round(hp / 6) * 6;
+  const key = `${kind}|${hq}`;
   if (bodies.has(key)) return bodies.get(key);
-  const B = BUILD[kind] || BUILD.person;
-  const q = fine ? 1 : 0.5;
-  const N = (n) => Math.max(4, Math.round(n * q));
+  const g = clamp((110 - hq) / 80, 0, 1);
+  const twist = clamp((hq - 90) / 90, 0, 1);
+  const N = (n) => Math.max(4, Math.round(n * (hq > 70 ? 1 : 0.5)));
+  const B0 = BUILD[kind] || BUILD.person;
+  const wx = 1 + 0.6 * g;
+  const B = {
+    sh: [B0.sh[0] * wx, B0.sh[1]],
+    pit: [B0.pit[0] * wx, B0.pit[1] - 0.05 * g],
+    waist: [B0.waist[0] * wx, B0.waist[1]],
+    hip: B0.hip && [B0.hip[0] * wx, B0.hip[1]],
+  };
+
   // Over the top: left shoulder, neck, the head round from the left, neck,
-  // (the man's tie), right shoulder.
+  // something on the chest (the man's tie, her neckline, a little coil),
+  // right shoulder.
   const shoulder = spline([[-B.sh[0], B.sh[1]], [-B.sh[0] * 0.62, B.sh[1] + 0.03], [-0.03, 0.776]], N(8));
-  const neckL = spline([[-0.03, 0.776], [-0.026, 0.8], [-0.024, 0.818]], N(4)).slice(1);
-  const head = arc(0, 0.9, 0.062, 0.082, Math.PI * 1.36, -Math.PI * 0.41, N(30));
-  const neckR = spline([[0.022, 0.82], [0.026, 0.8], [0.03, 0.776]], N(4));
-  let tie = [];
-  if (kind === 'man' && fine) {
-    tie = [
+  const rx = 0.062 * (1 + 0.45 * g);
+  const ry = 0.082 * (1 + 0.2 * g);
+  const cy = 0.982 - ry;
+  const a0 = Math.PI * 1.36;
+  const a1 = -Math.PI * 0.41;
+  const neckL = spline([[-0.03, 0.776], [-0.026, 0.8], [Math.cos(a0) * rx, cy + Math.sin(a0) * ry]], N(4)).slice(1);
+  const head = arc(0, cy, rx, ry, a0, a1, N(30)).slice(1);
+  const neckR = spline([[Math.cos(a1) * rx + 0.004, cy + Math.sin(a1) * ry - 0.002], [0.026, 0.8], [0.03, 0.776]], N(4)).slice(1);
+  let chest = [];
+  if (kind === 'man' && hq > 60) {
+    chest = [
       ...spline([[0.03, 0.776], [0.012, 0.77], [0.004, 0.758]], 5),
       ...loopAround(0.004, 0.746, 0.012, Math.PI / 2, -1, 12),
       ...spline([[0.004, 0.735], [-0.02, 0.705], [-0.006, 0.62], [0, 0.585], [0.007, 0.62], [0.021, 0.705], [0.03, 0.772]], 16),
     ];
+  } else if (kind === 'woman' && hq > 95) {
+    // Across the collar, down to a V and back up.
+    chest = spline([[0.03, 0.776], [-0.01, 0.772], [-0.052, 0.762], [-0.024, 0.728], [0, 0.705], [0.024, 0.728], [0.052, 0.762], [0.03, 0.776]], 16);
+  } else if (kind === 'person' && hq > 95) {
+    // Down the middle and back up in a little spring.
+    const n = 36;
+    chest = [[0.03, 0.776], [0.012, 0.7], [0.004, 0.6], ...Array.from({ length: n }, (_, i) => {
+      const t = (i / (n - 1)) * 3;
+      return [Math.cos(TAU * t + Math.PI) * 0.028 * (0.7 + (0.3 * i) / n), 0.6 + 0.14 * (t / 3) + Math.sin(TAU * t + Math.PI) * 0.01];
+    }), [0.03, 0.776]];
   }
-  const top = [...shoulder, ...neckL, ...head, ...neckR, ...tie, ...flipX(shoulder)];
-  // Round the bottom, from the right armpit to the left one.
-  const foot = (x, side) => loopAround(x, 0.03, 0.02, side > 0 ? -Math.PI / 2 : -Math.PI / 2, side, N(12));
+  const top = [...shoulder, ...neckL, ...head, ...neckR, ...chest.slice(1), ...flipX(shoulder).slice(1)];
+
+  // Round the bottom, from the right armpit to the left one, a loop at
+  // each foot.
+  const foot = (x, side) => loopAround(x, 0.03, 0.02 * (1 + 0.2 * g), -Math.PI / 2, side, N(12));
   let low;
   if (kind === 'woman') {
-    const side = spline([[B.pit[0], B.pit[1]], [0.078, 0.6], [B.waist[0], B.waist[1]], [0.1, 0.42], [0.168, 0.2]], N(14));
+    const side = spline([[B.pit[0], B.pit[1]], [0.078 * wx, 0.6], [B.waist[0], B.waist[1]], [0.1 * wx, 0.42], [0.168 * wx, 0.2]], N(14));
+    const lx = 0.044 * (1 + 0.25 * g);
     const legR = [
-      ...spline([[0.168, 0.2], [0.11, 0.185], [0.062, 0.19], [0.056, 0.1], [0.052, 0.045]], N(10)),
-      ...foot(0.036, 1),
-      ...spline([[0.022, 0.045], [0.022, 0.12], [0.022, 0.188], [0, 0.18]], N(7)),
+      ...spline([[0.168 * wx, 0.2], [0.11, 0.185], [lx + 0.018, 0.19], [lx + 0.012, 0.1], [lx + 0.008, 0.045]], N(10)),
+      ...foot(lx - 0.008, 1),
+      ...spline([[lx - 0.022 - 0.006 * g, 0.045], [lx - 0.022 - 0.006 * g, 0.12], [lx - 0.022, 0.188], [0, 0.18]], N(7)),
     ];
     low = [...side, ...legR, ...flipX(legR).slice(1), ...flipX(side)];
   } else {
-    const side = spline([[B.pit[0], B.pit[1]], [B.waist[0] + 0.004, 0.59], [B.waist[0], B.waist[1]], [B.hip[0], B.hip[1]], [0.08, 0.23], [0.064, 0.05]], N(16));
-    const legR = [
-      ...side,
-      ...foot(0.044, 1),
-      ...spline([[0.024, 0.05], [0.026, 0.23], [0.012, 0.34], [0, 0.375]], N(9)),
-    ];
+    const side = spline([[B.pit[0], B.pit[1]], [B.waist[0] + 0.004, 0.59], [B.waist[0], B.waist[1]], [B.hip[0], B.hip[1]]], N(9));
+    // The leg's two edges from the thigh down to the ankle; on a big figure
+    // they swap over at the knee, the way a wire line crosses.
+    const outer = [[0.42, B.hip[0]], [0.33, 0.086 * (1 + 0.35 * g)], [0.23, 0.08 * (1 + 0.35 * g)], [0.05, 0.064 * (1 + 0.35 * g)]];
+    const inner = [[0.375, 0], [0.33, 0.016 * (1 - 0.7 * g)], [0.23, 0.026 * (1 - 0.7 * g)], [0.05, 0.024 * (1 - 0.7 * g)]];
+    const m = N(16);
+    const ys = Array.from({ length: m }, (_, i) => mix(0.37, 0.05, i / (m - 1)));
+    const k = (y) => 1.1 * twist * Math.exp(-(((y - 0.235) / 0.06) ** 2));
+    const oEdge = ys.map((y) => { const o = edgeAt(outer, y); const n = edgeAt(inner, y); return [o + (n - o) * k(y), y]; });
+    const iEdge = ys.map((y) => { const o = edgeAt(outer, y); const n = edgeAt(inner, y); return [n + (o - n) * k(y), y]; }).reverse();
+    const legR = [...side, ...oEdge, ...foot(edgeAt(outer, 0.05) - 0.02, 1), ...iEdge, [0, 0.375]];
     low = [...legR, ...flipX(legR).slice(1)];
   }
-  const b = { top, low, sh: [[-B.sh[0], B.sh[1]], [B.sh[0], B.sh[1]]], pit: [[-B.pit[0], B.pit[1]], [B.pit[0], B.pit[1]]] };
+  // A line of its own across the middle of the body: from up one leg,
+  // diagonally over to the other side of the chest, touching nothing.
+  const sash = hq >= 40
+    ? kind === 'woman'
+      ? spline([[-0.052, 0.06], [-0.04, 0.24], [0.0, 0.44], [0.062, 0.63]], N(14))
+      : spline([[-0.056, 0.15], [-0.04, 0.3], [0.004, 0.45], [0.068, 0.63]], N(14))
+    : null;
+  const b = { top, low, sash, twist, sh: [[-B.sh[0], B.sh[1]], [B.sh[0], B.sh[1]]], pit: [[-B.pit[0], B.pit[1]], [B.pit[0], B.pit[1]]] };
   b.root = [0, 1].map((j) => [(b.sh[j][0] + b.pit[j][0]) / 2, (b.sh[j][1] + b.pit[j][1]) / 2]);
   bodies.set(key, b);
   return b;
@@ -153,39 +210,59 @@ function bodyOf(kind, fine) {
 
 // Where an arm's root is, in the figure's own heights, for working out
 // where its hands meet the neighbours'.
-const armRoots = (kind) => bodyOf(kind, true).root;
+const armRoots = (kind) => bodyOf(kind, 200).root;
 
 // The whole line on the page: `put` takes the figure's own heights to the
 // page; `hands` are where its hands are on the page (or null to hang
-// down); `hp` is its height there.
+// down); `hp` is its height there. (`fine` is left from before: the
+// height decides.)
 function bodyLine(kind, fine, put, hands, hp) {
-  const b = bodyOf(kind, fine);
+  const b = bodyOf(kind, hp);
   const sh = b.sh.map(put);
   const pit = b.pit.map(put);
   const root = b.root.map(put);
   const hand = [0, 1].map((j) => hands[j] || [root[j][0] + (j ? 1 : -1) * 0.1 * hp, root[j][1] + 0.36 * hp]);
-  const n = fine ? 9 : 5;
-  // One edge of an arm, sagging a touch at the elbow.
-  const edge = (a, c, sag) => {
+  const n = hp > 70 ? 15 : 7;
+  const q = (a, c, sag, t) => {
     const m = [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2 + sag * hp];
-    return Array.from({ length: n }, (_, i) => {
-      const t = i / (n - 1);
-      const u = 1 - t;
-      return [u * u * a[0] + 2 * u * t * m[0] + t * t * c[0], u * u * a[1] + 2 * u * t * m[1] + t * t * c[1]];
-    });
+    const u = 1 - t;
+    return [u * u * a[0] + 2 * u * t * m[0] + t * t * c[0], u * u * a[1] + 2 * u * t * m[1] + t * t * c[1]];
   };
-  const r = Math.max(1.1, 0.02 * hp);
-  const grip = (h, side) => loopAround(h[0], h[1] - r * 0.2, r, side > 0 ? Math.PI : 0, side, fine ? 12 : 7);
+  // An arm's two edges from the body out to the hand, sagging a touch at
+  // the elbow, and on a big figure twisting over there.
+  const arm = (j) => {
+    const topE = [];
+    const botE = [];
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1);
+      const T = q(sh[j], hand[j], 0.03, t);
+      const U = q(pit[j], hand[j], 0.045, t);
+      const k = b.twist * 1.1 * Math.exp(-(((t - 0.45) / 0.13) ** 2));
+      topE.push([T[0] + (U[0] - T[0]) * k, T[1] + (U[1] - T[1]) * k]);
+      botE.push([U[0] + (T[0] - U[0]) * k, U[1] + (T[1] - U[1]) * k]);
+    }
+    return { topE, botE };
+  };
+  const L = arm(0);
+  const R = arm(1);
+  const r = Math.max(1.6, 0.021 * hp);
+  const grip = (h, side) => loopAround(h[0], h[1] - r * 0.2, r, side > 0 ? Math.PI : 0, side, hp > 70 ? 12 : 8);
   return [
-    ...edge(hand[0], sh[0], 0.03),
+    ...L.topE.slice().reverse(),
     ...b.top.slice(1).map(put),
-    ...edge(sh[1], hand[1], 0.03).slice(1),
+    ...R.topE.slice(1),
     ...grip(hand[1], 1),
-    ...edge(hand[1], pit[1], 0.045).slice(1),
+    ...R.botE.slice().reverse().slice(1),
     ...b.low.slice(1).map(put),
-    ...edge(pit[0], hand[0], 0.045).slice(1),
+    ...L.botE.slice(1),
     ...grip(hand[0], -1),
   ];
+}
+
+// The loose diagonal across the body, on the page (null when too small).
+function bodySash(kind, put, hp) {
+  const s = bodyOf(kind, hp).sash;
+  return s ? s.map(put) : null;
 }
 
 // The line's hand-drawn shake: the same for the same figure every frame.
@@ -207,8 +284,9 @@ function shake(pts, seed, amp) {
 export function figureSVG(kind, cls = '') {
   const hp = 92;
   const put = ([x, y]) => [30 + x * hp, 96 - y * hp];
-  const pts = shake(bodyLine(kind, true, put, [null, null], hp), 11, 0.35);
-  const d = `M${pts.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join('L')}`;
+  const line = (pts) => `M${pts.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join('L')}`;
+  const sash = bodySash(kind, put, hp);
+  const d = line(shake(bodyLine(kind, true, put, [null, null], hp), 11, 0.35)) + (sash ? line(shake(sash, 5, 0.35)) : '');
   return `<svg class="${cls}" viewBox="0 0 60 100" aria-hidden="true"><path d="${d}"/></svg>`;
 }
 
@@ -655,6 +733,8 @@ function draw() {
     const { it, p, hp } = o;
     const path = new Path2D();
     trace(path, shake(bodyLine(o.kind, hp > 70, o.put, o.hands, hp), it.seed, clamp(0.006 * hp, 0.25, 1.4)));
+    const sash = bodySash(o.kind, o.put, hp);
+    if (sash) trace(path, shake(sash, it.seed + 3, clamp(0.005 * hp, 0.2, 1)));
     const near = sBack < 1 ? clamp((p.s - sBack) / (1 - sBack), 0, 1) : 1;
     const lw = Math.max(0.8, 2.1 * Math.pow(p.s, 0.7));
     ctx.setLineDash([]);
@@ -704,4 +784,4 @@ function draw() {
 
 // For the maps on Circles and Organizations (map.js): the same people,
 // drawn the same way.
-export { bodyLine, shake, trace, armRoots, handBetween, hashStr, hash1, noise, lightness };
+export { bodyLine, bodySash, shake, trace, armRoots, handBetween, hashStr, hash1, noise, lightness };
