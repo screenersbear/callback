@@ -22,6 +22,7 @@ import {
 import { openSheet, confirmSheet, choiceSheet, toast, closeAllSheets } from './ui.js';
 import * as sync from './sync.js';
 import { getPath } from './merge.js';
+import { mountMind } from './mind.js';
 
 const APP_VERSION = '1.0.0';
 const view = document.getElementById('view');
@@ -488,39 +489,14 @@ function renderToday() {
   </div>`;
   // On a phone the numbers sit in a row on top; with the side rail they
   // stack in a column on the left and the rest of Today fills the right.
-  const dash = (rest, aside = '') => `${html}<div class="dash${aside ? ' has-pick' : ''}">${stats}<div class="dash-main">${conflictBannerHTML()}${exportReminderHTML(today)}${rest}</div>${aside}</div>`;
+  // On a phone the head and its thought bubbles go under the numbers.
+  let mind = '';
+  const dash = (rest, aside = '') => `${html}<div class="dash${aside ? ' has-pick' : ''}">${stats}<div class="dash-main">${mind}${conflictBannerHTML()}${exportReminderHTML(today)}${rest}</div>${aside}</div>`;
 
-  const sections = [];
-  const card = (kind) => (p) => personCard(p, kind, t.dueNews.get(p.id));
-  if (t.justMet.length) sections.push(['justmet', 'Just met', t.justMet.length, t.justMet.map(card('justMet')).join('')]);
-  if (t.overdue.length) sections.push(['overdue', 'Overdue', t.overdue.length, t.overdue.map(card('overdue')).join('')]);
-  if (t.due.length) sections.push(['due', 'Due today', t.due.length, t.due.map(card('due')).join('')]);
-  if (t.loops.length) sections.push(['loops', 'Open loops', t.loops.length, t.loops.map((l) => loopCard(l)).join('')]);
-  if (t.replyChecks.length) {
-    sections.push(['replies', 'Did they reply?', t.replyChecks.length, `
-      <p class="light-intro">Still waiting, two days or more after you reached out. Mark each one, or tap Not yet and Callback asks again in two days.</p>
-      <div class="light-list">${t.replyChecks.map(replyRow).join('')}</div>`]);
-  }
-  if (t.news.length) sections.push(['news', 'Their news', t.news.length, t.news.map((n) => newsCard(n)).join('')]);
-  // The week ahead: loops coming due and yearly news, soonest first.
-  const coming = [
-    ...t.loopsComing.map((l) => ({ date: l.dueDate, html: loopCard(l, { coming: true }) })),
-    ...t.comingUp.map((n) => ({ date: n.date, html: newsCard(n, { coming: true }) })),
-  ].sort((a, b) => a.date.localeCompare(b.date));
-  if (coming.length) sections.push(['coming', 'Coming up', coming.length, coming.map((c) => c.html).join('')]);
-  if (t.resurfaced.length) {
-    sections.push(['resurfaced', 'Resurfaced', t.resurfaced.length, t.resurfaced.map((p) => personCard(p, 'resurfaced')).join('')]);
-  }
-
-  // Light touches wait at the bottom, folded away, to do in one sitting.
-  const light = t.light.length
-    ? sectionBlock('today-light', 'Light touches', t.light.length, `
-      <p class="light-intro">${plural(t.light.length, 'light touch', 'light touches')} this week. Small gestures, easy to do in one sitting.</p>
-      <div class="light-list">${t.light.map(lightRow).join('')}</div>`, sections.length % 2 ? 'navy' : 'yellow')
-    : '';
-  if (!sections.length) return dash(caughtUpHTML(today) + light);
-  const blocks = sections.map(([key, title, n, inner], i) => ({ key, n, html: sectionBlock(key, title, n, inner, i % 2 ? 'navy' : 'yellow') }));
-  if (light) blocks.push({ key: 'today-light', n: t.light.length, html: light });
+  const list = todaySectionList(t);
+  const blocks = list.map((b, i) => ({ key: b.key, n: b.n, html: sectionBlock(b.key, b.title, b.n, b.inner, i % 2 ? 'navy' : 'yellow') }));
+  if (phoneQuery.matches) mind = mindSlotHTML(list);
+  if (!list.some((b) => b.key !== 'today-light')) return dash(caughtUpHTML(today) + blocks.map((b) => b.html).join(''));
   // A big window (full screen, or a big Mac window) gets the board: a column
   // per section, as many as fit, and whoever you click opens on the right.
   if (bigQuery.matches) {
@@ -538,6 +514,95 @@ function renderToday() {
     col.html += b.html;
   }
   return dash(`<div class="today-cols">${cols.map((c) => `<div class="today-col">${c.html}</div>`).join('')}</div>`);
+}
+
+// Today's sections, in order, each with its cards. Light touches come last,
+// folded away, to do in one sitting.
+function todaySectionList(t) {
+  const sections = [];
+  const card = (kind) => (p) => personCard(p, kind, t.dueNews.get(p.id));
+  if (t.justMet.length) sections.push({ key: 'justmet', title: 'Just met', n: t.justMet.length, inner: t.justMet.map(card('justMet')).join('') });
+  if (t.overdue.length) sections.push({ key: 'overdue', title: 'Overdue', n: t.overdue.length, inner: t.overdue.map(card('overdue')).join('') });
+  if (t.due.length) sections.push({ key: 'due', title: 'Due today', n: t.due.length, inner: t.due.map(card('due')).join('') });
+  if (t.loops.length) sections.push({ key: 'loops', title: 'Open loops', n: t.loops.length, inner: t.loops.map((l) => loopCard(l)).join('') });
+  if (t.replyChecks.length) {
+    sections.push({ key: 'replies', title: 'Did they reply?', n: t.replyChecks.length, inner: `
+      <p class="light-intro">Still waiting, two days or more after you reached out. Mark each one, or tap Not yet and Callback asks again in two days.</p>
+      <div class="light-list">${t.replyChecks.map(replyRow).join('')}</div>` });
+  }
+  if (t.news.length) sections.push({ key: 'news', title: 'Their news', n: t.news.length, inner: t.news.map((n) => newsCard(n)).join('') });
+  // The week ahead: loops coming due and yearly news, soonest first.
+  const coming = [
+    ...t.loopsComing.map((l) => ({ date: l.dueDate, html: loopCard(l, { coming: true }) })),
+    ...t.comingUp.map((n) => ({ date: n.date, html: newsCard(n, { coming: true }) })),
+  ].sort((a, b) => a.date.localeCompare(b.date));
+  if (coming.length) sections.push({ key: 'coming', title: 'Coming up', n: coming.length, inner: coming.map((c) => c.html).join('') });
+  if (t.resurfaced.length) {
+    sections.push({ key: 'resurfaced', title: 'Resurfaced', n: t.resurfaced.length, inner: t.resurfaced.map((p) => personCard(p, 'resurfaced')).join('') });
+  }
+
+  // Light touches wait at the bottom, folded away, to do in one sitting.
+  if (t.light.length) {
+    sections.push({ key: 'today-light', title: 'Light touches', n: t.light.length, inner: `
+      <p class="light-intro">${plural(t.light.length, 'light touch', 'light touches')} this week. Small gestures, easy to do in one sitting.</p>
+      <div class="light-list">${t.light.map(lightRow).join('')}</div>` });
+  }
+  return sections;
+}
+
+// The head on a phone: a thought bubble for each section with something
+// to do, most pressing first. Coming up has none (nothing to do yet).
+// Light touches weigh half, being small.
+const THOUGHTS = [['overdue', 'overdue'], ['due', 'due today'], ['justmet', 'just met'], ['replies', 'reply?'], ['loops', 'open loops'], ['news', 'their news'], ['resurfaced', 'resurfaced'], ['today-light', 'light touches']];
+const phoneQuery = window.matchMedia('(max-width: 899px)');
+let todayMind = { bubbles: [], pending: 0 };
+
+function mindSlotHTML(list) {
+  const byKey = new Map(list.map((b) => [b.key, b]));
+  const bubbles = THOUGHTS.filter(([k]) => byKey.has(k)).map(([key, label]) => ({ key, label, title: byKey.get(key).title, n: byKey.get(key).n }));
+  todayMind = { bubbles, pending: bubbles.reduce((a, b) => a + (b.key === 'today-light' ? b.n / 2 : b.n), 0) };
+  return '<div class="mind-slot" data-mind-slot></div>';
+}
+
+function todaySection(key) {
+  const t = buildToday({ people: S.people, touchpointsByPerson: S.tpsByPerson, news: S.news, loops: S.loops }, todayStr());
+  return todaySectionList(t).find((b) => b.key === key) || null;
+}
+
+// A tapped bubble opens its section's cards in a sheet. The buttons work as
+// they do on Today, the sheet keeps up as things change, and it closes by
+// itself once the section is empty, so the bubble can pop.
+function thoughtSheet(key) {
+  const sec = todaySection(key);
+  if (!sec) return;
+  const s = openSheet({
+    title: sec.title,
+    className: 'thought-sheet',
+    body: `<div class="card-list">${sec.inner}</div>`,
+    onClose: () => { if (S.ui.thought && S.ui.thought.s === s) S.ui.thought = null; },
+  });
+  S.ui.thought = { key, s };
+  s.body.addEventListener('click', (e) => {
+    const host = e.target.closest('[data-pick]');
+    if (!host || e.target.closest('button, a, input, textarea, select, label, [data-action]')) return;
+    if (String(window.getSelection() || '').trim()) return;
+    location.hash = `#/person/${host.dataset.pick}${host.dataset.focus ? `/${host.dataset.focus}` : ''}`;
+  });
+}
+
+function refreshThought() {
+  const th = S.ui.thought;
+  if (!th || !th.s.el.isConnected) return;
+  const sec = parseRoute().name === 'today' ? todaySection(th.key) : null;
+  if (!sec) {
+    th.s.close();
+    return;
+  }
+  const y = th.s.body.scrollTop;
+  const yy = th.s.el.scrollTop;
+  th.s.body.innerHTML = `<div class="card-list">${sec.inner}</div>`;
+  th.s.body.scrollTop = y;
+  th.s.el.scrollTop = yy;
 }
 
 // How tall a section's cards run, roughly, per item.
@@ -2886,6 +2951,9 @@ function render() {
   }
   S.ui.revealPick = false;
   view.dataset.route = r.name;
+  const mindSlot = view.querySelector('[data-mind-slot]');
+  if (mindSlot) mountMind(mindSlot, todayMind, { onOpen: thoughtSheet });
+  refreshThought();
   fitBrandTitle();
   view.querySelectorAll('textarea.pd-value').forEach(fitHeight);
   const tab = TAB_FOR[r.name] || r.name;
@@ -2908,6 +2976,7 @@ function render() {
 
 wideQuery.addEventListener('change', () => render());
 bigQuery.addEventListener('change', () => render());
+phoneQuery.addEventListener('change', () => render());
 
 // Resizing a big window can fit more or fewer board columns.
 let boardResize = 0;
@@ -4992,7 +5061,7 @@ const ACTIONS = {
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
-  if (!el || !view.contains(el)) return;
+  if (!el || !(view.contains(el) || el.closest('.thought-sheet'))) return;
   const fn = ACTIONS[el.dataset.action];
   if (!fn) return;
   e.preventDefault();

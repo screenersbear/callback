@@ -284,6 +284,45 @@ button:active, .row-card:active, .stat-box:active, .item-head:active { opacity: 
 }
 .text-btn.inline { padding: 0; font-size: inherit; }
 
+/* ---------- Today's head and thought bubbles (phones) ----------
+   Drawn as ink lines in the text colour, on the page itself: no boxes. */
+
+.mind-slot { margin: -14px 0 8px; }
+.mind {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1.08; /* until the script sets its height */
+  color: var(--text);
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.mind-ink { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.mind-ink path { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+.mind-head { position: absolute; border-radius: 50%; touch-action: pan-y; cursor: grab; }
+.mind-head:active { cursor: grabbing; }
+button.thought {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  text-align: center;
+  letter-spacing: 0;
+  transform-origin: 50% 50%;
+  touch-action: manipulation;
+}
+button.thought:active { opacity: 1; }
+.thought-n { font-family: var(--font-title); font-size: 21px; line-height: 1; }
+.thought-label { font-size: 13px; line-height: 1.1; }
+
 /* ---------- Stat boxes ---------- */
 
 .stats-row {
