@@ -26,17 +26,20 @@ const SPIN_R = 1.25;
 const softSpin = (raw) => (raw < 0 ? SPIN_L * Math.tanh(raw / SPIN_L) : SPIN_R * Math.tanh(raw / SPIN_R));
 const rawSpin = (v) => (v < 0 ? SPIN_L * Math.atanh(clamp(v / SPIN_L, -0.999, 0)) : SPIN_R * Math.atanh(clamp(v / SPIN_R, 0, 0.999)));
 
-// How the buddy looks, picked by tapping its face (kept on this device):
-// the one hair it started with, or short hair, a ponytail or shoulder
-// length hair, on a man's face or a woman's.
+// How the buddy looks, picked by tapping its face (kept on this device).
+// One list, no groups: a plain face with the one hair it started with,
+// short hair, a ponytail or shoulder length hair, or a softer face (bigger
+// lashed eyes, arched brows, a smaller nose, full lips) with its own fuller
+// hair: a bob, a high ponytail or long hair. The keys are what's saved, so
+// they stay as they were.
 export const BUDDIES = [
-  { key: 'tuft', face: 'man', hair: 'tuft', label: 'One hair' },
-  { key: 'man-short', face: 'man', hair: 'short', label: 'Short' },
-  { key: 'man-pony', face: 'man', hair: 'ponytail', label: 'Ponytail' },
-  { key: 'man-long', face: 'man', hair: 'shoulder', label: 'Shoulder length' },
-  { key: 'woman-short', face: 'woman', hair: 'short', label: 'Short' },
-  { key: 'woman-pony', face: 'woman', hair: 'ponytail', label: 'Ponytail' },
-  { key: 'woman-long', face: 'woman', hair: 'shoulder', label: 'Shoulder length' },
+  { key: 'tuft', face: 'plain', hair: 'tuft', label: 'One hair' },
+  { key: 'man-short', face: 'plain', hair: 'short', label: 'Short' },
+  { key: 'man-pony', face: 'plain', hair: 'ponytail', label: 'Ponytail' },
+  { key: 'man-long', face: 'plain', hair: 'shoulder', label: 'Shoulder length' },
+  { key: 'woman-short', face: 'soft', hair: 'bob', label: 'Bob' },
+  { key: 'woman-pony', face: 'soft', hair: 'highpony', label: 'High ponytail' },
+  { key: 'woman-long', face: 'soft', hair: 'long', label: 'Long hair' },
 ];
 const BUDDY_KEY = 'callback.buddy';
 function readBuddy() {
@@ -120,7 +123,7 @@ function hairHull(hair) {
   if (HAIR_HULL.has(hair)) return HAIR_HULL.get(hair);
   const pts = [];
   if (hair && hair !== 'tuft') {
-    const vol = hair === 'shoulder' ? 0.1 : hair === 'ponytail' ? 0.045 : 0.075;
+    const vol = { shoulder: 0.1, ponytail: 0.045, short: 0.075, bob: 0.15, highpony: 0.06, long: 0.14 }[hair] ?? 0.075;
     for (let j = 0; j <= 14; j++) {
       const ph = mix(0.05, Math.PI / 2, j / 14);
       for (let i = 0; i < 40; i++) {
@@ -130,6 +133,30 @@ function hairHull(hair) {
         const p = surf(th, ph);
         const k = 1 + vol + bump;
         pts.push([p[0] * k, p[1] * k, p[2] * k]);
+      }
+    }
+    // A bob: full all round, down to the jaw, the ends turned under.
+    if (hair === 'bob') {
+      for (let j = 0; j <= 10; j++) {
+        const f = j / 10;
+        const y = mix(0.15, -0.8, f);
+        const rr = (1.2 + 0.03 * f) * (f > 0.9 ? 0.94 : 1);
+        for (let i = 0; i <= 22; i++) {
+          const th = mix(1.0, TAU - 1.0, i / 22);
+          pts.push([Math.sin(th) * rr, y, Math.cos(th) * rr * 0.95]);
+        }
+      }
+    }
+    // Long hair: down past the shoulders to the bottom, fuller as it falls.
+    if (hair === 'long') {
+      for (let j = 0; j <= 14; j++) {
+        const f = j / 14;
+        const y = mix(0.1, -1.38, f);
+        const rr = 1.18 + 0.16 * f;
+        for (let i = 0; i <= 22; i++) {
+          const th = mix(0.95, TAU - 0.95, i / 22);
+          pts.push([Math.sin(th) * rr, y, Math.cos(th) * rr * 0.95]);
+        }
       }
     }
     if (hair === 'shoulder') {
@@ -243,7 +270,86 @@ function headLines(ex, style = BUDDIES[0]) {
 
   // Hair: a hairline over the forehead from temple to temple, and what
   // makes each style.
-  if (style.hair !== 'tuft') {
+  const full = { bob: 0.16, long: 0.15 }[style.hair];
+  if (full) {
+    // A bob or long hair: a full fringe swept from a part on the right
+    // down over the left brow, a second line in it, and the hair from the
+    // part down to the right temple.
+    // Lying on the forehead, so only just off the skin.
+    const sweep = (ctrl, o = {}) => stroke(off(spline(ctrl, 26), 0.05), { w: 1.9, waves: 1.5, ...o });
+    if (style.hair === 'bob') {
+      sweep([[0.55, 1.0], [0.22, 0.56], [-0.18, 0.4], [-0.6, 0.37], [-0.98, 0.42], [-1.22, 0.55]]);
+      sweep([[0.46, 0.98], [0.08, 0.64], [-0.34, 0.52], [-0.72, 0.52]], { w: 1.5, op: 0.9 });
+      sweep([[0.55, 1.0], [0.72, 0.7], [0.86, 0.45], [0.98, 0.3]]);
+    } else {
+      // Long: parted a little off centre, falling away each side like curtains.
+      sweep([[0.2, 1.08], [-0.1, 0.7], [-0.55, 0.45], [-0.95, 0.38], [-1.15, 0.3]]);
+      sweep([[0.2, 1.08], [0.42, 0.7], [0.68, 0.45], [0.9, 0.3]]);
+      sweep([[0.12, 1.0], [-0.25, 0.72], [-0.72, 0.56]], { w: 1.5, op: 0.9 });
+    }
+    // Down each side in front of the ears: the bob to the jaw, turned under
+    // toward the chin; long hair in waves over the shoulders to the bottom,
+    // with a second lock inside it.
+    for (const side of [-1, 1]) {
+      const a = onHead(side * 1.15, 0.3, full).p;
+      if (style.hair === 'bob') {
+        // The far side starts up by the crown: the outline stops at the
+        // temple there, so this line is that side of the bob.
+        const a1 = side > 0 ? onHead(0.95, 0.85, full).p : a;
+        const b = onHead(side * 1.28, -0.2, 0.22).p;
+        const c = [side * 1.16, -0.72, 0.4];
+        const d = [side * 0.96, -0.86, 0.48];
+        free([...range(20, (t) => bez(a1, b, c, d, t)), [side * 0.86, -0.8, 0.5], [side * 0.84, -0.72, 0.5]], { w: 2, waves: 1.5 });
+      } else {
+        const b = onHead(side * 1.22, -0.3, 0.24).p;
+        const c = [side * 1.12, -1.0, 0.44];
+        const d = [side * 1.3, -1.36, 0.34];
+        const wave = (t) => side * 0.07 * Math.sin(t * Math.PI * 2.5) * Math.sin(Math.PI * t);
+        free(range(24, (t) => { const q = bez(a, b, c, d, t); return [q[0] + wave(t), q[1], q[2]]; }), { w: 2, waves: 1.5 });
+        const a2 = onHead(side * 1.3, -0.05, 0.26).p;
+        const d2 = [side * 1.22, -1.22, 0.3];
+        free(range(18, (t) => { const q = bez(a2, [a2[0], -0.6, a2[2] + 0.04], [side * 1.08, -0.95, 0.36], d2, t); return [q[0] + wave(t) * 0.8, q[1], q[2]]; }), { w: 1.5, op: 0.85, waves: 1.2 });
+      }
+    }
+  }
+
+  if (style.hair === 'highpony') {
+    // Pulled up smooth from the hairline, tied high on top with a puffy
+    // scrunchie, the tail big and wavy, and a wisp loose at each temple.
+    const hl = 0.72;
+    stroke(off(range(28, (t) => {
+      const th = mix(-1.38, 1.38, t);
+      return [th, hl - 0.2 * (th / 1.38) ** 2 + 0.012 * Math.sin(t * 11)];
+    }), 0.06), { w: 1.9, waves: 2 });
+    for (const th0 of [-0.4, 0.05, 0.42]) stroke(off(range(12, (t) => [th0 * (1 - 0.75 * t), mix(hl + 0.02, 1.4, t)]), 0.06), { w: 1.5, waves: 1.2, op: 0.9 });
+    const S = onHead(Math.PI - 0.6, 1.36, 0.16).p;
+    const scrunch = range(30, (t) => {
+      const a = -Math.PI / 2 + t * TAU * 1.05;
+      const r = 0.085 + 0.025 * Math.abs(Math.sin(a * 3.5));
+      return [S[0] + r * Math.cos(a), S[1] + r * Math.sin(a), S[2]];
+    });
+    const c1 = [S[0] + 0.5, S[1] + 0.45, S[2] - 0.1];
+    const c2 = [S[0] + 1.35, S[1] + 0.05, S[2] - 0.1];
+    const E = [S[0] + 1.05, S[1] - 1.5, S[2]];
+    const mid = range(30, (t) => bez(S, c1, c2, E, t));
+    const edge = (sgn, k = 1) => mid.map((p, i) => {
+      const a = mid[Math.max(0, i - 1)];
+      const b = mid[Math.min(mid.length - 1, i + 1)];
+      const dx = b[0] - a[0];
+      const dy = b[1] - a[1];
+      const l = Math.hypot(dx, dy) || 1;
+      const t = i / (mid.length - 1);
+      const wd = k * (0.17 * Math.sin(Math.PI * Math.min(1, t * 1.04)) ** 0.6 + 0.03 * Math.sin(t * 17));
+      return [p[0] - (dy / l) * wd * sgn, p[1] + (dx / l) * wd * sgn, p[2]];
+    });
+    free([...scrunch, ...edge(1), ...edge(-1).reverse()], { w: 2, waves: 2 });
+    free(edge(1, 0.25).slice(5, 25), { w: 1.4, op: 0.85, waves: 1.2 });
+    for (const side of [-1, 1]) {
+      stroke(off(range(12, (t) => [side * (1.18 + 0.06 * Math.sin(t * TAU)), mix(0.5, -0.25, t)]), 0.05), { w: 1.5, waves: 0.8 });
+    }
+  }
+
+  if (style.hair === 'short' || style.hair === 'ponytail' || style.hair === 'shoulder') {
     const hl = style.hair === 'ponytail' ? 0.72 : 0.62;
     const lift = style.hair === 'shoulder' ? 0.1 : 0.06;
     if (style.hair === 'short') {
@@ -314,12 +420,15 @@ function headLines(ex, style = BUDDIES[0]) {
   // Eyes: an almond that the pen runs round and flicks out of at the outer
   // corner, left empty. Shut, it's the lower curve with the flick: a calm,
   // content ⌣.
+  // The soft face's eyes are a little bigger.
+  const soft = style.face === 'soft';
   const lidL = mix(0.05, 0.065, ex.joy);
-  const lidU = 0.13;
+  const lidU = soft ? 0.16 : 0.13;
+  const half = soft ? 0.145 : 0.13;
   for (const side of [-1, 1]) {
     const th0 = side * 0.35;
-    const outer = th0 + side * 0.13;
-    const lid = (s, top) => [mix(outer, th0 - side * 0.13, s), (top ? mix(-lidL, lidU, ex.open) : -lidL) * Math.sin(Math.PI * s)];
+    const outer = th0 + side * half;
+    const lid = (s, top) => [mix(outer, th0 - side * half, s), (top ? mix(-lidL, lidU, ex.open) : -lidL) * Math.sin(Math.PI * s)];
     const flick = [[outer + side * 0.035, 0.012], [outer + side * 0.065, 0.045]];
     let pts;
     if (ex.open > 0.12) {
@@ -328,37 +437,47 @@ function headLines(ex, style = BUDDIES[0]) {
       pts = [...range(13, (s) => lid(1 - s, false)), ...flick];
     }
     stroke(off(pts, 0.006), { w: 1.9, waves: 1.2 });
-    // Hers has lashes at the outer corner.
-    if (style.face === 'woman' && ex.open > 0.12) {
-      for (const [k, s] of [[0, 0.06], [1, 0.2], [2, 0.34]]) {
+    // The soft face: four long lashes curling out from the outer half of
+    // the lid, and with the eyes shut, three along the closed curve.
+    if (soft && ex.open > 0.12) {
+      for (const [k, s] of [[0, 0.03], [1, 0.14], [2, 0.26], [3, 0.38]]) {
         const [u, v] = lid(s, true);
-        stroke(off([[u, v], [u + side * (0.06 - k * 0.012), v + 0.075 + k * 0.01]], 0.01), { w: 1.5, waves: 0.4 });
+        const len = 0.1 - k * 0.012;
+        stroke(off([[u, v], [u + side * len * 0.35, v + len * 0.7], [u + side * len * 0.85, v + len]], 0.01), { w: 1.7, waves: 0.4 });
+      }
+    } else if (soft) {
+      for (const s of [0.12, 0.28, 0.44]) {
+        const [u, v] = lid(s, false);
+        stroke(off([[u, v], [u + side * 0.025, v - 0.06]], 0.01), { w: 1.5, waves: 0.3 });
       }
     }
   }
 
   // Brows. The right one runs on down the side of the nose to its tip and
   // loops for the nostril, all one line; the inner ends rise with worry.
-  const base = mix(0.21, 0.25, ex.joy);
+  const base = mix(0.21, 0.25, ex.joy) + (soft ? 0.02 : 0);
   const inner = 0.08 * ex.worry * (1 - ex.joy);
   const outerDrop = -0.02 * ex.worry;
-  const arch = mix(0.025, 0.045, ex.joy) - 0.02 * ex.worry;
+  const arch = mix(0.025, 0.045, ex.joy) - 0.02 * ex.worry + (soft ? 0.04 : 0);
   const brow = (side, t) => [side * mix(0.15, 0.5, t), base + mix(inner, outerDrop, t) + arch * Math.sin(Math.PI * t)];
   {
     const pts = range(12, (t) => brow(-1, t));
     const e = pts[11];
     pts.push([e[0] - 0.04, e[1] - 0.025], [e[0] - 0.055, e[1] - 0.06]);
-    stroke(off(pts, 0.008), { w: 2, waves: 1 });
+    stroke(off(pts, 0.008), { w: soft ? 1.6 : 2, waves: 1 });
   }
   {
     const browPts = off(range(12, (t) => brow(1, 1 - t)), 0.008, 'skin');
     const b0 = brow(1, 0);
-    const nose = spline([[b0[0], b0[1], 0.008], [0.07, b0[1] - 0.09, 0.015], [0.045, -0.02, 0.03], [0.03, -0.14, 0.1], [0.012, -0.24, 0.19], [0, -0.3, 0.23], [0.035, -0.335, 0.15], [0.07, -0.32, 0.06]], 22)
+    // The soft face's nose is shorter and sticks out less.
+    const nv = soft ? 0.88 : 1;
+    const nz = soft ? 0.7 : 1;
+    const nose = spline([[b0[0], b0[1], 0.008], [0.07, b0[1] - 0.09, 0.015], [0.045, -0.02 * nv, 0.03 * nz], [0.03, -0.14 * nv, 0.1 * nz], [0.012, -0.24 * nv, 0.19 * nz], [0, -0.3 * nv, 0.23 * nz], [0.03, -0.33 * nv, 0.15 * nz], [0.06, -0.315 * nv, 0.06 * nz]], 22)
       .slice(1)
       .map(([u, v, o]) => [u, v, o, 'out']);
     const n1 = nose[nose.length - 2];
     const n2 = nose[nose.length - 1];
-    const loopPts = curl(n2[0], n2[1], heading(n1, n2), 0.04, 1, 14).map(([u, v]) => [u, v, 0.05, 'out']);
+    const loopPts = curl(n2[0], n2[1], heading(n1, n2), soft ? 0.032 : 0.04, 1, 14).map(([u, v]) => [u, v, 0.05, 'out']);
     stroke([...browPts, ...nose, ...loopPts, [n2[0] + 0.04, n2[1] + 0.008, 0.02, 'out']], { w: 2.1, waves: 2.5, join: true });
   }
 
@@ -374,10 +493,16 @@ function headLines(ex, style = BUDDIES[0]) {
     const e = m[17];
     const pts = [m[0], ...curl(...m[0], heading(m[0], m[1]), 0.03, 1, 12), ...m.slice(1), [e[0] + 0.025, e[1] + 0.02], [e[0] + 0.03, e[1] + 0.045]];
     stroke(off(pts, 0.008), { w: 2, waves: 1.5 });
-    // Hers has a fuller lower lip.
-    if (style.face === 'woman') {
+    // The soft face has full lips: an upper lip with a dip in the middle
+    // (a cupid's bow) following the mouth, and a round lower lip.
+    if (soft) {
+      const mouthAt = (u) => -0.5 - smile * depth * Math.sin(Math.PI * clamp(u / width + 0.5, 0, 1));
+      stroke(off(range(16, (t) => {
+        const u = (t - 0.5) * width * 0.64;
+        return [u, mouthAt(u) + 0.055 * Math.sin(Math.PI * t) ** 0.7 - 0.03 * Math.exp(-(((t - 0.5) / 0.09) ** 2))];
+      }), 0.01), { w: 1.7, waves: 0.6 });
       const low = m[9][1];
-      stroke(off(range(12, (t) => [(t - 0.5) * width * 0.5, low - 0.06 - 0.06 * Math.sin(Math.PI * t)]), 0.01), { w: 1.8, waves: 0.8 });
+      stroke(off(range(14, (t) => [(t - 0.5) * width * 0.58, low - 0.05 - 0.08 * Math.sin(Math.PI * t)]), 0.01), { w: 1.8, waves: 0.8 });
     }
   }
 
@@ -584,6 +709,7 @@ const st = {
   spinGoal: 0,
   style: readBuddy(),
   onFace: null,
+  faceAt: 0,
   tilt: 0,
   tiltV: 0,
   drag: null,
@@ -625,6 +751,18 @@ function build() {
   st.svg = el.querySelector('svg');
   st.hit = el.querySelector('.mind-head');
   wireHead(st.hit);
+  // A phone sends its click a moment after the finger lifts, and by then
+  // the picker that tap opened is under the finger: that click would pick
+  // a look and shut the picker at once (so tapping the face seemed to do
+  // nothing). The first click straight after is dropped.
+  window.addEventListener('click', (e) => {
+    if (!st.faceAt) return;
+    const late = performance.now() - st.faceAt > 450;
+    st.faceAt = 0;
+    if (late || st.hit.contains(e.target)) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
   new ResizeObserver(() => { resize(); kick(); }).observe(el);
   new IntersectionObserver((entries) => {
     st.visible = entries[entries.length - 1].isIntersecting;
@@ -691,7 +829,10 @@ function wireHead(hit) {
     st.drag = null;
     if (!d.moved && e.type === 'pointerup') {
       st.boop = st.t;
-      if (st.onFace) st.onFace();
+      if (st.onFace) {
+        st.faceAt = performance.now();
+        st.onFace();
+      }
     }
     kick();
   };

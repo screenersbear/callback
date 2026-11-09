@@ -614,11 +614,10 @@ function thoughtSheet(key) {
 function buddySheet() {
   const cur = buddyStyle().key;
   const pick = (b) => `<button type="button" class="buddy-option${b.key === cur ? ' is-on' : ''}" data-buddy="${b.key}" aria-pressed="${b.key === cur}">${buddySVG(b.key)}<span>${esc(b.label)}</span></button>`;
-  const row = (face, title) => `<p class="filter-label">${title}</p><div class="buddy-row">${BUDDIES.filter((b) => b.face === face).map(pick).join('')}</div>`;
   const s = openSheet({
     title: 'Your buddy',
     className: 'buddy-sheet',
-    body: `<p class="hint">Pick how the face on Today looks.</p>${row('man', 'Man')}${row('woman', 'Woman')}`,
+    body: `<p class="hint">Pick how the face on Today looks.</p><div class="buddy-row">${BUDDIES.map(pick).join('')}</div>`,
   });
   s.body.addEventListener('click', (e) => {
     const b = e.target.closest('[data-buddy]');
