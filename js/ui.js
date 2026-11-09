@@ -134,18 +134,20 @@ if (vv) {
 // pins fixed things to a bottom edge about a status bar short of the
 // screen's real bottom, so the tab bar floats with a blank strip under it
 // until the page is pulled down. A probe pinned to that edge says where it
-// is; when it's short of the screen's bottom, the tab bar is dropped the
-// rest of the way (--bar-drop) until iOS catches up. Only when the page is
-// drawn up under the status bar (a top safe area), so the screen's top is
-// the page's top; and never while typing.
+// is; when it's short of the screen's bottom, the gap (--bar-drop) is filled
+// with the bar's paper below it (style.css) until iOS catches up. Only when
+// the page is drawn up under the status bar (a top safe area), so the
+// screen's top is the page's top; and never while typing.
 //
-// iOS fixes its own edge whenever it likes (often as a scroll settles), and
-// a drop still in place then pushes the bar's labels off the bottom of the
-// screen until the next touch put them back: the labels came and went. So
-// after any touch, scroll or resize it's checked every frame for a few
-// seconds (and every second while dropped): a drop comes off the moment
-// it's not needed, and only goes on once the same gap has held for a few
-// frames with no finger down.
+// The bar itself used to be moved down by the gap, but iOS fixes its own
+// edge whenever it likes (often as a scroll settles), and a move still in
+// place then pushed the bar off the bottom of the screen: the labels came
+// and went, and the one-button bar's icon opened cut in half until a few
+// swipes. Filling under it can't push anything off. It's still checked
+// every frame for a few seconds after any touch, scroll or resize (and
+// every second while there's a gap): the fill comes off the moment it's
+// not needed, and only goes on once the same gap has held for a few frames
+// with no finger down.
 const iPhoneApp = /iPhone|iPod/.test(navigator.userAgent) && (navigator.standalone === true || matchMedia('(display-mode: standalone)').matches);
 let edgeProbe = null;
 let barDrop = 0;
@@ -167,8 +169,6 @@ function setDrop(drop) {
   if (drop === barDrop) return;
   barDrop = drop;
   html.style.setProperty('--bar-drop', `${drop}px`);
-  // Today's head, People's ring and the maps run down to the tab bar.
-  window.dispatchEvent(new Event('resize'));
 }
 let touching = false;
 let watchUntil = 0;

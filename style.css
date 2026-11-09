@@ -1842,8 +1842,6 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
   padding: 3px 0 max(4px, calc(env(safe-area-inset-bottom) - 14px));
   max-width: 560px;
   margin: 0 auto;
-  /* Dropped to the screen's real bottom when iOS pins it short (ui.js). */
-  transform: translate3d(0, var(--bar-drop, 0px), 0);
 }
 
 /* While the phone keyboard is up (ui.js): room at the bottom so the last
@@ -2319,6 +2317,11 @@ html.mac-app .sheet-overlay, html.mac-app .toast { -webkit-app-region: no-drag; 
     -webkit-tap-highlight-color: transparent;
   }
   .tabbar .tab { display: none; }
+  /* Right after the app opens iOS sometimes pins the bar short of the
+     screen's bottom (ui.js measures by how much: --bar-drop). The bar stays
+     where iOS puts it, so the icon is never pushed off the screen, and its
+     paper runs on down to the bottom so there's no gap under it. */
+  .tabbar::after { content: ''; position: absolute; left: 0; right: 0; top: 100%; height: var(--bar-drop, 0px); background: var(--bg); pointer-events: none; }
   .slider { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: 48px; }
   .slide-arrow { appearance: none; -webkit-appearance: none; border: 0; background: none; padding: 0; width: 44px; height: 44px; display: grid; place-items: center; color: var(--text-dim); }
   .slide-arrow:active { opacity: 0.5; }
@@ -2326,7 +2329,7 @@ html.mac-app .sheet-overlay, html.mac-app .toast { -webkit-app-region: no-drag; 
   .slide-arrow svg { width: 9px; height: 11px; display: block; }
   .slide-arrow.is-prev svg { transform: scaleX(-1); }
   .slide-now { display: block; flex: none; width: 46px; height: 40px; overflow: hidden; color: var(--text); -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 18%, #000 82%, transparent 100%); mask-image: linear-gradient(90deg, transparent 0, #000 18%, #000 82%, transparent 100%); }
-  .slide-strip { display: flex; will-change: transform; }
+  .slide-strip { display: flex; }
   .slide-strip.is-moving { transition: transform 0.2s cubic-bezier(0.3, 0.6, 0.3, 1); }
   .slide-icon { flex: 0 0 46px; height: 40px; display: grid; place-items: center; }
   .slide-icon svg { width: 27px; height: 27px; }

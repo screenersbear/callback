@@ -63,7 +63,8 @@ function build() {
 function stripTo(i, x = 0, moving = false) {
   S.strip.classList.toggle('is-moving', moving);
   const w = window.innerWidth || 1;
-  S.strip.style.transform = `translate3d(${(-i * STEP + (x / w) * STEP).toFixed(1)}px, 0, 0)`;
+  // Flat (2D), so iOS paints it whole inside the window's faded edges.
+  S.strip.style.transform = `translateX(${(-i * STEP + (x / w) * STEP).toFixed(1)}px)`;
 }
 
 function label() {
