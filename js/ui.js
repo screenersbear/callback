@@ -131,84 +131,62 @@ if (vv) {
 }
 
 // iOS 26 home-screen app on an iPhone: right after it opens, iOS sometimes
-// pins fixed things to a bottom edge about a status bar short of the
-// screen's real bottom, so the tab bar floats with a blank strip under it
-// until the page is pulled down. A probe pinned to that edge says where it
-// is; when it's short of the screen's bottom, the gap (--bar-drop) is filled
-// with the bar's paper below it (style.css) until iOS catches up. Only when
-// the page is drawn up under the status bar (a top safe area), so the
-// screen's top is the page's top; and never while typing.
+// measures the screen about a status bar short at the bottom, and keeps
+// that until a page grows past the screen (going to Week did it), so
+// anything pinned to the bottom sits too high. Measuring the gap and
+// moving the tab bar down by it went wrong whenever iOS put itself right
+// at its own moment: the bar ended up too low (labels coming and going,
+// the icon cut in half). So the bar isn't pinned to iOS's bottom at all:
+// it's placed from the top of the screen, which iOS has right (the page
+// is drawn up under the status bar), at the screen's real height
+// (--screen-h, html.bar-from-top in style.css). Wherever iOS thinks the
+// bottom is, the bar sits on the real one. Only when drawn under the
+// status bar (a top safe area), so the screen's top is the page's top.
 //
-// The bar itself used to be moved down by the gap, but iOS fixes its own
-// edge whenever it likes (often as a scroll settles), and a move still in
-// place then pushed the bar off the bottom of the screen: the labels came
-// and went, and the one-button bar's icon opened cut in half until a few
-// swipes. Filling under it can't push anything off. It's still checked
-// every frame for a few seconds after any touch, scroll or resize (and
-// every second while there's a gap): the fill comes off the moment it's
-// not needed, and only goes on once the same gap has held for a few frames
-// with no finger down.
+// And iOS is nudged to measure again as the app opens and comes back: the
+// page is made a touch taller than the screen for a moment and scrolled a
+// pixel and back, the way a long page sets it right.
 const iPhoneApp = /iPhone|iPod/.test(navigator.userAgent) && (navigator.standalone === true || matchMedia('(display-mode: standalone)').matches);
-let edgeProbe = null;
-let barDrop = 0;
-function wantedDrop() {
-  if (!edgeProbe) {
-    edgeProbe = document.createElement('div');
-    edgeProbe.setAttribute('aria-hidden', 'true');
-    edgeProbe.style.cssText = 'position: fixed; left: 0; bottom: 0; width: 1px; height: 0; visibility: hidden; pointer-events: none; padding-top: var(--test-safe-top, env(safe-area-inset-top));';
-    document.body.appendChild(edgeProbe);
-  }
-  const portrait = Math.abs(window.innerWidth - screen.width) < 2;
-  const full = portrait ? screen.height : screen.width;
-  const edge = edgeProbe.getBoundingClientRect().bottom;
-  const underStatusBar = parseFloat(getComputedStyle(edgeProbe).paddingTop) > 0;
-  const gap = Math.round(full - edge);
-  return underStatusBar && !html.classList.contains('kb-up') && !typingIn(document.activeElement) && gap > 8 && gap < 100 ? gap : 0;
-}
-function setDrop(drop) {
-  if (drop === barDrop) return;
-  barDrop = drop;
-  html.style.setProperty('--bar-drop', `${drop}px`);
-}
-let touching = false;
-let watchUntil = 0;
-let watching = 0;
-let steady = { v: 0, n: 0 };
-function tick() {
-  watching = 0;
-  if (!document.body) return;
-  const want = wantedDrop();
-  if (want < barDrop) {
-    // Less (or none) is always safe: straight away.
-    steady = { v: want, n: 0 };
-    setDrop(want);
-  } else if (want > barDrop) {
-    steady = steady.v === want ? { v: want, n: steady.n + 1 } : { v: want, n: 1 };
-    if (!touching && steady.n >= 3) setDrop(want);
-  } else steady = { v: want, n: 0 };
-  if (performance.now() < watchUntil) watching = requestAnimationFrame(tick);
-}
-function watchTabbar(ms = 2500) {
-  watchUntil = Math.max(watchUntil, performance.now() + ms);
-  if (!watching) watching = requestAnimationFrame(tick);
-}
-// For tests: work it out now, as if the page were the home-screen app.
+let topProbe = null;
+// For tests: `test` places it the same way on any screen.
 export function fitTabbar(test = false) {
-  if ((!iPhoneApp && !test) || !document.body) return barDrop;
-  if (test) setDrop(wantedDrop());
-  else watchTabbar();
-  return barDrop;
+  if ((!iPhoneApp && !test) || !document.body) return false;
+  if (!topProbe) {
+    topProbe = document.createElement('div');
+    topProbe.setAttribute('aria-hidden', 'true');
+    topProbe.style.cssText = 'position: fixed; left: 0; top: 0; width: 1px; height: 0; visibility: hidden; pointer-events: none; padding-top: var(--test-safe-top, env(safe-area-inset-top));';
+    document.body.appendChild(topProbe);
+  }
+  const under = parseFloat(getComputedStyle(topProbe).paddingTop) > 0;
+  const portrait = Math.abs(window.innerWidth - screen.width) < 2;
+  const full = test && test !== true ? test : portrait ? screen.height : screen.width;
+  html.style.setProperty('--screen-h', `${Math.round(full)}px`);
+  html.classList.toggle('bar-from-top', under);
+  return under;
+}
+function nudge() {
+  if (!document.body || html.classList.contains('kb-up') || typingIn(document.activeElement)) return;
+  html.classList.add('ios-nudge');
+  requestAnimationFrame(() => {
+    const y = window.scrollY;
+    window.scrollTo(0, y + 1);
+    requestAnimationFrame(() => {
+      window.scrollTo(0, y);
+      html.classList.remove('ios-nudge');
+    });
+  });
 }
 if (iPhoneApp) {
-  const opts = { passive: true };
-  window.addEventListener('touchstart', () => { touching = true; watchTabbar(); }, opts);
-  ['touchend', 'touchcancel'].forEach((t) => window.addEventListener(t, () => { touching = false; watchTabbar(); }, opts));
-  ['resize', 'scroll', 'orientationchange', 'pageshow', 'focusin', 'focusout'].forEach((t) => window.addEventListener(t, () => watchTabbar(), opts));
-  document.addEventListener('scroll', () => watchTabbar(), { passive: true, capture: true });
-  document.addEventListener('visibilitychange', () => watchTabbar());
-  if (vv) vv.addEventListener('resize', () => watchTabbar());
-  setInterval(() => { if (barDrop > 0 && !document.hidden) watchTabbar(300); }, 1000);
-  watchTabbar(3000);
+  const fit = () => fitTabbar();
+  ['resize', 'orientationchange', 'pageshow'].forEach((t) => window.addEventListener(t, fit, { passive: true }));
+  document.addEventListener('visibilitychange', () => {
+    fit();
+    if (!document.hidden) setTimeout(nudge, 60);
+  });
+  window.addEventListener('pageshow', () => setTimeout(nudge, 60));
+  if (document.body) fit();
+  else document.addEventListener('DOMContentLoaded', fit);
+  window.addEventListener('load', () => { fit(); setTimeout(nudge, 120); });
 }
 
 // Esc closes the top popup and nothing else (not the person beside Today).
