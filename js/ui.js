@@ -130,6 +130,47 @@ if (vv) {
   fitViewport();
 }
 
+// iOS 26 home-screen app on an iPhone: right after it opens, iOS sometimes
+// pins fixed things to a bottom edge about a status bar short of the
+// screen's real bottom, so the tab bar floats with a blank strip under it
+// until the page is pulled down. A probe pinned to that edge says where it
+// is; when it's short of the screen's bottom, the tab bar is dropped the
+// rest of the way (--bar-drop) until iOS catches up. Only when the page is
+// drawn up under the status bar (a top safe area), so the screen's top is
+// the page's top; and never while typing.
+const iPhoneApp = /iPhone|iPod/.test(navigator.userAgent) && (navigator.standalone === true || matchMedia('(display-mode: standalone)').matches);
+let edgeProbe = null;
+let barDrop = 0;
+export function fitTabbar(test = false) {
+  if ((!iPhoneApp && !test) || !document.body) return barDrop;
+  if (!edgeProbe) {
+    edgeProbe = document.createElement('div');
+    edgeProbe.setAttribute('aria-hidden', 'true');
+    edgeProbe.style.cssText = 'position: fixed; left: 0; bottom: 0; width: 1px; height: 0; visibility: hidden; pointer-events: none; padding-top: var(--test-safe-top, env(safe-area-inset-top));';
+    document.body.appendChild(edgeProbe);
+  }
+  const portrait = Math.abs(window.innerWidth - screen.width) < 2;
+  const full = portrait ? screen.height : screen.width;
+  const edge = edgeProbe.getBoundingClientRect().bottom;
+  const underStatusBar = parseFloat(getComputedStyle(edgeProbe).paddingTop) > 0;
+  const gap = Math.round(full - edge);
+  const drop = underStatusBar && !html.classList.contains('kb-up') && !typingIn(document.activeElement) && gap > 8 && gap < 100 ? gap : 0;
+  if (drop !== barDrop) {
+    barDrop = drop;
+    html.style.setProperty('--bar-drop', `${drop}px`);
+    // Today's head, People's ring and the maps run down to the tab bar.
+    window.dispatchEvent(new Event('resize'));
+  }
+  return barDrop;
+}
+if (iPhoneApp) {
+  const check = () => fitTabbar();
+  ['resize', 'scroll', 'orientationchange', 'pageshow', 'touchend', 'focusin', 'focusout'].forEach((t) => window.addEventListener(t, () => setTimeout(check, 0), { passive: true }));
+  document.addEventListener('visibilitychange', () => setTimeout(check, 50));
+  if (vv) vv.addEventListener('resize', check);
+  [0, 100, 400, 1000, 2500].forEach((ms) => setTimeout(check, ms));
+}
+
 // Esc closes the top popup and nothing else (not the person beside Today).
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || !open.length) return;

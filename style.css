@@ -1827,7 +1827,8 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
   padding: 3px 0 max(4px, calc(env(safe-area-inset-bottom) - 14px));
   max-width: 560px;
   margin: 0 auto;
-  transform: translateZ(0);
+  /* Dropped to the screen's real bottom when iOS pins it short (ui.js). */
+  transform: translate3d(0, var(--bar-drop, 0px), 0);
 }
 
 /* While the phone keyboard is up (ui.js): room at the bottom so the last
