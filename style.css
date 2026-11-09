@@ -2370,6 +2370,7 @@ html:has(.ring-wrap) { background: var(--bg); }
 .ring-wrap { margin: 0 -16px; }
 .ring { position: relative; color: var(--hero); }
 .ring-canvas { display: block; touch-action: pan-y; outline: none; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+.ring-canvas.is-held { touch-action: none; }
 .ring-canvas:focus-visible { outline: 2px dashed var(--hero); outline-offset: -6px; }
 .ring-wrap .empty { margin: 24px 16px; }
 

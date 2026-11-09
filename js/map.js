@@ -378,6 +378,7 @@ export function mapInfo() {
     fly: st.fly && { id: st.fly.id, out: st.fly.out, t: r2(st.fly.t) },
     items: st.items.map((it) => ({ id: it.id, name: it.name, x: r2(it.x), z: r2(it.z), R: it.R, floors: it.floors })),
     hits: st.hits.map((h) => ({ id: h.id, x: Math.round((h.x0 + h.x1) / 2), y: Math.round((h.y0 + h.y1) / 2) })),
+    tags: st.tagSeen || [],
   };
 }
 
@@ -734,6 +735,9 @@ function draw() {
     if (on || it.id === flying) where.set(it.id, { zc: c ? c[2] : cam.D, box: null });
   }
   const grow = (box, x0, y0, x1, y1) => (box ? { x0: Math.min(box.x0, x0), y0: Math.min(box.y0, y0), x1: Math.max(box.x1, x1), y1: Math.max(box.y1, y1) } : { x0, y0, x1, y1 });
+  // What stands up off the ground (people, buildings), with where it
+  // stands on the screen: a name behind one of them is hidden by it.
+  const walls = [];
 
   if (st.kind === 'orgs') {
     const order = st.items.filter((it) => where.has(it.id)).sort((a, b) => where.get(b.id).zc - where.get(a.id).zc);
@@ -741,6 +745,8 @@ function draw() {
       const W = where.get(it.id);
       ctx.globalAlpha = (it.id === flying ? 1 : others) * far(W.zc);
       W.box = drawBuilding(pen, it, W.zc);
+      const front = L.P(it.x, 0, it.z);
+      if (W.box && front && it.id !== flying) walls.push({ id: it.id, foot: front[1], hull: W.box.hull });
     }
   } else {
     // Everyone from every ring, back to front, so the near ones cross
@@ -787,13 +793,18 @@ function draw() {
       figs.push(...ring.filter(Boolean));
     }
     figs.sort((a, b) => b.zc - a.zc);
-    for (const f of figs) drawFigure(pen, f);
+    for (const f of figs) {
+      drawFigure(pen, f);
+      if (f.it.id !== flying) walls.push({ id: f.it.id, foot: f.sy, x0: f.sx - f.hp * 0.3, y0: f.sy - f.hp, x1: f.sx + f.hp * 0.3, y1: f.sy });
+    }
   }
 
-  // Names under each, and how many, over everything: the nearest first,
-  // and one that would land on another slides aside, or down, to clear it.
+  // Names under each, and how many. A name is hidden by whatever stands
+  // in front of it (someone in a nearer circle, a nearer building) and by a
+  // nearer name over it, fading out as it's covered: move the map to see it.
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
+  st.tagSeen = [];
   const tags = [];
   for (const it of st.items) {
     if (!where.has(it.id)) continue;
@@ -802,6 +813,30 @@ function draw() {
   }
   tags.sort((p, q) => p.a[2] - q.a[2]);
   const taken = [];
+  // How much of a name's box is covered, 0 to 1, from a grid of spots.
+  const covered = (it, box, anchorY) => {
+    const cols = 9;
+    const rows = 4;
+    let sum = 0;
+    for (let i = 0; i < cols; i++) {
+      for (let j = 0; j < rows; j++) {
+        const x = box.x0 + ((i + 0.5) / cols) * (box.x1 - box.x0);
+        const y = box.y0 + ((j + 0.5) / rows) * (box.y1 - box.y0);
+        let c = 0;
+        for (const wl of walls) {
+          if (wl.id === it.id || wl.foot <= anchorY) continue;
+          if (wl.hull ? inHull(wl.hull, x, y) : x > wl.x0 && x < wl.x1 && y > wl.y0 && y < wl.y1) { c = 1; break; }
+        }
+        if (c < 1) {
+          for (const t of taken) {
+            if (t.vis > c && x > t.x0 && x < t.x1 && y > t.y0 && y < t.y1) c = t.vis;
+          }
+        }
+        sum += c;
+      }
+    }
+    return sum / (cols * rows);
+  };
   for (const { it, a } of tags) {
     const W = where.get(it.id);
     const alpha = it.id === flying ? 1 - clamp(cam.p * 3, 0, 1) : others;
@@ -820,20 +855,16 @@ function draw() {
     const sub = n ? `${n} ${n === 1 ? 'person' : 'people'}` : 'Nobody yet';
     const tw = Math.max(ctx.measureText(label).width, sub.length * small * 0.46);
     const hh = size + small + 2;
-    const at = (dx, dy) => ({ x: a[0] + dx, y0: a[1] + 6 + dy, x0: a[0] + dx - tw / 2 - 3, x1: a[0] + dx + tw / 2 + 3, y1: a[1] + 6 + dy + hh });
-    const hits = (bx) => taken.find((b) => b.x0 < bx.x1 && bx.x0 < b.x1 && b.y0 < bx.y1 && bx.y0 < b.y1);
-    let box = at(0, 0);
-    const other = hits(box);
-    if (other) {
-      const right = other.x1 - box.x0 + 2;
-      const left = other.x0 - box.x1 - 2;
-      const tries = [at(Math.abs(left) < right ? left : right, 0), at(Math.abs(left) < right ? right : left, 0), at(0, other.y1 - box.y0 + 2)];
-      box = tries.find((t) => Math.abs(t.x - a[0]) < tw && !hits(t)) || box;
-    }
+    const box = { x: a[0], y0: a[1] + 6, x0: a[0] - tw / 2 - 3, x1: a[0] + tw / 2 + 3, y1: a[1] + 6 + hh };
+    // In the clear: shown; just touched: fainter; a little more: gone.
+    const cov = covered(it, box, a[1]);
+    const vis = it.id === flying ? 1 : clamp(1 - (cov - 0.02) / 0.06, 0, 1);
+    box.vis = vis;
     taken.push(box);
-    W.box = grow(W.box, box.x0, box.y0, box.x1, box.y1);
-    if (alpha <= 0.02) continue;
-    ctx.globalAlpha = alpha;
+    st.tagSeen.push({ id: it.id, vis: r2(vis), cov: r2(cov) });
+    if (vis > 0.5) W.box = grow(W.box, box.x0, box.y0, box.x1, box.y1);
+    if (alpha * vis <= 0.02) continue;
+    ctx.globalAlpha = alpha * vis;
     ctx.lineWidth = 4;
     ctx.strokeStyle = paper;
     ctx.strokeText(label, box.x, box.y0);
@@ -910,6 +941,35 @@ function runs(L, pts) {
 const boxOf = (pts) => pts.reduce((b, [x, y]) => ({ x0: Math.min(b.x0, x), y0: Math.min(b.y0, y), x1: Math.max(b.x1, x), y1: Math.max(b.y1, y) }), { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity });
 
 // A circle with nobody in it yet: just where the ring would be.
+// The outline round a set of points (screen space), for what a building
+// hides behind it.
+function hull(pts) {
+  const p = pts.map(([x, y]) => [x, y]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (p.length < 3) return p;
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo = [];
+  for (const q of p) {
+    while (lo.length > 1 && cross(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop();
+    lo.push(q);
+  }
+  const hi = [];
+  for (let i = p.length - 1; i >= 0; i--) {
+    const q = p[i];
+    while (hi.length > 1 && cross(hi[hi.length - 2], hi[hi.length - 1], q) <= 0) hi.pop();
+    hi.push(q);
+  }
+  return [...lo.slice(0, -1), ...hi.slice(0, -1)];
+}
+const inHull = (h, x, y) => {
+  if (h.length < 3) return false;
+  for (let i = 0; i < h.length; i++) {
+    const a = h[i];
+    const b = h[(i + 1) % h.length];
+    if ((b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0]) < 0) return false;
+  }
+  return true;
+};
+
 function drawEmptyRing(pen, it, alpha) {
   const { ctx, ink, L, far } = pen;
   const pts = Array.from({ length: 40 }, (_, i) => {
@@ -1057,6 +1117,7 @@ function drawBuilding(pen, it, zc) {
   const K = lensOf.F / zc;
   const amp = clamp(0.012 * K, 0.3, 1.6);
   const paths = [];
+  const all = [];
   let box = null;
   strokes.forEach((s, i) => {
     runs(lensOf, s.pts).forEach((run, j) => {
@@ -1065,8 +1126,10 @@ function drawBuilding(pen, it, zc) {
       paths.push({ path, w: s.w });
       const b = boxOf(run);
       box = box ? { x0: Math.min(box.x0, b.x0), y0: Math.min(box.y0, b.y0), x1: Math.max(box.x1, b.x1), y1: Math.max(box.y1, b.y1) } : b;
+      all.push(...run);
     });
   });
+  if (box) box.hull = hull(all);
   ctx.setLineDash([]);
   ctx.strokeStyle = paper;
   for (const s of paths) {

@@ -1154,6 +1154,8 @@ const RING_OPTS = { onOpen: (id) => { location.hash = `#/person/${id}`; } };
 // Inside a building, a few windows float behind them, and only the real
 // people stand there: five or fewer in a line, more in a small ring.
 const RING_INSIDE = { ...RING_OPTS, backdrop: 'windows', ghosts: false };
+// People: the page holds still under the ring.
+const RING_PEOPLE = { ...RING_OPTS, hold: true };
 let ringOpts = RING_OPTS;
 
 function ringHTML(list) {
@@ -1277,7 +1279,7 @@ function renderPeopleHand(f, n) {
   const ring = f.view !== 'list';
   const list = ring ? filteredPeople() : [];
   ringPeople = list;
-  ringOpts = RING_OPTS;
+  ringOpts = RING_PEOPLE;
   return `
     <header class="topbar"><h1>People</h1>
       <span class="topbar-actions">

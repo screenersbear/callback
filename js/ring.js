@@ -456,9 +456,13 @@ function startScroll() {
   return lastReal - first < lead * 2 ? (first + lastReal) / 2 : first + lead;
 }
 
-export function mountRing(slot, { people = [], key = '' } = {}, { onOpen, backdrop = null, ghosts = true } = {}) {
+export function mountRing(slot, { people = [], key = '' } = {}, { onOpen, backdrop = null, ghosts = true, hold = false } = {}) {
   if (!st.el) build();
   st.onOpen = onOpen;
+  // On People the page stays still under the ring; inside a circle or an
+  // org, up and down still scrolls the page.
+  st.hold = hold;
+  st.cv.classList.toggle('is-held', hold);
   st.backdrop = backdrop;
   if (ghosts !== st.ghosts) st.key = null;
   st.ghosts = ghosts;
@@ -497,7 +501,9 @@ function nearestFront() {
 
 // ---------------------------------------------------------------------------
 // Touch: a sideways swipe turns the ring and lets it run on; a tap opens
-// whoever is there. Up and down is left to the page.
+// whoever is there. Up and down: held (People), it does nothing, the page
+// doesn't move under the ring (it shook the whole screen when a swipe
+// wasn't quite level); otherwise it's left to the page.
 
 function wire(cv) {
   cv.addEventListener('pointerdown', (e) => {
@@ -513,13 +519,14 @@ function wire(cv) {
     const dy = e.clientY - d.y0;
     if (!d.moved) {
       if (Math.abs(dx) < 7 && Math.abs(dy) < 7) return;
-      if (Math.abs(dy) > Math.abs(dx) || st.line) {
+      if (!st.hold && (Math.abs(dy) > Math.abs(dx) || st.line)) {
         st.drag = null;
         return;
       }
       d.moved = true;
       try { cv.setPointerCapture(e.pointerId); } catch { /* fine */ }
     }
+    if (st.line) return;
     const { k } = view();
     const now = performance.now();
     const dt = Math.max(1, now - d.t) / 1000;
@@ -535,7 +542,7 @@ function wire(cv) {
     if (!d || e.pointerId !== d.id) return;
     st.drag = null;
     if (d.moved) {
-      st.vel = performance.now() - d.t < 90 ? clamp(d.v, -12, 12) : 0;
+      if (!st.line) st.vel = performance.now() - d.t < 90 ? clamp(d.v, -12, 12) : 0;
     } else if (e.type === 'pointerup') {
       const r = st.cv.getBoundingClientRect();
       tap(e.clientX - r.left, e.clientY - r.top);
@@ -544,6 +551,8 @@ function wire(cv) {
   };
   cv.addEventListener('pointerup', end);
   cv.addEventListener('pointercancel', end);
+  // iOS can still drag the page about from a touch that started here.
+  cv.addEventListener('touchmove', (e) => { if (st.hold && e.cancelable) e.preventDefault(); }, { passive: false });
   cv.addEventListener('wheel', (e) => {
     if (Math.abs(e.deltaX) <= Math.abs(e.deltaY) || st.line) return;
     e.preventDefault();
