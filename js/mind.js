@@ -787,8 +787,8 @@ function build() {
   window.addEventListener('resize', () => { if (st.el.isConnected) { resize(); kick(); } });
 }
 
-// The stage runs from where it starts down to the tab bar, so the neck
-// meets the bar; the head sits at the bottom and the bubbles fill the sky.
+// The stage runs from where it starts down to the tab bar, so the neck's
+// line runs along just over the bar; the head sits at the bottom and the bubbles fill the sky.
 function resize() {
   const w = st.el.clientWidth;
   if (!w) return;
@@ -1223,7 +1223,7 @@ function draw() {
     lookU: st.glance ? clamp(yawT * 1.2, -1, 1) : 0,
     lookV: st.glance ? clamp(st.lookPitch * 1.6, -1, 1) : 0,
   };
-  drawHead(put, { R, hx, hy, yaw: st.spin + st.lookYaw, pitch: st.lookPitch + st.tilt, roll, squash, bottom: st.h + 2, style: st.style, ex });
+  drawHead(put, { R, hx, hy, yaw: st.spin + st.lookYaw, pitch: st.lookPitch + st.tilt, roll, squash, bottom: st.h + 2, trail: true, style: st.style, ex });
 
   // Sparkles, the moment the last bubble goes.
   const sp = t - st.sparkle;
@@ -1279,11 +1279,24 @@ function drawHead(out, P) {
   let swingOK = true;
   let upPart = null;
   let arc = null;
+  let trail = null;
   if (cont) {
     const bottom = P.bottom;
     const [lx, ly] = cont.L;
-    const up = [[lx - R * 0.06, bottom], [lx - R * 0.03, mix(bottom, ly, 0.5)], [lx, ly]];
-    const loopPts = coil(lx, ly - R * 0.02, heading(up[1], up[2]), R);
+    let up = [[lx - R * 0.06, bottom], [lx - R * 0.03, mix(bottom, ly, 0.5)], [lx, ly]];
+    if (P.trail) {
+      // On Today there's no bar line for the neck to stand on: the pen comes
+      // in from the left along the bottom, thin, thickening as it turns up
+      // into the neck.
+      const yb = bottom - 2 - R * 0.07;
+      const fx = lx - R * 0.07;
+      const x0 = Math.max(R * 0.12, hx - R * 1.55);
+      const run = spline([[x0, yb + R * 0.02], [mix(x0, fx, 0.5), yb + R * 0.035], [fx - R * 0.26, yb + R * 0.012], [fx - R * 0.06, yb - R * 0.035], [fx, yb - R * 0.16], [lx - R * 0.03, mix(yb, ly, 0.55)], [lx, ly]], 44);
+      const cut = 18;
+      trail = run.slice(0, cut + 1);
+      up = run.slice(cut);
+    }
+    const loopPts = coil(lx, ly - R * 0.02, heading(up[up.length - 2], up[up.length - 1]), R);
     const head = resampleOpen(cont.head, 3.2);
     // Turned to show its right profile, the line carries on down that side
     // so the face has an edge to sit on.
@@ -1320,6 +1333,17 @@ function drawHead(out, P) {
       pts.push(...more);
     }
     out(inkPath(pts, 1.7, 2.5, 0.8), { w: 2.1 });
+    if (trail) {
+      // Thinner and thinner the farther left it runs.
+      const m = trail.length - 1;
+      const tp = trail.map((p, i) => [p[0], p[1], -6.4 + (1.4 * i) / m]);
+      const K = 6;
+      for (let k = 0; k < K; k++) {
+        const a = Math.floor((k * m) / K);
+        const b = Math.floor(((k + 1) * m) / K);
+        out(inkPath(tp.slice(a, b + 1), 1.7, 2.5, 0.8), { w: r1(mix(0.45, 1.9, ((k + 1) / K) ** 1.4)) });
+      }
+    }
     wayDone = true;
   };
 

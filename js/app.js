@@ -20,6 +20,7 @@ import {
   relTypesOf, relFields,
 } from './model.js';
 import { openSheet, confirmSheet, choiceSheet, toast, closeAllSheets } from './ui.js';
+import { updateSwipeBar } from './swipebar.js';
 import * as sync from './sync.js';
 import { getPath } from './merge.js';
 import { mountMind, BUDDIES, buddyStyle, setBuddy, buddySVG } from './mind.js';
@@ -3221,6 +3222,7 @@ function render() {
     if (on) t.setAttribute('aria-current', 'page');
     else t.removeAttribute('aria-current');
   });
+  updateSwipeBar(tab);
   document.title = r.name === 'today' ? 'Callback' : `${TITLES[r.name]} · Callback`;
   if (same) window.scrollTo(0, y);
   else window.scrollTo(0, S.ui.scroll.get(key) || 0);

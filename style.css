@@ -2303,6 +2303,35 @@ html.mac-app .sheet-overlay, html.mac-app .toast { -webkit-app-region: no-drag; 
   .tab-icon .ic-std { display: none; }
 }
 
+/* The bottom bar on a phone (swipebar.js): one button that slides through
+   the sections. Just the section's icon in the middle, a little triangle
+   each side there's another section; swipe along the bar to slide over. */
+.slider { display: none; }
+@media (max-width: 899px) {
+  .tabbar {
+    justify-content: center;
+    border-top: none;
+    background: var(--bg);
+    padding: 0 0 max(4px, calc(env(safe-area-inset-bottom) - 14px));
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .tabbar .tab { display: none; }
+  .slider { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: 48px; }
+  .slide-arrow { appearance: none; -webkit-appearance: none; border: 0; background: none; padding: 0; width: 44px; height: 44px; display: grid; place-items: center; color: var(--text-dim); }
+  .slide-arrow:active { opacity: 0.5; }
+  .slide-arrow.is-off { visibility: hidden; }
+  .slide-arrow svg { width: 9px; height: 11px; display: block; }
+  .slide-arrow.is-prev svg { transform: scaleX(-1); }
+  .slide-now { display: block; flex: none; width: 46px; height: 40px; overflow: hidden; color: var(--text); -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 18%, #000 82%, transparent 100%); mask-image: linear-gradient(90deg, transparent 0, #000 18%, #000 82%, transparent 100%); }
+  .slide-strip { display: flex; will-change: transform; }
+  .slide-strip.is-moving { transition: transform 0.2s cubic-bezier(0.3, 0.6, 0.3, 1); }
+  .slide-icon { flex: 0 0 46px; height: 40px; display: grid; place-items: center; }
+  .slide-icon svg { width: 27px; height: 27px; }
+}
+
 /* People on a phone: written by hand like Today, with everyone drawn
    holding hands in a ring below (ring.js), unless List is on. */
 html:has(.ring-wrap) { background: var(--bg); }
