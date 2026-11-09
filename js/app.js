@@ -24,6 +24,7 @@ import * as sync from './sync.js';
 import { getPath } from './merge.js';
 import { mountMind, BUDDIES, buddyStyle, setBuddy, buddySVG } from './mind.js';
 import { mountRing, figureSVG } from './ring.js';
+import { mountMap } from './map.js';
 
 const APP_VERSION = '1.0.0';
 const view = document.getElementById('view');
@@ -59,6 +60,10 @@ const S = {
     circle: { sort: 'contact', reverse: false, sortOpen: false, light: false },
     circlesReorder: false,
     orgsQ: '',
+    // On a phone, Circles and Organizations are maps unless List is on;
+    // the choice stays on this device.
+    circlesView: readMapView('circles'),
+    orgsView: readMapView('orgs'),
     // Today's board in a big window: who's open on the right ({ id, focus }),
     // and the board's people in order, to move on to the next one.
     pick: null,
@@ -1144,6 +1149,9 @@ const ringData = (list) => ({
   key: list.map((p) => p.id).join(','),
 });
 const RING_OPTS = { onOpen: (id) => { location.hash = `#/person/${id}`; } };
+// Inside a building, a few windows float behind the ring.
+const RING_INSIDE = { ...RING_OPTS, backdrop: 'windows' };
+let ringOpts = RING_OPTS;
 
 function ringHTML(list) {
   if (!list.length) {
@@ -1160,19 +1168,113 @@ function ringHTML(list) {
 
 function mountRingIn(root) {
   const slot = root.querySelector('[data-ring-slot]');
-  if (slot) mountRing(slot, ringData(ringPeople), RING_OPTS);
+  if (slot) mountRing(slot, ringData(ringPeople), ringOpts);
 }
 
 // A loose line drawn under the search, and the hand-drawn icons.
 const HAND_RULE = '<svg class="hand-rule" viewBox="0 0 300 10" preserveAspectRatio="none" aria-hidden="true"><path vector-effect="non-scaling-stroke" d="M2 6 C 40 3.5 80 7.5 125 5.2 S 210 3.8 250 6 S 290 5 298 4.2"/></svg>';
 const HAND_QUICK = '<svg class="hand-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.2 2.6 C 11 7 8.6 10.4 6.4 13.4 C 8.6 13.2 10.4 13.1 12 13.3 C 11.2 16.2 10.6 18.8 9.8 21.6 C 12.6 17.8 15.2 14.2 17.8 10.6 C 15.9 10.6 14.2 10.8 12.6 11 C 13.1 8.2 13.6 5.4 14.2 2.6"/></svg>';
 const HAND_LIST = '<svg class="hand-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.6 6.2 a1 1 0 1 0 .2 0 M8 6.4 C 11 5.6 15 7 20.6 5.8 M3.6 12 a1 1 0 1 0 .2 0 M8 12.2 C 12 11.4 15.6 12.8 20.2 11.8 M3.6 17.8 a1 1 0 1 0 .2 0 M8 18 C 11.4 17.2 16 18.6 20.8 17.4"/></svg>';
+const HAND_BACK = '<svg class="hand-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.6 5.2 C 8.4 7.6 6.2 9.8 3.8 12.1 C 6 14.2 8.1 16.5 10.3 18.9 M4.4 12.2 C 9 11.5 14.6 12.7 20.6 11.7"/></svg>';
 const HAND_RING = '<svg class="hand-circle" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true"><path vector-effect="non-scaling-stroke" d="M58 4 C 26 2 4 9 5 21 C 6 33 34 38 60 36 C 86 34 97 26 95 16 C 93 7 74 3 50 5 C 40 6 32 8 27 11"/></svg>';
+
+// ---------------------------------------------------------------------------
+// Circles and Organizations on a phone: a map (map.js) of little rings of
+// people, or of buildings, unless List is on. A tap flies in and opens the
+// circle or organization as a ring of its people, like People.
+
+function toggleMapView(kind) {
+  const k = `${kind}View`;
+  S.ui[k] = S.ui[k] === 'list' ? 'map' : 'list';
+  try { localStorage.setItem(`callback.${k}`, S.ui[k]); } catch { /* this device only */ }
+  if (parseRoute().id) location.hash = `#/${kind}`;
+  else render();
+}
+function readMapView(kind) {
+  try { return localStorage.getItem(`callback.${kind}View`) === 'list' ? 'list' : 'map'; } catch { return 'map'; }
+}
+function listButton(action, on) {
+  return `<button type="button" class="hand-btn hand-list" data-action="${action}" aria-pressed="${on}"><span class="hand-btn-text">${HAND_LIST}List</span>${HAND_RING}${statScrib('List')}</button>`;
+}
+let mapNow = null;
+
+function circlesMapData() {
+  const items = S.circles.map((c) => {
+    const members = membersOf(c.id);
+    return { id: c.id, name: c.name, count: members.length, people: members.map((p) => ({ id: p.id, figure: figureOf(p), size: ringSize(p), warmth: p.warmth })) };
+  });
+  const key = items.map((c) => `${c.id}:${c.name}:${c.people.map((p) => `${p.id}.${p.figure}.${p.warmth}.${p.size}`).join(',')}`).join('|');
+  return { kind: 'circles', items, key };
+}
+function orgsMapData(list) {
+  const counts = groupBy(S.people.filter((p) => p.organizationId), 'organizationId');
+  const items = list.map((o) => ({ id: o.id, name: o.name, type: o.type, n: (counts.get(o.id) || []).length }));
+  // The busiest in the middle.
+  items.sort((a, b) => b.n - a.n || a.name.localeCompare(b.name));
+  return { kind: 'orgs', items, key: items.map((o) => `${o.id}:${o.name}:${o.type}:${o.n}`).join('|') };
+}
+function mapHTML(kind, list) {
+  mapNow = kind === 'orgs' ? orgsMapData(list) : circlesMapData();
+  return `<div class="map-wrap" id="${kind === 'orgs' ? 'orgList' : 'circleMap'}"><div class="map-slot" data-map-slot></div>
+    <ul class="visually-hidden">${mapNow.items.map((x) => `<li><a href="#/${kind}/${esc(x.id)}">${esc(x.name)}</a></li>`).join('')}</ul></div>`;
+}
+function mountMapIn(root, from = null) {
+  const slot = root.querySelector('[data-map-slot]');
+  if (!slot || !mapNow) return;
+  const kind = mapNow.kind;
+  mountMap(slot, mapNow, {
+    from,
+    onOpen: (id) => {
+      location.hash = `#/${kind}/${id}`;
+      // So "All circles" can go back to the map, not on to a new one.
+      try { history.replaceState({ fromMap: true }, ''); } catch { /* fine */ }
+    },
+  });
+}
+
+// Inside a circle or an organization: its people in a ring.
+function insideHTML({ title, back, backLabel, details, people, empty, inside }) {
+  ringPeople = people;
+  ringOpts = inside ? RING_INSIDE : RING_OPTS;
+  return `
+    <header class="topbar"><h1>${esc(title)}</h1></header>
+    <div class="people-hand"><div class="hand-row">
+      <button type="button" class="hand-btn" data-action="map-out" data-to="${back}"><span class="hand-btn-text">${HAND_BACK}${esc(backLabel)}</span>${statScrib(backLabel)}</button>
+      <a class="hand-btn hand-end" href="${details}"><span class="hand-btn-text">Details</span>${statScrib('Details')}</a>
+    </div></div>
+    ${people.length ? `<div class="ring-wrap is-inside">${ringHTML(people)}</div>` : empty}`;
+}
+function circleInside(c) {
+  const cid = esc(c.id);
+  return insideHTML({
+    title: c.name,
+    back: '#/circles',
+    backLabel: 'All circles',
+    details: `#/circle/${cid}`,
+    people: membersOf(c.id),
+    empty: `<div class="empty"><p class="empty-title">Nobody in ${esc(c.name)} yet.</p><p>Add people here, or from anyone's page.</p>
+      <button type="button" class="hero-cta" data-action="circle-add-people" data-id="${cid}">+ Add people</button></div>`,
+  });
+}
+function orgInside(o) {
+  const oid = esc(o.id);
+  return insideHTML({
+    title: o.name,
+    back: '#/orgs',
+    backLabel: 'All organizations',
+    details: `#/org/${oid}`,
+    people: S.people.filter((p) => p.organizationId === o.id),
+    inside: true,
+    empty: `<div class="empty"><p class="empty-title">Nobody here yet.</p>
+      <button type="button" class="hero-cta" data-action="add-person" data-org="${oid}">+ Add person here</button></div>`,
+  });
+}
 
 function renderPeopleHand(f, n) {
   const ring = f.view !== 'list';
   const list = ring ? filteredPeople() : [];
   ringPeople = list;
+  ringOpts = RING_OPTS;
   return `
     <header class="topbar"><h1>People</h1>
       <span class="topbar-actions">
@@ -1923,7 +2025,10 @@ function timelineHTML(p, tps) {
 // ---------------------------------------------------------------------------
 // Organizations
 
-function renderOrgs() {
+function renderOrgs(id) {
+  const hand = phoneQuery.matches && S.orgs.length > 0;
+  const map = hand && S.ui.orgsView !== 'list';
+  if (map && id && S.orgById.has(id)) return orgInside(S.orgById.get(id));
   const q = S.ui.orgsQ.trim().toLowerCase();
   const counts = groupBy(S.people.filter((p) => p.organizationId), 'organizationId');
   const list = S.orgs.filter((o) => !q || [o.name, o.notes, orgTypeLabel(o.type)].some((v) => v && v.toLowerCase().includes(q)));
@@ -1946,6 +2051,19 @@ function renderOrgs() {
         </a>`;
       })
       .join('');
+  }
+  if (hand) {
+    return `
+    <header class="topbar"><h1>Organizations</h1></header>
+    <div class="people-hand">
+      <div class="hand-row">
+        <button type="button" class="hand-btn" data-action="add-org"><span class="hand-btn-text">+ Add organization</span>${statScrib('Add organization')}</button>
+        ${listButton('orgs-view', !map)}
+      </div>
+      <label class="hand-search"><span class="visually-hidden">Search organizations</span>
+        <input type="search" id="orgSearch" placeholder="Search organizations" value="${esc(S.ui.orgsQ)}" autocomplete="off">${HAND_RULE}</label>
+    </div>
+    ${map && list.length ? mapHTML('orgs', list) : `<div class="card-list" id="orgList">${body}</div>`}`;
   }
   return `
     <header class="topbar"><h1>Organizations</h1>
@@ -1985,9 +2103,12 @@ function isOverdue(p, today = todayStr()) {
   return !dreamOnly(p) && (p.nextTouchpointDate || today) < today;
 }
 
-function renderCircles() {
+function renderCircles(id) {
+  const hand = phoneQuery.matches && S.circles.length > 0;
+  const map = hand && S.ui.circlesView !== 'list';
+  if (map && id && S.circleById.has(id)) return circleInside(S.circleById.get(id));
   const today = todayStr();
-  const reorder = S.ui.circlesReorder && S.circles.length > 1;
+  const reorder = !map && S.ui.circlesReorder && S.circles.length > 1;
   let body;
   if (!S.circles.length) {
     body = `<div class="empty">
@@ -2012,6 +2133,16 @@ function renderCircles() {
         </span></div>`;
       })
       .join('');
+  }
+  if (hand) {
+    return `
+    <header class="topbar"><h1>Circles</h1>
+      ${!map && S.circles.length > 1 ? `<span class="topbar-actions"><button type="button" class="text-btn" data-action="toggle-reorder" aria-pressed="${reorder}">${reorder ? 'Done' : 'Reorder'}</button></span>` : ''}</header>
+    <div class="people-hand"><div class="hand-row">
+      <button type="button" class="hand-btn" data-action="add-circle"><span class="hand-btn-text">+ New circle</span>${statScrib('New circle')}</button>
+      ${listButton('circles-view', !map)}
+    </div></div>
+    ${map ? mapHTML('circles') : `<div class="card-list">${body}</div>`}`;
   }
   return `
     <header class="topbar"><h1>Circles</h1>
@@ -2954,9 +3085,9 @@ const ROUTES = {
   today: () => renderToday(),
   people: () => renderPeople(),
   person: (id) => renderPerson(id),
-  circles: () => renderCircles(),
+  circles: (id) => renderCircles(id),
   circle: (id) => renderCircle(id),
-  orgs: () => renderOrgs(),
+  orgs: (id) => renderOrgs(id),
   org: (id) => renderOrg(id),
   week: () => renderWeek(),
   settings: () => renderSettings(),
@@ -3012,6 +3143,7 @@ function markSelected() {
 function render() {
   const r = parseRoute();
   const key = `${r.name}/${r.id || ''}`;
+  const prevKey = currentKey;
   const same = key === currentKey;
   const y = window.scrollY;
   const focus = !same && r.name === 'person' && r.focus;
@@ -3071,6 +3203,9 @@ function render() {
   const mindSlot = view.querySelector('[data-mind-slot]');
   if (mindSlot) mountMind(mindSlot, todayMind, { onOpen: thoughtSheet, onFace: buddySheet });
   mountRingIn(view);
+  // Back out of a circle or organization: the map pulls back from it.
+  const [prevName, prevId] = prevKey.split('/');
+  mountMapIn(view, prevName === r.name && prevId && !r.id ? prevId : null);
   refreshThought();
   fitBrandTitle();
   view.querySelectorAll('textarea.pd-value').forEach(fitHeight);
@@ -5111,6 +5246,12 @@ const ACTIONS = {
     else set.add(el.dataset.c);
     render();
   },
+  'circles-view': () => toggleMapView('circles'),
+  'orgs-view': () => toggleMapView('orgs'),
+  'map-out': (el) => {
+    if (history.state && history.state.fromMap) history.back();
+    else location.hash = el.dataset.to;
+  },
   'people-view': () => {
     S.ui.people.view = S.ui.people.view === 'list' ? 'ring' : 'list';
     try { localStorage.setItem('callback.peopleView', S.ui.people.view); } catch { /* this device only */ }
@@ -5241,7 +5382,13 @@ document.addEventListener('input', (e) => {
     const list = document.getElementById('orgList');
     const tmp = document.createElement('div');
     tmp.innerHTML = renderOrgs();
-    list.innerHTML = tmp.querySelector('#orgList').innerHTML;
+    const fresh = tmp.querySelector('#orgList');
+    if (list && fresh) {
+      if (fresh.querySelector('[data-map-slot]') || fresh.className !== list.className) {
+        list.replaceWith(fresh);
+        mountMapIn(fresh);
+      } else list.innerHTML = fresh.innerHTML;
+    }
     markSelected();
   }
 });

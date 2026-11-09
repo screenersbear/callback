@@ -2414,3 +2414,37 @@ html:has(.ring-wrap) { background: var(--bg); }
 .ring-key-dot.is-warm { background: var(--w-warm); }
 .ring-key-dot.is-cold { background: var(--w-cold); }
 .ring-key-dot.is-parked { background: repeating-linear-gradient(90deg, var(--w-parked) 0 4px, transparent 4px 7px); }
+
+/* ---------- Everything by hand ----------
+   The handwriting from Today and People on every page, tab and pop-up, on
+   the phone and on the Mac: the same pen (Mansalva), set a little bigger
+   so the type scale above still reads, and in plain sentence case. */
+@font-face {
+  font-family: "Callback Hand";
+  src: url("fonts/mansalva-latin.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  size-adjust: 126%;
+  ascent-override: 92%;
+  descent-override: 42%;
+  line-gap-override: 0%;
+}
+:root {
+  --font-title: "Callback Hand", "Bradley Hand", "Noteworthy", cursive;
+  --font-body: "Callback Hand", "Bradley Hand", "Noteworthy", cursive;
+}
+*, *::before, *::after, ::placeholder { text-transform: none !important; letter-spacing: 0 !important; }
+
+/* Circles and Organizations on a phone: a map you drag about (map.js),
+   down to the tab bar like People's ring; in one, its ring of people. */
+html:has(.map-wrap), html:has(.ring-wrap.is-inside) { background: var(--bg); }
+#app:has(.map-wrap) { padding-bottom: 0; }
+.map-wrap { position: relative; margin: 0 -16px; }
+.map { position: relative; color: var(--hero); }
+.map-canvas { display: block; touch-action: none; outline: none; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+.map-canvas:focus-visible { outline: 2px dashed var(--hero); outline-offset: -6px; }
+.hand-end { margin-left: auto; }
+.ring-wrap.is-inside { animation: inside-in 0.3s ease-out both; }
+@keyframes inside-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ring-wrap.is-inside { animation: none; } }

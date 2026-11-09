@@ -235,6 +235,7 @@ const st = {
   visible: true,
   hits: [],
   onOpen: null,
+  backdrop: null, // 'windows': inside a building, a few windows float behind
 };
 
 function build() {
@@ -342,9 +343,10 @@ function startScroll() {
   return lastReal - first < lead * 2 ? (first + lastReal) / 2 : first + lead;
 }
 
-export function mountRing(slot, { people = [], key = '' } = {}, { onOpen } = {}) {
+export function mountRing(slot, { people = [], key = '' } = {}, { onOpen, backdrop = null } = {}) {
   if (!st.el) build();
   st.onOpen = onOpen;
+  st.backdrop = backdrop;
   slot.appendChild(st.el);
   resize();
   update(people, key);
@@ -522,6 +524,48 @@ function handBetween(a, la, b, lb) {
   return p1[1] > p2[1] ? p1 : p2;
 }
 
+// Inside an organization: two or three windows floating on the far wall,
+// drawn loosely like everything else, drifting a little.
+function drawWindows(ctx, ink, paper, dark) {
+  const { w, h } = st;
+  const calm = reduced.matches;
+  const spots = w < 330
+    ? [[0.22, 0.07, 0.3, 1.25], [0.76, 0.15, 0.26, 1.2]]
+    : [[0.16, 0.1, 0.24, 1.25], [0.55, 0.03, 0.2, 1.3], [0.86, 0.17, 0.21, 1.2]];
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 1.6;
+  ctx.globalAlpha = dark ? 0.55 : 0.4;
+  spots.forEach(([fx, fy, fw, ratio], i) => {
+    const ww = fw * w;
+    const wh = Math.min(ww * ratio, 0.24 * h);
+    const dx = calm ? 0 : 3 * Math.sin(st.t * 0.37 + i * 2.1);
+    const dy = calm ? 0 : 5 * Math.sin(st.t * 0.52 + i * 1.3);
+    const x0 = fx * w - ww / 2 + dx;
+    const y0 = fy * h + dy;
+    const seed = 900 + i * 17;
+    const line = (pts, k) => {
+      const path = new Path2D();
+      trace(path, shake(pts, seed + k, 0.9));
+      ctx.stroke(path);
+    };
+    const side = (a, b, n = 8) => Array.from({ length: n }, (_, j) => [mix(a[0], b[0], j / (n - 1)), mix(a[1], b[1], j / (n - 1))]);
+    const tl = [x0, y0];
+    const tr = [x0 + ww, y0];
+    const br = [x0 + ww, y0 + wh];
+    const bl = [x0, y0 + wh];
+    // The frame in one go round, a little past where it started.
+    line([...side(tl, tr), ...side(tr, br).slice(1), ...side(br, bl).slice(1), ...side(bl, tl).slice(1), [tl[0] + ww * 0.06, tl[1] - 1]], 1);
+    // The panes, and the sill sticking out each side.
+    line(side([x0 + ww / 2, y0 + 2], [x0 + ww / 2, y0 + wh - 2], 6), 2);
+    line(side([x0 + 2, y0 + wh * 0.48], [x0 + ww - 2, y0 + wh * 0.5], 6), 3);
+    line(side([x0 - ww * 0.08, y0 + wh + 5], [x0 + ww * 1.08, y0 + wh + 4], 7), 4);
+  });
+  ctx.restore();
+}
+
 function draw() {
   resize();
   const { ctx, w, h, dpr } = st;
@@ -538,6 +582,7 @@ function draw() {
   // Warmth by colour (the size says it too, and the key above).
   const colours = Object.fromEntries(['client', 'active', 'warm', 'cold', 'parked', 'none'].map((k) => [k, cs.getPropertyValue(`--w-${k}`).trim() || ink]));
   const v = view();
+  if (st.backdrop === 'windows') drawWindows(ctx, ink, paper, dark);
   const sway = reduced.matches ? 0 : 0.03 * Math.sin(st.t * 1.25);
   const sBack = EYE / (EYE + (2 * st.ring) / TAU);
   const half = st.ring / 2;
@@ -622,3 +667,7 @@ function draw() {
   // The nearest first, for taps.
   st.hits.sort((a, b) => b.s - a.s);
 }
+
+// For the maps on Circles and Organizations (map.js): the same people,
+// drawn the same way.
+export { bodyLine, shake, trace, armRoots, handBetween, hashStr, hash1, noise, lightness };
