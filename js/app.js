@@ -1141,7 +1141,10 @@ function ringSize(p) {
   if (dreamOnly(p)) s = Math.min(s, 0.66);
   return s;
 }
-const FIGURES = [['man', 'Man'], ['woman', 'Woman'], ['person', 'Person']];
+// How someone is drawn. The words are never shown under the drawings; they
+// only name them for screen readers and the sync clash view.
+const FIGURES = [['man', 'With a tie'], ['woman', 'In a dress'], ['person', 'Plain']];
+const figureWords = (k) => (FIGURES.find(([x]) => x === k) || FIGURES[2])[1];
 const figureOf = (p) => (FIGURES.some(([k]) => k === p.figure) ? p.figure : 'person');
 const ringData = (list) => ({
   people: list.map((p) => ({ id: p.id, name: firstName(p), figure: figureOf(p), size: ringSize(p), warmth: p.warmth })),
@@ -1384,7 +1387,8 @@ function renderPerson(id, { panel = false } = {}) {
   const overdue = p.warmth !== 'parked' && !light && (stage === 'justMet' ? deadline < today : next < today);
   const sub = subLine(p, { link: true });
   const left = `
-    <header class="person-head">
+    <header class="person-head has-fig">
+      <button type="button" class="person-fig" data-action="change-figure" data-id="${pid}" style="color: var(--w-${esc(p.warmth)})" aria-label="How they're drawn: ${esc(figureWords(figureOf(p)).toLowerCase())}. Change it">${figureSVG(figureOf(p), 'person-fig-pic', 170)}</button>
       <h1 class="person-name">${esc(p.name)}</h1>
       ${sub ? `<p class="person-sub">${sub}</p>` : ''}
       <div class="person-badges">
@@ -1392,8 +1396,6 @@ function renderPerson(id, { panel = false } = {}) {
           ${warmthBadge(p.warmth)}</button>
         <button type="button" class="warmth-btn" data-action="change-rel" data-id="${pid}" aria-label="Change relationship, now ${esc(relWords(p))}">
           <span class="rel-set">${relLabels(p)}</span></button>
-        <button type="button" class="warmth-btn" data-action="change-interest" data-id="${pid}" aria-label="Change interest, now ${esc(interestInfo(p.interest).label)}">
-          ${interestLabel(p.interest, { prefix: true })}</button>
         ${p.dreamList ? `<button type="button" class="warmth-btn" data-action="dream-off" data-id="${pid}" aria-label="On your dream list. Take them off it">
           ${dreamBadge()}<span class="warmth-btn-hint">Remove</span></button>` : ''}
         ${p.lightTouch ? `<button type="button" class="warmth-btn" data-action="light-off" data-id="${pid}" aria-label="Light touch is on. Turn it off">
@@ -2896,6 +2898,7 @@ function fieldValue(store, path, v) {
   if (key === 'cadenceOverrideDays') return span(v);
   if (key === 'warmth') return WARMTH_INFO[v] ? WARMTH_INFO[v].label : String(v);
   if (key === 'interest') return interestInfo(v).label;
+  if (key === 'figure') return figureWords(v);
   if (key === 'relationshipTypes') return v.map((k) => relationshipInfo(k).label).join(', ');
   if (key === 'type' && store === 'touchpoints') return touchTypeLabel(v);
   if (key === 'responded') return respondedLabel(v);
@@ -3620,7 +3623,7 @@ async function offerFirstLog(id, name) {
 // How someone is drawn in the ring on People: picked when adding them.
 function figurePickHTML(value) {
   return `<fieldset class="field"><legend class="field-label">How they're drawn</legend>
-    <div class="seg fig-seg">${FIGURES.map(([k, label]) => `<label class="seg-option"><input type="radio" name="figure" value="${k}"${value === k ? ' checked' : ''}><span>${figureSVG(k, 'fig-pic')}${label}</span></label>`).join('')}</div>
+    <div class="seg fig-seg">${FIGURES.map(([k, label]) => `<label class="seg-option"><input type="radio" name="figure" value="${k}" aria-label="${esc(label)}"${value === k ? ' checked' : ''}><span>${figureSVG(k, 'fig-pic')}</span></label>`).join('')}</div>
     <span class="field-hint">For the drawing of everyone on People, on a phone.</span></fieldset>`;
 }
 
@@ -4303,16 +4306,25 @@ async function setWarmth(p, warmth) {
   await refresh();
 }
 
-async function interestSheet(p) {
+// Tapping the drawing on someone's page: pick how they're drawn, no words.
+function figureSheet(p) {
   if (!p) return;
-  const key = await choiceSheet({
-    title: 'How engaged do they seem?',
-    message: 'This shapes the touchpoint ideas. How often you reach out still follows their warmth.',
-    options: INTEREST_LEVELS.map((i) => ({ key: i.key, label: i.label, detail: i.blurb, icon: interestIcon(i.key), current: p.interest === i.key })),
+  const cur = figureOf(p);
+  const s = openSheet({
+    title: "How they're drawn",
+    className: 'sheet-small fig-sheet',
+    body: `<p class="hint">How ${esc(firstName(p))} looks on People and in circles.</p>
+      <div class="buddy-row fig-row">${FIGURES.map(([k, label]) => `<button type="button" class="buddy-option${k === cur ? ' is-on' : ''}" data-fig="${k}" aria-pressed="${k === cur}" aria-label="${esc(label)}">${figureSVG(k, 'fig-choice-pic', 170)}</button>`).join('')}</div>`,
   });
-  if (!key || key === p.interest) return;
-  await db.savePerson({ ...p, interest: key });
-  await refresh();
+  s.body.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-fig]');
+    if (!b) return;
+    s.close();
+    const fresh = S.personById.get(p.id);
+    if (!fresh || figureOf(fresh) === b.dataset.fig) return;
+    await db.savePerson({ ...fresh, figure: b.dataset.fig });
+    await refresh();
+  });
 }
 
 // Tick any that fit; at least one stays ticked.
@@ -4953,7 +4965,7 @@ const ACTIONS = {
   'close-pick': () => closePick(),
   'change-warmth': (el) => warmthSheet(person(el)),
   'change-rel': (el) => relationshipSheet(person(el)),
-  'change-interest': (el) => interestSheet(person(el)),
+  'change-figure': (el) => figureSheet(person(el)),
   park: (el) => setWarmth(person(el), 'parked'),
   'make-warm': (el) => setWarmth(person(el), 'warm'),
   unpark: (el) => unpark(person(el)),

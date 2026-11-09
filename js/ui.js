@@ -138,11 +138,18 @@ if (vv) {
 // rest of the way (--bar-drop) until iOS catches up. Only when the page is
 // drawn up under the status bar (a top safe area), so the screen's top is
 // the page's top; and never while typing.
+//
+// iOS fixes its own edge whenever it likes (often as a scroll settles), and
+// a drop still in place then pushes the bar's labels off the bottom of the
+// screen until the next touch put them back: the labels came and went. So
+// after any touch, scroll or resize it's checked every frame for a few
+// seconds (and every second while dropped): a drop comes off the moment
+// it's not needed, and only goes on once the same gap has held for a few
+// frames with no finger down.
 const iPhoneApp = /iPhone|iPod/.test(navigator.userAgent) && (navigator.standalone === true || matchMedia('(display-mode: standalone)').matches);
 let edgeProbe = null;
 let barDrop = 0;
-export function fitTabbar(test = false) {
-  if ((!iPhoneApp && !test) || !document.body) return barDrop;
+function wantedDrop() {
   if (!edgeProbe) {
     edgeProbe = document.createElement('div');
     edgeProbe.setAttribute('aria-hidden', 'true');
@@ -154,21 +161,54 @@ export function fitTabbar(test = false) {
   const edge = edgeProbe.getBoundingClientRect().bottom;
   const underStatusBar = parseFloat(getComputedStyle(edgeProbe).paddingTop) > 0;
   const gap = Math.round(full - edge);
-  const drop = underStatusBar && !html.classList.contains('kb-up') && !typingIn(document.activeElement) && gap > 8 && gap < 100 ? gap : 0;
-  if (drop !== barDrop) {
-    barDrop = drop;
-    html.style.setProperty('--bar-drop', `${drop}px`);
-    // Today's head, People's ring and the maps run down to the tab bar.
-    window.dispatchEvent(new Event('resize'));
-  }
+  return underStatusBar && !html.classList.contains('kb-up') && !typingIn(document.activeElement) && gap > 8 && gap < 100 ? gap : 0;
+}
+function setDrop(drop) {
+  if (drop === barDrop) return;
+  barDrop = drop;
+  html.style.setProperty('--bar-drop', `${drop}px`);
+  // Today's head, People's ring and the maps run down to the tab bar.
+  window.dispatchEvent(new Event('resize'));
+}
+let touching = false;
+let watchUntil = 0;
+let watching = 0;
+let steady = { v: 0, n: 0 };
+function tick() {
+  watching = 0;
+  if (!document.body) return;
+  const want = wantedDrop();
+  if (want < barDrop) {
+    // Less (or none) is always safe: straight away.
+    steady = { v: want, n: 0 };
+    setDrop(want);
+  } else if (want > barDrop) {
+    steady = steady.v === want ? { v: want, n: steady.n + 1 } : { v: want, n: 1 };
+    if (!touching && steady.n >= 3) setDrop(want);
+  } else steady = { v: want, n: 0 };
+  if (performance.now() < watchUntil) watching = requestAnimationFrame(tick);
+}
+function watchTabbar(ms = 2500) {
+  watchUntil = Math.max(watchUntil, performance.now() + ms);
+  if (!watching) watching = requestAnimationFrame(tick);
+}
+// For tests: work it out now, as if the page were the home-screen app.
+export function fitTabbar(test = false) {
+  if ((!iPhoneApp && !test) || !document.body) return barDrop;
+  if (test) setDrop(wantedDrop());
+  else watchTabbar();
   return barDrop;
 }
 if (iPhoneApp) {
-  const check = () => fitTabbar();
-  ['resize', 'scroll', 'orientationchange', 'pageshow', 'touchend', 'focusin', 'focusout'].forEach((t) => window.addEventListener(t, () => setTimeout(check, 0), { passive: true }));
-  document.addEventListener('visibilitychange', () => setTimeout(check, 50));
-  if (vv) vv.addEventListener('resize', check);
-  [0, 100, 400, 1000, 2500].forEach((ms) => setTimeout(check, ms));
+  const opts = { passive: true };
+  window.addEventListener('touchstart', () => { touching = true; watchTabbar(); }, opts);
+  ['touchend', 'touchcancel'].forEach((t) => window.addEventListener(t, () => { touching = false; watchTabbar(); }, opts));
+  ['resize', 'scroll', 'orientationchange', 'pageshow', 'focusin', 'focusout'].forEach((t) => window.addEventListener(t, () => watchTabbar(), opts));
+  document.addEventListener('scroll', () => watchTabbar(), { passive: true, capture: true });
+  document.addEventListener('visibilitychange', () => watchTabbar());
+  if (vv) vv.addEventListener('resize', () => watchTabbar());
+  setInterval(() => { if (barDrop > 0 && !document.hidden) watchTabbar(300); }, 1000);
+  watchTabbar(3000);
 }
 
 // Esc closes the top popup and nothing else (not the person beside Today).

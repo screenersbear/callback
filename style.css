@@ -1062,6 +1062,15 @@ details.loop-done[open] summary { margin-bottom: 8px; }
 /* ---------- Person detail ---------- */
 
 .person-head { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-bottom: 18px; }
+/* Their drawing in the top right corner: tap it to change how they're drawn. */
+.person-head.has-fig { position: relative; padding-right: 70px; min-height: 108px; }
+.person-fig { position: absolute; top: -2px; right: -6px; width: 68px; height: 112px; padding: 4px 6px; margin: 0; background: none; border: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.person-fig:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.person-fig-pic, .fig-choice-pic { display: block; overflow: visible; }
+.person-fig-pic { width: 100%; height: 100%; }
+.fig-choice-pic { width: 58%; max-width: 64px; height: auto; margin: 0 auto; }
+.person-fig-pic path, .fig-choice-pic path { fill: none; stroke: currentColor; stroke-width: 3.4; stroke-linecap: round; stroke-linejoin: round; }
+.fig-row { grid-template-columns: repeat(3, 1fr); }
 .person-name { margin: 0; font-size: 26px; line-height: 1.05; text-transform: uppercase; overflow-wrap: anywhere; }
 .person-sub { margin: 0; font-size: 16px; font-weight: 700; color: var(--text-dim); }
 .person-sub a { color: var(--text); }

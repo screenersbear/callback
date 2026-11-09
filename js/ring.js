@@ -281,13 +281,14 @@ function shake(pts, seed, amp) {
 
 // The same figures as SVG, standing still with their arms down: for the
 // picker when adding someone. In a 0 0 60 100 box.
-export function figureSVG(kind, cls = '') {
-  const hp = 92;
-  const put = ([x, y]) => [30 + x * hp, 96 - y * hp];
+// `hp` is the size it's drawn at (bigger shows the twists and the chest).
+export function figureSVG(kind, cls = '', hp = 92) {
+  const put = ([x, y]) => [hp * 0.326 + x * hp, hp * 1.043 - y * hp];
   const line = (pts) => `M${pts.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join('L')}`;
   const sash = bodySash(kind, put, hp);
-  const d = line(shake(bodyLine(kind, true, put, [null, null], hp), 11, 0.35)) + (sash ? line(shake(sash, 5, 0.35)) : '');
-  return `<svg class="${cls}" viewBox="0 0 60 100" aria-hidden="true"><path d="${d}"/></svg>`;
+  const amp = Math.max(0.35, 0.004 * hp);
+  const d = line(shake(bodyLine(kind, true, put, [null, null], hp), 11, amp)) + (sash ? line(shake(sash, 5, amp)) : '');
+  return `<svg class="${cls}" viewBox="0 0 ${(hp * 0.65).toFixed(1)} ${(hp * 1.087).toFixed(1)}" aria-hidden="true"><path d="${d}"/></svg>`;
 }
 
 // ---------------------------------------------------------------------------
