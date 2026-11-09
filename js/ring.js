@@ -10,10 +10,10 @@
 // if pulled along, swinging past upright when it stops.
 
 const TAU = Math.PI * 2;
-const GAP = 0.5; // from one person to the next, in their heights
+const GAP = 0.6; // from one person to the next, in their heights
 const AROUND = 14; // the ring's length, in heights
 const EYE = 3; // the camera's distance from the front of the ring, in heights
-const ARM = 0.42; // an arm's length, in its owner's height
+const ARM = 0.4; // an arm's length, in its owner's height
 const FRONT = 0.56; // the biggest figure at the front, in stage heights
 const BACK = 0.3; // where the far side's feet are, in stage heights from the top
 const FEET = 34; // room under the front row's feet for their names, in pixels
@@ -52,114 +52,159 @@ function hashStr(s) {
 }
 
 // ---------------------------------------------------------------------------
-// The figures, in their own heights: feet at 0, the top of the head at 1.
+// The figures: each is one line round the body, the way a one-line contour
+// drawing goes: from the left hand along the top of the arm, over the
+// shoulder, up the neck and round the head, down and over the other
+// shoulder, out to the right hand and back under the arm, down the side,
+// round the legs (a loop at each foot) or under a dress, and up the other
+// side to the left hand again. In their own heights: feet at 0, the top of
+// the head at 1. The arms are worked out every frame, out to wherever the
+// hands are, so the body is kept apart from them.
 
-function loop(cx, cy, rx, ry, a0, turns, n) {
-  const pts = [];
-  for (let i = 0; i <= n; i++) {
-    const a = a0 + (i / n) * turns * TAU;
-    const k = 1 + 0.07 * (i / n); // a loop that doesn't quite close on itself
-    pts.push([cx + Math.cos(a) * rx * k, cy + Math.sin(a) * ry * k]);
-  }
-  return pts;
-}
-function line(pts, n) {
-  const out = [pts[0]];
-  for (let j = 1; j < pts.length; j++) {
-    const [ax, ay] = pts[j - 1];
-    const [bx, by] = pts[j];
-    for (let i = 1; i <= n; i++) out.push([mix(ax, bx, i / n), mix(ay, by, i / n)]);
-  }
-  return out;
-}
-function curve(a, c, b, n) {
+// Catmull-Rom through some points, for a soft line.
+function spline(ctrl, n) {
   const out = [];
-  for (let i = 0; i <= n; i++) {
-    const t = i / n;
-    const u = 1 - t;
-    out.push([u * u * a[0] + 2 * u * t * c[0] + t * t * b[0], u * u * a[1] + 2 * u * t * c[1] + t * t * b[1]]);
+  for (let i = 0; i < n; i++) {
+    const f = (i / (n - 1)) * (ctrl.length - 1);
+    const k = Math.min(ctrl.length - 2, Math.floor(f));
+    const t = f - k;
+    const p0 = ctrl[Math.max(0, k - 1)];
+    const p1 = ctrl[k];
+    const p2 = ctrl[k + 1];
+    const p3 = ctrl[Math.min(ctrl.length - 1, k + 2)];
+    out.push([0, 1].map((j) => 0.5 * (2 * p1[j] + (-p0[j] + p2[j]) * t + (2 * p0[j] - 5 * p1[j] + 4 * p2[j] - p3[j]) * t * t + (-p0[j] + 3 * p1[j] - 3 * p2[j] + p3[j]) * t * t * t)));
   }
   return out;
 }
+function arc(cx, cy, rx, ry, a0, a1, n) {
+  return Array.from({ length: n }, (_, i) => {
+    const a = mix(a0, a1, i / (n - 1));
+    return [cx + Math.cos(a) * rx, cy + Math.sin(a) * ry];
+  });
+}
+// A small loop where the pen turns, round a point.
+function loopAround(cx, cy, r, a0, turn, n) {
+  return Array.from({ length: n }, (_, i) => {
+    const a = a0 + turn * (i / (n - 1)) * TAU * 1.05;
+    return [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
+  });
+}
+const flipX = (pts) => pts.map(([x, y]) => [-x, y]).reverse();
 
-// The head is a loop drawn from under the chin, and (but for the person on
-// a sign) the pen carries on down into the body.
-const head = (n) => loop(0, 0.905, 0.066, 0.088, -Math.PI / 2 + 0.3, 1.08, n);
+// Shoulder top, armpit, waist and hips, by kind: broad and squared for the
+// man, narrow with a dress for the woman, in between for the person.
+const BUILD = {
+  man: { sh: [0.13, 0.748], pit: [0.092, 0.668], waist: [0.078, 0.51], hip: [0.088, 0.42] },
+  woman: { sh: [0.1, 0.748], pit: [0.074, 0.668], waist: [0.056, 0.535] },
+  person: { sh: [0.112, 0.748], pit: [0.084, 0.668], waist: [0.082, 0.51], hip: [0.088, 0.42] },
+};
 
-// `fine` is false for a figure far away: fewer turns of the pen, no tie.
-function shape(kind, fine) {
-  const n = fine ? 22 : 12;
-  const m = fine ? 5 : 2;
-  if (kind === 'man') {
-    const strokes = [
-      [...head(n), [0, 0.775]],
-      line([[-0.115, 0.75], [-0.09, 0.42], [0.09, 0.42], [0.115, 0.75], [-0.115, 0.75]], m),
-      line([[-0.055, 0.42], [-0.066, 0]], m),
-      line([[0.055, 0.42], [0.066, 0]], m),
+const bodies = new Map();
+function bodyOf(kind, fine) {
+  const key = `${kind}|${fine}`;
+  if (bodies.has(key)) return bodies.get(key);
+  const B = BUILD[kind] || BUILD.person;
+  const q = fine ? 1 : 0.5;
+  const N = (n) => Math.max(4, Math.round(n * q));
+  // Over the top: left shoulder, neck, the head round from the left, neck,
+  // (the man's tie), right shoulder.
+  const shoulder = spline([[-B.sh[0], B.sh[1]], [-B.sh[0] * 0.62, B.sh[1] + 0.03], [-0.03, 0.776]], N(8));
+  const neckL = spline([[-0.03, 0.776], [-0.026, 0.8], [-0.024, 0.818]], N(4)).slice(1);
+  const head = arc(0, 0.9, 0.062, 0.082, Math.PI * 1.36, -Math.PI * 0.41, N(30));
+  const neckR = spline([[0.022, 0.82], [0.026, 0.8], [0.03, 0.776]], N(4));
+  let tie = [];
+  if (kind === 'man' && fine) {
+    tie = [
+      ...spline([[0.03, 0.776], [0.012, 0.77], [0.004, 0.758]], 5),
+      ...loopAround(0.004, 0.746, 0.012, Math.PI / 2, -1, 12),
+      ...spline([[0.004, 0.735], [-0.02, 0.705], [-0.006, 0.62], [0, 0.585], [0.007, 0.62], [0.021, 0.705], [0.03, 0.772]], 16),
     ];
-    if (fine) strokes.push(line([[0, 0.75], [-0.024, 0.705], [0, 0.565], [0.024, 0.705], [0, 0.75]], 3));
-    return { strokes, sh: [[-0.112, 0.735], [0.112, 0.735]] };
   }
+  const top = [...shoulder, ...neckL, ...head, ...neckR, ...tie, ...flipX(shoulder)];
+  // Round the bottom, from the right armpit to the left one.
+  const foot = (x, side) => loopAround(x, 0.03, 0.02, side > 0 ? -Math.PI / 2 : -Math.PI / 2, side, N(12));
+  let low;
   if (kind === 'woman') {
-    return {
-      strokes: [
-        [...head(n), ...line([[0.004, 0.812], [0, 0.55]], m)],
-        [...line([[0, 0.56], [-0.165, 0.2]], m), ...curve([-0.165, 0.2], [0, 0.165], [0.165, 0.2], m * 2).slice(1), ...line([[0.165, 0.2], [0, 0.56]], m).slice(1)],
-        line([[-0.045, 0.19], [-0.06, 0]], m),
-        line([[0.045, 0.19], [0.06, 0]], m),
-      ],
-      sh: [[0, 0.73], [0, 0.73]],
-    };
+    const side = spline([[B.pit[0], B.pit[1]], [0.078, 0.6], [B.waist[0], B.waist[1]], [0.1, 0.42], [0.168, 0.2]], N(14));
+    const legR = [
+      ...spline([[0.168, 0.2], [0.11, 0.185], [0.062, 0.19], [0.056, 0.1], [0.052, 0.045]], N(10)),
+      ...foot(0.036, 1),
+      ...spline([[0.022, 0.045], [0.022, 0.12], [0.022, 0.188], [0, 0.18]], N(7)),
+    ];
+    low = [...side, ...legR, ...flipX(legR).slice(1), ...flipX(side)];
+  } else {
+    const side = spline([[B.pit[0], B.pit[1]], [B.waist[0] + 0.004, 0.59], [B.waist[0], B.waist[1]], [B.hip[0], B.hip[1]], [0.08, 0.23], [0.064, 0.05]], N(16));
+    const legR = [
+      ...side,
+      ...foot(0.044, 1),
+      ...spline([[0.024, 0.05], [0.026, 0.23], [0.012, 0.34], [0, 0.375]], N(9)),
+    ];
+    low = [...legR, ...flipX(legR).slice(1)];
   }
-  // Like the person on a sign: a round head on its own, and one line round
-  // the body and down and up the legs.
-  return {
-    strokes: [
-      loop(0, 0.9, 0.072, 0.076, -Math.PI / 2, 1.05, n),
-      [
-        ...line([[-0.07, 0], [-0.08, 0.4], [-0.105, 0.66]], m),
-        ...curve([-0.105, 0.66], [-0.105, 0.78], [0, 0.78], m).slice(1),
-        ...curve([0, 0.78], [0.105, 0.78], [0.105, 0.66], m).slice(1),
-        ...line([[0.105, 0.66], [0.08, 0.4], [0.07, 0], [0.022, 0], [0, 0.36], [-0.022, 0], [-0.07, 0]], m).slice(1),
-      ],
-    ],
-    sh: [[-0.1, 0.68], [0.1, 0.68]],
-  };
+  const b = { top, low, sh: [[-B.sh[0], B.sh[1]], [B.sh[0], B.sh[1]]], pit: [[-B.pit[0], B.pit[1]], [B.pit[0], B.pit[1]]] };
+  b.root = [0, 1].map((j) => [(b.sh[j][0] + b.pit[j][0]) / 2, (b.sh[j][1] + b.pit[j][1]) / 2]);
+  bodies.set(key, b);
+  return b;
 }
 
-// A figure's lines with its own hand-drawn shake, worked out once.
-const shapes = new Map();
-function figureLines(kind, fine, seed) {
-  const key = `${kind}|${fine}|${seed}`;
-  let f = shapes.get(key);
-  if (f) return f;
-  const base = shape(kind, fine);
-  const amp = 0.0055;
-  const strokes = base.strokes.map((pts, k) => pts.map((p, i) => {
+// Where an arm's root is, in the figure's own heights, for working out
+// where its hands meet the neighbours'.
+const armRoots = (kind) => bodyOf(kind, true).root;
+
+// The whole line on the page: `put` takes the figure's own heights to the
+// page; `hands` are where its hands are on the page (or null to hang
+// down); `hp` is its height there.
+function bodyLine(kind, fine, put, hands, hp) {
+  const b = bodyOf(kind, fine);
+  const sh = b.sh.map(put);
+  const pit = b.pit.map(put);
+  const root = b.root.map(put);
+  const hand = [0, 1].map((j) => hands[j] || [root[j][0] + (j ? 1 : -1) * 0.1 * hp, root[j][1] + 0.36 * hp]);
+  const n = fine ? 9 : 5;
+  // One edge of an arm, sagging a touch at the elbow.
+  const edge = (a, c, sag) => {
+    const m = [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2 + sag * hp];
+    return Array.from({ length: n }, (_, i) => {
+      const t = i / (n - 1);
+      const u = 1 - t;
+      return [u * u * a[0] + 2 * u * t * m[0] + t * t * c[0], u * u * a[1] + 2 * u * t * m[1] + t * t * c[1]];
+    });
+  };
+  const r = Math.max(1.1, 0.02 * hp);
+  const grip = (h, side) => loopAround(h[0], h[1] - r * 0.2, r, side > 0 ? Math.PI : 0, side, fine ? 12 : 7);
+  return [
+    ...edge(hand[0], sh[0], 0.03),
+    ...b.top.slice(1).map(put),
+    ...edge(sh[1], hand[1], 0.03).slice(1),
+    ...grip(hand[1], 1),
+    ...edge(hand[1], pit[1], 0.045).slice(1),
+    ...b.low.slice(1).map(put),
+    ...edge(pit[0], hand[0], 0.045).slice(1),
+    ...grip(hand[0], -1),
+  ];
+}
+
+// The line's hand-drawn shake: the same for the same figure every frame.
+function shake(pts, seed, amp) {
+  const n = pts.length;
+  return pts.map((p, i) => {
     const a = pts[Math.max(0, i - 1)];
-    const b = pts[Math.min(pts.length - 1, i + 1)];
+    const b = pts[Math.min(n - 1, i + 1)];
     const dx = b[0] - a[0];
     const dy = b[1] - a[1];
     const l = Math.hypot(dx, dy) || 1;
-    const o = amp * noise(seed * 0.37 + k * 5.1 + i * 0.45);
+    const o = amp * noise(seed * 0.37 + i * 0.13);
     return [p[0] - (dy / l) * o, p[1] + (dx / l) * o];
-  }));
-  f = { strokes, sh: base.sh };
-  if (shapes.size > 400) shapes.clear();
-  shapes.set(key, f);
-  return f;
+  });
 }
 
 // The same figures as SVG, standing still with their arms down: for the
 // picker when adding someone. In a 0 0 60 100 box.
 export function figureSVG(kind, cls = '') {
-  const f = figureLines(kind, true, 11);
-  const P = ([x, y]) => `${(30 + x * 92).toFixed(1)} ${(96 - y * 92).toFixed(1)}`;
-  const arms = f.sh.map(([x, y], i) => {
-    const s = i ? 1 : -1;
-    return [[x, y], [x + s * 0.07, y - 0.2], [x + s * 0.1, y - 0.38]];
-  });
-  const d = [...f.strokes, ...arms].map((pts) => `M${pts.map(P).join('L')}`).join('');
+  const hp = 92;
+  const put = ([x, y]) => [30 + x * hp, 96 - y * hp];
+  const pts = shake(bodyLine(kind, true, put, [null, null], hp), 11, 0.35);
+  const d = `M${pts.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join('L')}`;
   return `<svg class="${cls}" viewBox="0 0 60 100" aria-hidden="true"><path d="${d}"/></svg>`;
 }
 
@@ -490,6 +535,8 @@ function draw() {
   const paper = cs.getPropertyValue('--bg').trim() || '#fff';
   const dark = lightness(paper) < 0.4;
   const textInk = cs.getPropertyValue('--text').trim() || ink;
+  // Warmth by colour (the size says it too, and the key above).
+  const colours = Object.fromEntries(['client', 'active', 'warm', 'cold', 'parked', 'none'].map((k) => [k, cs.getPropertyValue(`--w-${k}`).trim() || ink]));
   const v = view();
   const sway = reduced.matches ? 0 : 0.03 * Math.sin(st.t * 1.25);
   const sBack = EYE / (EYE + (2 * st.ring) / TAU);
@@ -506,9 +553,9 @@ function draw() {
     // Out of the circle past the back (a long list): fade at the seam.
     const fade = st.ring < st.len ? clamp((half - Math.abs(d)) / (half * 0.18), 0, 1) : 1;
     const lean = clamp(sway + st.lean * Math.cos(p.ph), -0.4, 0.4);
-    const fig = figureLines(it.figure || 'person', hp > 70, it.seed);
+    const kind = it.figure || 'person';
     const put = ([fx, fy]) => [p.x + (fx + lean * fy * (0.55 + 0.45 * fy)) * hp, p.y - fy * hp];
-    on.push({ it, i, d, p, hp, fade, fig, put, sh: fig.sh.map(put) });
+    on.push({ it, i, d, p, hp, fade, kind, put, sh: armRoots(kind).map(put), hands: [null, null] });
   });
   const byIndex = new Map(on.map((o) => [o.i, o]));
   const n = st.items.length;
@@ -518,8 +565,8 @@ function draw() {
     const nb = byIndex.get((o.i + 1) % n);
     if (!nb || (st.ring < st.len && nb.d < o.d)) continue;
     const hand = handBetween(o.sh[1], ARM * o.hp, nb.sh[0], ARM * nb.hp);
-    o.right = hand;
-    nb.left = hand;
+    o.hands[1] = hand;
+    nb.hands[0] = hand;
   }
 
   on.sort((a, b) => a.p.s - b.p.s);
@@ -528,32 +575,23 @@ function draw() {
   for (const o of on) {
     const { it, p, hp } = o;
     const path = new Path2D();
-    for (const pts of o.fig.strokes) trace(path, pts.map(o.put));
-    // Arms, with a little sag at the elbow; a free hand hangs down.
-    o.sh.forEach((s, j) => {
-      const side = j ? 1 : -1;
-      const hand = (j ? o.right : o.left) || [s[0] + side * 0.12 * hp, s[1] + 0.38 * hp];
-      const mx = (s[0] + hand[0]) / 2;
-      const my = (s[1] + hand[1]) / 2 + 0.025 * hp;
-      trace(path, [s, [mx, my], hand]);
-      if (j ? o.right : o.left) {
-        const r = Math.max(1, 0.014 * hp);
-        path.moveTo(hand[0] + r, hand[1]);
-        path.arc(hand[0], hand[1], r, 0, TAU);
-      }
-    });
+    trace(path, shake(bodyLine(o.kind, hp > 70, o.put, o.hands, hp), it.seed, clamp(0.006 * hp, 0.25, 1.4)));
     const near = clamp((p.s - sBack) / (1 - sBack), 0, 1);
-    const lw = Math.max(0.8, 2.2 * Math.pow(p.s, 0.7));
+    const lw = Math.max(0.8, 2.1 * Math.pow(p.s, 0.7));
+    ctx.setLineDash([]);
     ctx.globalAlpha = o.fade;
     ctx.strokeStyle = paper;
     ctx.lineWidth = lw + 2 + 3 * p.s;
     ctx.stroke(path);
-    ctx.globalAlpha = o.fade * mix(dark ? 0.7 : 0.45, 1, near) * (it.ghost ? (dark ? 0.5 : 0.33) : 1);
-    ctx.strokeStyle = ink;
+    ctx.globalAlpha = o.fade * mix(dark ? 0.7 : 0.45, 1, near) * (it.ghost ? (dark ? 0.45 : 0.3) : 1);
+    ctx.strokeStyle = it.ghost ? colours.none : colours[it.warmth] || ink;
     ctx.lineWidth = lw;
+    // Parked: a broken line, like its badge.
+    if (it.warmth === 'parked' && !it.ghost) ctx.setLineDash([5 * p.s + 1, 4 * p.s + 1]);
     ctx.stroke(path);
+    ctx.setLineDash([]);
     if (!it.ghost && o.fade > 0.5) {
-      const half2 = Math.max(18, 0.16 * hp);
+      const half2 = Math.max(18, 0.18 * hp);
       st.hits.push({ id: it.id, s: p.s, x0: p.x - half2, x1: p.x + half2, y0: p.y - hp * 1.02, y1: p.y + FEET * p.s });
     }
   }

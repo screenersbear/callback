@@ -18,6 +18,30 @@ const REST_YAW = -0.32; // at rest it looks a little to the left, not at you
 const REST_PITCH = 0.24; // and tips its chin up a little, as if thinking
 const SKY = 0.57; // bubble heights (SLOTS) are given against this much sky
 const BUB = { rx: 0.16, ry: 0.1 }; // a bubble's size, in stage widths
+// Turning it by hand: only so far each way, and against a little give.
+const SPIN_L = 0.85;
+const SPIN_R = 1.25;
+const softSpin = (raw) => (raw < 0 ? SPIN_L * Math.tanh(raw / SPIN_L) : SPIN_R * Math.tanh(raw / SPIN_R));
+const rawSpin = (v) => (v < 0 ? SPIN_L * Math.atanh(clamp(v / SPIN_L, -0.999, 0)) : SPIN_R * Math.atanh(clamp(v / SPIN_R, 0, 0.999)));
+
+// How the buddy looks, picked by tapping its face (kept on this device):
+// the one hair it started with, or short hair, a ponytail or shoulder
+// length hair, on a man's face or a woman's.
+export const BUDDIES = [
+  { key: 'tuft', face: 'man', hair: 'tuft', label: 'One hair' },
+  { key: 'man-short', face: 'man', hair: 'short', label: 'Short' },
+  { key: 'man-pony', face: 'man', hair: 'ponytail', label: 'Ponytail' },
+  { key: 'man-long', face: 'man', hair: 'shoulder', label: 'Shoulder length' },
+  { key: 'woman-short', face: 'woman', hair: 'short', label: 'Short' },
+  { key: 'woman-pony', face: 'woman', hair: 'ponytail', label: 'Ponytail' },
+  { key: 'woman-long', face: 'woman', hair: 'shoulder', label: 'Shoulder length' },
+];
+const BUDDY_KEY = 'callback.buddy';
+function readBuddy() {
+  let k = 'tuft';
+  try { k = localStorage.getItem(BUDDY_KEY) || k; } catch { /* this device only */ }
+  return BUDDIES.find((b) => b.key === k) || BUDDIES[0];
+}
 
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -86,6 +110,42 @@ function insideHead(p) {
   return l < Math.hypot(...surf(th, ph)) * 0.995;
 }
 
+// Hair adds to the outline: points over the scalp a little out from the
+// skin (clear of the face), and for shoulder length a fall of hair round
+// the back and sides down past the jaw.
+const HAIR_HULL = new Map();
+function hairHull(hair) {
+  if (HAIR_HULL.has(hair)) return HAIR_HULL.get(hair);
+  const pts = [];
+  if (hair && hair !== 'tuft') {
+    const vol = hair === 'shoulder' ? 0.1 : hair === 'ponytail' ? 0.045 : 0.075;
+    for (let j = 0; j <= 14; j++) {
+      const ph = mix(0.05, Math.PI / 2, j / 14);
+      for (let i = 0; i < 40; i++) {
+        const th = (i / 40) * TAU - Math.PI;
+        if (Math.cos(th) > 0.25 && ph < 0.62) continue;
+        const bump = hair === 'short' ? 0.05 * Math.abs(Math.sin(th * 6 + ph * 9)) : 0;
+        const p = surf(th, ph);
+        const k = 1 + vol + bump;
+        pts.push([p[0] * k, p[1] * k, p[2] * k]);
+      }
+    }
+    if (hair === 'shoulder') {
+      for (let j = 0; j <= 12; j++) {
+        const f = j / 12;
+        const y = mix(0.1, -1.3, f);
+        const rr = 1.1 - 0.08 * f + (f > 0.85 ? 0.08 : 0);
+        for (let i = 0; i <= 22; i++) {
+          const th = mix(1.12, TAU - 1.12, i / 22);
+          pts.push([Math.sin(th) * rr, y, Math.cos(th) * rr * 0.95]);
+        }
+      }
+    }
+  }
+  HAIR_HULL.set(hair, pts);
+  return pts;
+}
+
 // Points all over the skin, for the outline.
 const SKIN = (() => {
   const pts = [];
@@ -132,12 +192,29 @@ function curl(u, v, dir, r, turn = 1, n = 14) {
 }
 const heading = (a, b) => Math.atan2(b[1] - a[1], b[0] - a[0]);
 
+// Where the outline leaves the neck: one long loop, drawn the way the pen
+// carries on, so the neck line runs on through it into the jaw.
+function coil(u, v, dir, R) {
+  const turn = -1;
+  const e1 = [Math.cos(dir), Math.sin(dir)];
+  const e2 = [Math.cos(dir + (turn * Math.PI) / 2), Math.sin(dir + (turn * Math.PI) / 2)];
+  const rl = R * 0.15;
+  const rw = R * 0.07;
+  const drift = R * 0.06;
+  return Array.from({ length: 26 }, (_, i) => {
+    const b = ((i + 1) / 26) * TAU;
+    const a1 = rl * Math.sin(b) + (drift * b) / TAU;
+    const a2 = rw * (1 - Math.cos(b));
+    return [u + e1[0] * a1 + e2[0] * a2, v + e1[1] * a1 + e2[1] * a2];
+  });
+}
+
 // Every line of the head for one expression, in the head's own space, kept
 // to a few strokes the way a single-line drawing goes: they run from one
 // feature into the next and loop where the pen turns. Points are [th, ph, off, kind]:
 // 'skin' hides when it faces away; 'out' (ears, nose, tuft) hides when it's
 // behind the head or inside it.
-function headLines(ex) {
+function headLines(ex, style = BUDDIES[0]) {
   const L = [];
   const stroke = (pts, o = {}) => {
     const n = pts.length;
@@ -151,7 +228,7 @@ function headLines(ex) {
   const off = (pts, o, k) => pts.map(([u, v]) => [u, v, o, k]);
 
   // A tuft that loops once, like the top of a quickly drawn rose.
-  {
+  if (style.hair === 'tuft') {
     const B = surf(0.15, 1.28);
     const up = normalAt(0.15, 1.28);
     const sd = [1 - up[0] * up[0], -up[0] * up[1], -up[0] * up[2]];
@@ -160,6 +237,62 @@ function headLines(ex) {
     const rise = range(6, (t) => [0.03 * t, 0.14 * t]);
     const top = rise[5];
     free([...rise, ...curl(...top, heading(rise[4], top), 0.05, 1, 16), [0.075, 0.175], [0.12, 0.15]].map(at), { w: 1.9, waves: 1.5 });
+  }
+
+  // Hair: a hairline over the forehead from temple to temple, and what
+  // makes each style.
+  if (style.hair !== 'tuft') {
+    const hl = style.hair === 'ponytail' ? 0.72 : 0.62;
+    const lift = style.hair === 'shoulder' ? 0.1 : 0.06;
+    if (style.hair === 'short') {
+      // A choppy fringe: the hairline zigzags down onto the forehead.
+      stroke(off(range(40, (t) => {
+        const th = mix(-1.3, 1.15, t);
+        return [th, hl + 0.03 - 0.16 * (th / 1.3) ** 2 - 0.085 * Math.abs(Math.sin(t * Math.PI * 7))];
+      }), lift), { w: 1.9, waves: 1 });
+    } else {
+      stroke(off(range(28, (t) => {
+        const th = mix(-1.38, 1.38, t);
+        return [th, hl - 0.2 * (th / 1.38) ** 2 + 0.012 * Math.sin(t * 11)];
+      }), lift), { w: 1.9, waves: 2 });
+    }
+    if (style.hair === 'ponytail') {
+      // Pulled back over the top, tied high with a loop, and the tail
+      // falling away down the side it's turned from.
+      for (const th0 of [-0.32, 0.3]) stroke(off(range(12, (t) => [th0 * (1 - 0.7 * t), mix(hl + 0.03, 1.42, t)]), 0.05), { w: 1.6, waves: 1.2 });
+      const S = onHead(Math.PI - 0.35, 1.2, 0.18).p;
+      const tie = range(14, (t) => {
+        const a = -Math.PI / 2 + t * TAU * 1.1;
+        return [S[0] + 0.075 * Math.cos(a), S[1] + 0.075 * Math.sin(a), S[2]];
+      });
+      // The tail as one long thin loop: out along the top, back along the
+      // bottom, narrow at the tie and at the tip.
+      const c1 = [S[0] + 0.55, S[1] + 0.22, S[2] - 0.08];
+      const c2 = [S[0] + 1.2, S[1] - 0.35, S[2] - 0.08];
+      const E = [S[0] + 0.95, S[1] - 1.2, S[2]];
+      const mid = range(26, (t) => bez(S, c1, c2, E, t));
+      const edge = (sgn) => mid.map((p, i) => {
+        const a = mid[Math.max(0, i - 1)];
+        const b = mid[Math.min(mid.length - 1, i + 1)];
+        const dx = b[0] - a[0];
+        const dy = b[1] - a[1];
+        const l = Math.hypot(dx, dy) || 1;
+        const t = i / (mid.length - 1);
+        const wd = 0.1 * Math.sin(Math.PI * Math.min(1, t * 1.05)) ** 0.7 + 0.012 * Math.sin(t * 19);
+        return [p[0] - (dy / l) * wd * sgn, p[1] + (dx / l) * wd * sgn, p[2]];
+      });
+      free([...tie, ...edge(1), ...edge(-1).reverse()], { w: 1.9, waves: 2 });
+    }
+    if (style.hair === 'shoulder') {
+      // A lock each side of the face, down past the jaw, flicking out.
+      for (const side of [-1, 1]) {
+        const a = onHead(side * 1.3, 0.42, 0.1).p;
+        const b = onHead(side * 1.18, -0.3, 0.16).p;
+        const c = [side * 0.98, -1.05, 0.46];
+        const d = [side * 1.16, -1.3, 0.34];
+        free([...range(16, (t) => bez(a, b, c, d, t)), [d[0] + side * 0.06, d[1] + 0.06, d[2]]], { w: 1.9, waves: 2 });
+      }
+    }
   }
 
   // Ears: the rim round the outside, then a hook back into the middle, like
@@ -193,6 +326,13 @@ function headLines(ex) {
       pts = [...range(13, (s) => lid(1 - s, false)), ...flick];
     }
     stroke(off(pts, 0.006), { w: 1.9, waves: 1.2 });
+    // Hers has lashes at the outer corner.
+    if (style.face === 'woman' && ex.open > 0.12) {
+      for (const [k, s] of [[0, 0.06], [1, 0.2], [2, 0.34]]) {
+        const [u, v] = lid(s, true);
+        stroke(off([[u, v], [u + side * (0.06 - k * 0.012), v + 0.075 + k * 0.01]], 0.01), { w: 1.5, waves: 0.4 });
+      }
+    }
   }
 
   // Brows. The right one runs on down the side of the nose to its tip and
@@ -232,6 +372,11 @@ function headLines(ex) {
     const e = m[17];
     const pts = [m[0], ...curl(...m[0], heading(m[0], m[1]), 0.03, 1, 12), ...m.slice(1), [e[0] + 0.025, e[1] + 0.02], [e[0] + 0.03, e[1] + 0.045]];
     stroke(off(pts, 0.008), { w: 2, waves: 1.5 });
+    // Hers has a fuller lower lip.
+    if (style.face === 'woman') {
+      const low = m[9][1];
+      stroke(off(range(12, (t) => [(t - 0.5) * width * 0.5, low - 0.06 - 0.06 * Math.sin(Math.PI * t)]), 0.01), { w: 1.8, waves: 0.8 });
+    }
   }
 
   // Worry lines on the forehead, and a drop of sweat when it's a lot.
@@ -417,6 +562,9 @@ const st = {
   joy: 1,
   spin: 0,
   spinV: 0,
+  spinGoal: 0,
+  style: readBuddy(),
+  onFace: null,
   tilt: 0,
   tiltV: 0,
   drag: null,
@@ -453,7 +601,7 @@ const SLOTS = {
 function build() {
   const el = document.createElement('div');
   el.className = 'mind';
-  el.innerHTML = '<svg class="mind-ink" aria-hidden="true"></svg><div class="mind-head" role="img"></div>';
+  el.innerHTML = '<svg class="mind-ink" aria-hidden="true"></svg><div class="mind-head" role="button" tabindex="0"></div>';
   st.el = el;
   st.svg = el.querySelector('svg');
   st.hit = el.querySelector('.mind-head');
@@ -499,7 +647,7 @@ function geom() {
 // it. A tap without a drag gets a little bounce.
 function wireHead(hit) {
   hit.addEventListener('pointerdown', (e) => {
-    st.drag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, spin0: st.spin, tilt0: st.tilt, moved: false, lx: e.clientX, lt: performance.now(), v: 0 };
+    st.drag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, raw0: rawSpin(st.spin), moved: false };
     kick();
   });
   hit.addEventListener('pointermove', (e) => {
@@ -512,29 +660,30 @@ function wireHead(hit) {
       try { hit.setPointerCapture(e.pointerId); } catch { /* fine without */ }
     }
     if (!d.moved) return;
-    const k = Math.PI / (geom().R * 2);
-    st.spin = d.spin0 + dx * k;
-    st.tilt = clamp(d.tilt0 - dy * k * 0.8, -0.95, 0.5);
-    const now = performance.now();
-    const dt = Math.max(1, now - d.lt) / 1000;
-    d.v = mix(d.v, ((e.clientX - d.lx) * k) / dt, 0.5);
-    d.lx = e.clientX;
-    d.lt = now;
+    // Left and right only, slower than the finger, and harder the further
+    // it goes; let go and it turns back.
+    const k = (Math.PI / (geom().R * 2)) * 0.5;
+    st.spinGoal = softSpin(d.raw0 + dx * k);
     kick();
   });
   const end = (e) => {
     const d = st.drag;
     if (!d || d.id !== e.pointerId) return;
     st.drag = null;
-    if (d.moved) {
-      st.spinV = performance.now() - d.lt < 80 ? clamp(d.v, -25, 25) : 0;
-      st.tiltV = 0;
+    if (!d.moved && e.type === 'pointerup') {
+      st.boop = st.t;
+      if (st.onFace) st.onFace();
     }
-    else if (e.type === 'pointerup') st.boop = st.t;
     kick();
   };
   hit.addEventListener('pointerup', end);
   hit.addEventListener('pointercancel', end);
+  hit.addEventListener('keydown', (e) => {
+    if ((e.key === 'Enter' || e.key === ' ') && st.onFace) {
+      e.preventDefault();
+      st.onFace();
+    }
+  });
 }
 
 function newBubble(d, i) {
@@ -597,18 +746,40 @@ function update({ bubbles = [], pending = 0 } = {}) {
   }
   st.first = false;
   st.hit.setAttribute('aria-label', st.total
-    ? `A hand-drawn face, ${pending >= 6 ? 'worried' : 'a little concerned'}: ${st.total} ${st.total === 1 ? 'thing is' : 'things are'} waiting. The bubbles above it open them.`
-    : 'A hand-drawn face, smiling: nothing is waiting.');
+    ? `A hand-drawn face, ${pending >= 6 ? 'worried' : 'a little concerned'}: ${st.total} ${st.total === 1 ? 'thing is' : 'things are'} waiting. The bubbles above it open them. Tap the face to change how it looks.`
+    : 'A hand-drawn face, smiling: nothing is waiting. Tap it to change how it looks.');
   layout();
 }
 
-export function mountMind(slot, data, { onOpen } = {}) {
+export function mountMind(slot, data, { onOpen, onFace } = {}) {
   if (!st.el) build();
   st.onOpen = onOpen;
+  st.onFace = onFace;
   slot.appendChild(st.el);
   resize();
   update(data);
   kick();
+}
+
+// The buddy's look, and a still picture of each for the picker: turned
+// as it rests, a calm half smile.
+export const buddyStyle = () => st.style;
+export function setBuddy(key) {
+  const b = BUDDIES.find((x) => x.key === key);
+  if (!b) return;
+  st.style = b;
+  try { localStorage.setItem(BUDDY_KEY, b.key); } catch { /* this device only */ }
+  if (st.el) { draw(); kick(); }
+}
+export function buddySVG(key) {
+  const style = BUDDIES.find((x) => x.key === key) || BUDDIES[0];
+  const parts = [];
+  const out = (d, { w = 2, op = 1 } = {}) => { if (d) parts.push(`<path d="${d}" stroke-width="${w}"${op < 1 ? ` opacity="${op}"` : ''}/>`); };
+  const boil = st.boil;
+  st.boil = 0;
+  drawHead(out, { R: 30, hx: 50, hy: 54, yaw: REST_YAW, pitch: REST_PITCH, roll: 0, squash: 0, bottom: 102, style, ex: { worry: 0, joy: 0.35, open: 0.6, lookU: 0, lookV: 0 } });
+  st.boil = boil;
+  return `<svg class="buddy-pic" viewBox="0 0 100 100" aria-hidden="true">${parts.join('')}</svg>`;
 }
 
 // For tests: move time on by hand (a hidden test browser runs no frames).
@@ -636,7 +807,7 @@ function frame(now) {
   st.last = now;
   step(dt);
   // Moving things get every frame; a head just idling gets about 25.
-  const busy = st.drag || Math.abs(st.spinV) > 0.05 || Math.abs(st.tilt) > 0.002 || [...st.bubbles.values()].some((b) => b.state !== 'on' || b.wob > 0.01);
+  const busy = st.drag || Math.abs(st.spinV) > 0.05 || Math.abs(st.spin) > 0.002 || Math.abs(st.tilt) > 0.002 || [...st.bubbles.values()].some((b) => b.state !== 'on' || b.wob > 0.01);
   if (busy || now - st.lastDraw > 40) {
     st.lastDraw = now;
     draw();
@@ -664,21 +835,12 @@ function step(dt) {
     st.sparkle = t;
   }
 
-  // Spinning by hand: it keeps going a moment, then turns back to face you.
-  if (!st.drag) {
-    if (Math.abs(st.spinV) > 2) {
-      st.spin += st.spinV * dt;
-      st.spinV *= Math.exp(-2.4 * dt);
-    } else {
-      const home = Math.round(st.spin / TAU) * TAU;
-      st.spinV += (-26 * (st.spin - home) - 9 * st.spinV) * dt;
-      st.spin += st.spinV * dt;
-      if (Math.abs(st.spin - home) < 1e-4 && Math.abs(st.spinV) < 1e-3) {
-        st.spin = 0;
-        st.spinV = 0;
-      }
-    }
-  }
+  // Turned by hand it follows the finger a little behind; let go and it
+  // eases back to where it rests.
+  const spinTo = st.drag && st.drag.moved ? st.spinGoal : 0;
+  st.spinV += (-(st.drag ? 40 : 14) * (st.spin - spinTo) - (st.drag ? 12 : 7.5) * st.spinV) * dt;
+  st.spin += st.spinV * dt;
+  if (!st.drag && Math.abs(st.spin) < 1e-4 && Math.abs(st.spinV) < 1e-3) st.spin = st.spinV = 0;
   if (!st.drag) {
     st.tiltV += (-30 * st.tilt - 10 * st.tiltV) * dt;
     st.tilt += st.tiltV * dt;
@@ -763,11 +925,52 @@ function draw() {
   const g = geom();
   const R = g.R * (1 + (calm ? 0 : 0.003 * Math.sin(t * 1.6)));
   const { hx, hy, sky } = g;
-  const yaw = st.spin + st.lookYaw;
-  const pitch = st.lookPitch + st.tilt;
   const bt = t - st.boop;
   const squash = bt < 0.5 ? 0.06 * Math.sin(bt * 18) * Math.exp(-bt * 7) : 0;
   const roll = (calm ? 0 : st.joy * 0.025 * Math.sin(t * 0.55)) + (bt < 0.8 ? 0.08 * Math.sin(bt * 14) * Math.exp(-bt * 5) : 0);
+  // Everything on and around the head.
+  const blink = st.blinkFrom >= 0 && t - st.blinkFrom < 0.18 ? Math.abs(Math.cos(((t - st.blinkFrom) / 0.18) * Math.PI)) : 1;
+  const yawT = st.glance ? st.lookYaw : 0;
+  const ex = {
+    worry: st.worry,
+    joy: st.joy,
+    open: (1 - st.joy) * mix(0.55, 1, st.worry) * blink,
+    lookU: st.glance ? clamp(yawT * 1.2, -1, 1) : 0,
+    lookV: st.glance ? clamp(st.lookPitch * 1.6, -1, 1) : 0,
+  };
+  drawHead(put, { R, hx, hy, yaw: st.spin + st.lookYaw, pitch: st.lookPitch + st.tilt, roll, squash, bottom: st.h + 2, style: st.style, ex });
+
+  // Sparkles, the moment the last bubble goes.
+  const sp = t - st.sparkle;
+  if (sp < 1.6) {
+    for (let i = 0; i < 5; i++) {
+      const a = -Math.PI / 2 + (i - 2) * 0.62;
+      const life = clamp((sp - i * 0.08) / 1.2, 0, 1);
+      if (life <= 0 || life >= 1) continue;
+      const k = Math.sin(life * Math.PI);
+      const cx = hx + Math.cos(a) * R * (1.45 + life * 0.25);
+      const cy = hy + Math.sin(a) * R * (1.45 + life * 0.25);
+      const s = 7 * k;
+      put(`M${r1(cx - s)} ${r1(cy)}L${r1(cx + s)} ${r1(cy)}M${r1(cx)} ${r1(cy - s)}L${r1(cx)} ${r1(cy + s)}`, { w: 1.6, op: r1(k) });
+    }
+  }
+
+  // The bubbles, each with a looping trail down to the head.
+  // Trails first, then the clouds over them, so a trail running up behind
+  // another bubble goes under it.
+  for (const pass of [0, 1]) for (const key of [...st.bubbles.keys()]) drawBubble(st.bubbles.get(key), { w, R, hx, hy, sky }, pass);
+
+  for (let i = st.used; i < st.pool.length; i++) {
+    const p = st.pool[i];
+    if (p._.d !== '') { p.setAttribute('d', ''); p._.d = ''; }
+  }
+}
+
+// The head itself, into `out` (the page's pool of lines, or a picture of
+// it for the picker): where it is, which way it's turned, its look and
+// its face.
+function drawHead(out, P) {
+  const { R, hx, hy, yaw, pitch, roll, squash, style, ex } = P;
   const C = { cy: Math.cos(yaw), sy: Math.sin(yaw), cp: Math.cos(pitch), sp: Math.sin(pitch), cr: Math.cos(roll), sr: Math.sin(roll) };
   const rot = (p) => {
     const x1 = p[0] * C.cy + p[2] * C.sy;
@@ -785,17 +988,17 @@ function draw() {
   // loop where it leaves it, round the head and over the top, then (below)
   // it swings in to become the right brow and the nose, all one line. The
   // right side, the jaw and the chin are left open.
-  const skin = hull(SKIN.map((p) => scr(rot(p))));
+  const skin = hull([...SKIN, ...hairHull(style.hair)].map((p) => scr(rot(p))));
   const cont = contour(skin, hx, R);
   let way;
   let swingOK = true;
   let upPart = null;
   let arc = null;
   if (cont) {
-    const bottom = st.h + 2;
+    const bottom = P.bottom;
     const [lx, ly] = cont.L;
     const up = [[lx - R * 0.06, bottom], [lx - R * 0.03, mix(bottom, ly, 0.5)], [lx, ly]];
-    const loopPts = curl(lx, ly - R * 0.02, heading(up[1], up[2]), R * 0.075, -1, 16);
+    const loopPts = coil(lx, ly - R * 0.02, heading(up[1], up[2]), R);
     const head = resampleOpen(cont.head, 3.2);
     // Turned to show its right profile, the line carries on down that side
     // so the face has an edge to sit on.
@@ -831,22 +1034,12 @@ function draw() {
       }
       pts.push(...more);
     }
-    put(inkPath(pts, 1.7, 2.5, 0.8), { w: 2.1 });
+    out(inkPath(pts, 1.7, 2.5, 0.8), { w: 2.1 });
     wayDone = true;
   };
 
-  // Everything on and around the head.
-  const blink = st.blinkFrom >= 0 && t - st.blinkFrom < 0.18 ? Math.abs(Math.cos(((t - st.blinkFrom) / 0.18) * Math.PI)) : 1;
-  const yawT = st.glance ? st.lookYaw : 0;
-  const ex = {
-    worry: st.worry,
-    joy: st.joy,
-    open: (1 - st.joy) * mix(0.55, 1, st.worry) * blink,
-    lookU: st.glance ? clamp(yawT * 1.2, -1, 1) : 0,
-    lookV: st.glance ? clamp(st.lookPitch * 1.6, -1, 1) : 0,
-  };
   let joinRun = null;
-  for (const line of headLines(ex)) {
+  for (const line of headLines(ex, style)) {
     const pts = line.pts.map((s) => {
       const r = rot(s.p);
       const [x, y] = scr(r);
@@ -870,10 +1063,10 @@ function draw() {
       if (run.length > 1) {
         let len = 0;
         for (let i = 1; i < run.length; i++) len += Math.hypot(run[i][0] - run[i - 1][0], run[i][1] - run[i - 1][1]);
-        if (len < 5) { run = []; return; } // no specks where a line turns away
+        if (len < Math.max(1.2, R * 0.045)) { run = []; return; } // no specks where a line turns away
         // The brow-and-nose line waits: the outline may run on into it.
         if (line.join && from === 0 && !joinRun) joinRun = { run, line, op };
-        else put(inkPath(run, line.seed, line.waves, 0.7), { w: line.w, op: r1(op) });
+        else out(inkPath(run, line.seed, line.waves, 0.7), { w: line.w, op: r1(op) });
       }
       run = [];
     };
@@ -900,33 +1093,10 @@ function draw() {
   }
   const swung = wayDone;
   if (!wayDone && way.length > 1) drawWay();
-  if (joinRun && !swung) put(inkPath(joinRun.run, joinRun.line.seed, joinRun.line.waves, 0.7), { w: joinRun.line.w, op: r1(joinRun.op) });
+  if (joinRun && !swung) out(inkPath(joinRun.run, joinRun.line.seed, joinRun.line.waves, 0.7), { w: joinRun.line.w, op: r1(joinRun.op) });
 
-  // Sparkles, the moment the last bubble goes.
-  const sp = t - st.sparkle;
-  if (sp < 1.6) {
-    for (let i = 0; i < 5; i++) {
-      const a = -Math.PI / 2 + (i - 2) * 0.62;
-      const life = clamp((sp - i * 0.08) / 1.2, 0, 1);
-      if (life <= 0 || life >= 1) continue;
-      const k = Math.sin(life * Math.PI);
-      const cx = hx + Math.cos(a) * R * (1.45 + life * 0.25);
-      const cy = hy + Math.sin(a) * R * (1.45 + life * 0.25);
-      const s = 7 * k;
-      put(`M${r1(cx - s)} ${r1(cy)}L${r1(cx + s)} ${r1(cy)}M${r1(cx)} ${r1(cy - s)}L${r1(cx)} ${r1(cy + s)}`, { w: 1.6, op: r1(k) });
-    }
-  }
-
-  // The bubbles, each with a looping trail down to the head.
-  // Trails first, then the clouds over them, so a trail running up behind
-  // another bubble goes under it.
-  for (const pass of [0, 1]) for (const key of [...st.bubbles.keys()]) drawBubble(st.bubbles.get(key), { w, R, hx, hy, sky }, pass);
-
-  for (let i = st.used; i < st.pool.length; i++) {
-    const p = st.pool[i];
-    if (p._.d !== '') { p.setAttribute('d', ''); p._.d = ''; }
-  }
 }
+
 
 // A cloud in one go: big arcs out, with a little loop where each one turns
 // into the next, and the line running on a bit past where it started.

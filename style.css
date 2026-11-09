@@ -2361,3 +2361,56 @@ html:has(.ring-wrap) { background: var(--bg); }
 .fig-seg .seg-option span { flex-direction: column; gap: 2px; padding: 8px 4px 6px; }
 .fig-pic { width: 34px; height: 56px; display: block; overflow: visible; }
 .fig-pic path { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Tapping the buddy on Today: how it looks. */
+.buddy-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 4px 0 16px; }
+.buddy-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: var(--surface);
+  border: 2px solid var(--line);
+  padding: 6px 2px 8px;
+  color: var(--hero);
+  font-family: var(--font-hand);
+  font-size: 15px;
+  cursor: pointer;
+}
+.buddy-option span { color: var(--text); line-height: 1.05; text-align: center; }
+.buddy-option.is-on { border: 3px solid var(--ink); padding: 5px 1px 7px; box-shadow: inset 0 -5px 0 var(--accent); }
+.buddy-option:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.buddy-pic { width: 100%; max-width: 78px; aspect-ratio: 1; display: block; overflow: visible; }
+.buddy-pic path { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+.mind-head:focus-visible { outline: 2px dashed var(--hero); outline-offset: 4px; border-radius: 50%; }
+
+/* Warmth by colour, for the people drawn on People (with their size and a
+   key above them). */
+:root { --w-client: #12850f; --w-active: #d29b00; --w-warm: #e2621b; --w-cold: #2f6fc4; --w-parked: #8a949a; --w-none: #9aa3a8; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --w-client: #3dbb36; --w-active: #ffd103; --w-warm: #ff8a3d; --w-cold: #6ea6f5; --w-parked: #7f8b92; --w-none: #6c7880; }
+}
+:root[data-theme="dark"] { --w-client: #3dbb36; --w-active: #ffd103; --w-warm: #ff8a3d; --w-cold: #6ea6f5; --w-parked: #7f8b92; --w-none: #6c7880; }
+.ring-wrap { position: relative; }
+.ring-key {
+  position: absolute;
+  top: 6px;
+  left: 16px;
+  right: 16px;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px 14px;
+  pointer-events: none;
+  font-family: var(--font-hand);
+  font-size: 15px;
+  color: var(--text);
+}
+.ring-key-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.ring-key-dot { width: 14px; height: 4px; border-radius: 2px; display: block; background: var(--w-none); }
+.ring-key-dot.is-client { background: var(--w-client); }
+.ring-key-dot.is-active { background: var(--w-active); }
+.ring-key-dot.is-warm { background: var(--w-warm); }
+.ring-key-dot.is-cold { background: var(--w-cold); }
+.ring-key-dot.is-parked { background: repeating-linear-gradient(90deg, var(--w-parked) 0 4px, transparent 4px 7px); }

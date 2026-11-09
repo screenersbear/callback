@@ -22,7 +22,7 @@ import {
 import { openSheet, confirmSheet, choiceSheet, toast, closeAllSheets } from './ui.js';
 import * as sync from './sync.js';
 import { getPath } from './merge.js';
-import { mountMind } from './mind.js';
+import { mountMind, BUDDIES, buddyStyle, setBuddy, buddySVG } from './mind.js';
 import { mountRing, figureSVG } from './ring.js';
 
 const APP_VERSION = '1.0.0';
@@ -605,6 +605,24 @@ function thoughtSheet(key) {
   });
 }
 
+// Tapping the buddy's face: pick how it looks. Kept on this device.
+function buddySheet() {
+  const cur = buddyStyle().key;
+  const pick = (b) => `<button type="button" class="buddy-option${b.key === cur ? ' is-on' : ''}" data-buddy="${b.key}" aria-pressed="${b.key === cur}">${buddySVG(b.key)}<span>${esc(b.label)}</span></button>`;
+  const row = (face, title) => `<p class="filter-label">${title}</p><div class="buddy-row">${BUDDIES.filter((b) => b.face === face).map(pick).join('')}</div>`;
+  const s = openSheet({
+    title: 'Your buddy',
+    className: 'buddy-sheet',
+    body: `<p class="hint">Pick how the face on Today looks.</p>${row('man', 'Man')}${row('woman', 'Woman')}`,
+  });
+  s.body.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-buddy]');
+    if (!b) return;
+    setBuddy(b.dataset.buddy);
+    s.close();
+  });
+}
+
 function refreshThought() {
   const th = S.ui.thought;
   if (!th || !th.s.el.isConnected) return;
@@ -1122,7 +1140,7 @@ function ringSize(p) {
 const FIGURES = [['man', 'Man'], ['woman', 'Woman'], ['person', 'Person']];
 const figureOf = (p) => (FIGURES.some(([k]) => k === p.figure) ? p.figure : 'person');
 const ringData = (list) => ({
-  people: list.map((p) => ({ id: p.id, name: firstName(p), figure: figureOf(p), size: ringSize(p) })),
+  people: list.map((p) => ({ id: p.id, name: firstName(p), figure: figureOf(p), size: ringSize(p), warmth: p.warmth })),
   key: list.map((p) => p.id).join(','),
 });
 const RING_OPTS = { onOpen: (id) => { location.hash = `#/person/${id}`; } };
@@ -1132,7 +1150,11 @@ function ringHTML(list) {
     return `<div class="empty"><p>Nobody matches that.</p>
       <button type="button" class="btn secondary" data-action="clear-filters">Clear search and filters</button></div>`;
   }
-  return `<div class="ring-slot" data-ring-slot></div>
+  // A key to the colours, for the warmths in the ring.
+  const KEY = ['client', 'active', 'warm', 'cold', 'parked'];
+  const here = KEY.filter((w) => list.some((p) => p.warmth === w));
+  return `<div class="ring-key" aria-hidden="true">${here.map((w) => `<span class="ring-key-item"><i class="ring-key-dot is-${w}"></i>${esc(WARMTH_INFO[w].label)}</span>`).join('')}</div>
+    <div class="ring-slot" data-ring-slot></div>
     <ul class="visually-hidden">${list.map((p) => `<li><a href="#/person/${esc(p.id)}">${esc(p.name)}</a></li>`).join('')}</ul>`;
 }
 
@@ -3047,7 +3069,7 @@ function render() {
   S.ui.revealPick = false;
   view.dataset.route = r.name;
   const mindSlot = view.querySelector('[data-mind-slot]');
-  if (mindSlot) mountMind(mindSlot, todayMind, { onOpen: thoughtSheet });
+  if (mindSlot) mountMind(mindSlot, todayMind, { onOpen: thoughtSheet, onFace: buddySheet });
   mountRingIn(view);
   refreshThought();
   fitBrandTitle();
