@@ -1,9 +1,11 @@
 // Today's head and its thought bubbles, on a phone.
 //
-// The head is a small 3D shape drawn as ink lines. Its outline is worked out
-// from the shape every frame, and the ears, hair and face are curves on its
-// surface that hide as they turn away, so it can be spun round with a finger
-// and still looks drawn by hand from any side. Each bubble is a Today section
+// The head is a small 3D shape drawn the way a single-line drawing is: one
+// line from the left, up the neck, round the head and on into the brow and
+// nose, with the right side left open, and loops where the pen turns. Its
+// outline is worked out from the shape every frame, and the ears and face
+// are curves on its surface that hide as they turn away, so it can be spun
+// round with a finger and still looks drawn from any side. Each bubble is a Today section
 // with something waiting: tapping one opens it, and once it's empty it pops
 // (when you can see it: not behind a sheet, not scrolled away). The face
 // worries more the more is waiting, and smiles once nothing is.
@@ -20,7 +22,6 @@ const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const mix = (a, b, t) => a + (b - a) * t;
 const smooth = (t) => t * t * (3 - 2 * t);
-const backOut = (t) => 1 + 2.2 * (t - 1) ** 3 + 1.2 * (t - 1) ** 2;
 const approach = (cur, target, rate, dt) => cur + (target - cur) * (1 - Math.exp(-rate * dt));
 const sheetOpen = () => document.body.classList.contains('sheet-open');
 const r1 = (v) => Math.round(v * 10) / 10;
@@ -116,140 +117,202 @@ function spline(ctrl, n) {
   return out;
 }
 
-// Every line of the head for one expression, in the head's own space.
-// kind 'skin' hides when it faces away; 'out' (ears, nose, hair tuft) hides
-// when it's behind the head or inside it.
+// A loop the pen makes on its way: once round a small circle, leaving from
+// (u, v) heading at angle `dir` and coming back to carry on the same way.
+// turn 1 loops to the left of the heading, -1 to the right.
+function curl(u, v, dir, r, turn = 1, n = 14) {
+  const cu = u + Math.cos(dir + (turn * Math.PI) / 2) * r;
+  const cv = v + Math.sin(dir + (turn * Math.PI) / 2) * r;
+  const a0 = dir - (turn * Math.PI) / 2;
+  return Array.from({ length: n }, (_, i) => {
+    const a = a0 + turn * ((i + 1) / n) * TAU;
+    return [cu + Math.cos(a) * r, cv + Math.sin(a) * r];
+  });
+}
+const heading = (a, b) => Math.atan2(b[1] - a[1], b[0] - a[0]);
+
+// Every line of the head for one expression, in the head's own space, kept
+// to a few strokes the way a single-line drawing goes: they run from one
+// feature into the next and loop where the pen turns. Points are [th, ph, off, kind]:
+// 'skin' hides when it faces away; 'out' (ears, nose, tuft) hides when it's
+// behind the head or inside it.
 function headLines(ex) {
   const L = [];
-  const add = (kind, pts, o = {}) => L.push({ kind, pts, w: 2, op: 1, closed: false, seed: L.length * 7.3, waves: 3, ...o });
+  const stroke = (pts, o = {}) => {
+    const n = pts.length;
+    L.push({ kind: 'skin', w: 2, op: 1, seed: L.length * 7.3, waves: 3, ...o, pts: pts.map((q, i) => ({ ...onHead(q[0], q[1], q[2] ?? 0.01), k: q[3], t: i / (n - 1) })) });
+  };
+  const free = (pts3, o = {}) => {
+    const n = pts3.length;
+    L.push({ kind: 'out', w: 2, op: 1, seed: L.length * 7.3, waves: 2, ...o, pts: pts3.map((p, i) => ({ p, t: i / (n - 1) })) });
+  };
   const range = (n, f) => Array.from({ length: n }, (_, i) => f(i / (n - 1), i));
+  const off = (pts, o, k) => pts.map(([u, v]) => [u, v, o, k]);
 
-  // Hair: the edge of a cap of hair, high on the forehead and low at the
-  // back, with a fringe swept to one side; strands combed into it, a swirl
-  // on the crown and a tuft.
-  const hairPh = (th) => 0.1 + 0.32 * Math.cos(th) + 0.05 * Math.cos(2 * th) - 0.15 * Math.max(0, 1 - Math.abs(th - 0.38) / 0.3) ** 1.5;
-  add('skin', range(80, (t) => {
-    const th = -Math.PI + t * TAU * 1.03;
-    return { ...onHead(th, hairPh(th), 0.012), t };
-  }), { waves: 10 });
-  for (const [a, b, c, d] of [[-0.25, 1.08, 0.33, 0.36], [0.12, 1.12, 0.6, 0.43], [-0.6, 0.95, -0.2, 0.55]]) {
-    add('skin', range(14, (t) => ({ ...onHead(mix(a, c, t), mix(b, d, t) + 0.07 * Math.sin(Math.PI * t), 0.014), t })), { w: 1.5, waves: 1.2 });
-  }
-  // Strands round the sides and back, down from the crown, so it reads as
-  // hair from behind too.
-  for (let k = 0; k < 7; k++) {
-    const th = Math.PI + (k - 3) * 0.42;
-    const len = 0.55 + 0.15 * hash1(k * 5.1);
-    add('skin', range(10, (t) => {
-      const ph = mix(1.12, hairPh(th) + 0.08, t * len + (1 - len) * 0.5);
-      return { ...onHead(th + 0.12 * Math.sin(t * 2.2) * (k < 3 ? -1 : 1), ph, 0.014), t };
-    }), { w: 1.4, waves: 1 });
-  }
-  add('skin', range(18, (t) => {
-    const a = t * TAU * 1.6;
-    const r = 0.025 + 0.085 * t;
-    return { ...onHead(Math.PI + (r * Math.cos(a)) / Math.cos(0.82), 0.82 + r * Math.sin(a), 0.01), t };
-  }), { w: 1.6, waves: 2 });
-  for (const [th, ph, c] of [[0.25, 1.25, [[0, 0.16, 0.02], [0.14, 0.27, 0.04], [0.21, 0.18, 0.05]]], [-0.35, 1.3, [[-0.03, 0.13, 0], [0.05, 0.23, 0], [0.12, 0.18, 0]]]]) {
-    const b = surf(th, ph);
-    const ctrl = [b, ...c.map((d) => [b[0] + d[0], b[1] + d[1], b[2] + d[2]])];
-    add('out', range(12, (t) => ({ p: bez(...ctrl, t), t })), { w: 1.8, waves: 1.5 });
+  // A tuft that loops once, like the top of a quickly drawn rose.
+  {
+    const B = surf(0.15, 1.28);
+    const up = normalAt(0.15, 1.28);
+    const sd = [1 - up[0] * up[0], -up[0] * up[1], -up[0] * up[2]];
+    const sl = Math.hypot(...sd);
+    const at = ([x, y]) => [B[0] + (sd[0] / sl) * x + up[0] * y, B[1] + (sd[1] / sl) * x + up[1] * y, B[2] + (sd[2] / sl) * x + up[2] * y];
+    const rise = range(6, (t) => [0.03 * t, 0.14 * t]);
+    const top = rise[5];
+    free([...rise, ...curl(...top, heading(rise[4], top), 0.05, 1, 16), [0.075, 0.175], [0.12, 0.15]].map(at), { w: 1.9, waves: 1.5 });
   }
 
-  // Ears: an oval sticking out each side, its inner half hidden in the head.
+  // Ears: the rim round the outside, then a hook back into the middle, like
+  // a 6. The inner half of the rim sinks into the head and hides.
   for (const side of [-1, 1]) {
     const base = onHead(side * (Math.PI / 2 + 0.05), -0.08, 0.05).p;
     const d = [side * 0.7, 0, -0.71];
-    const at = (cu, cv) => [base[0] + d[0] * cu, base[1] + cv, base[2] + d[2] * cu];
-    add('out', range(30, (t) => {
-      const a = (side > 0 ? -1.9 : 1.9 - Math.PI) + t * TAU * 1.04 * side;
-      const grow = 1 + Math.max(0, t - 0.95) * 0.6;
-      return { p: at(0.18 * Math.cos(a) * grow, 0.24 * Math.sin(a) * grow), t };
-    }), { waves: 2.5 });
-    add('out', range(12, (t) => {
-      const a = -1.1 + t * 2.2;
-      return { p: at(0.075 * Math.cos(a) + 0.03, 0.13 * Math.sin(a) - 0.01), t };
-    }), { w: 1.5, waves: 1 });
+    const at = ([cu, cv]) => [base[0] + d[0] * cu, base[1] + cv, base[2] + d[2] * cu];
+    const rim = range(24, (t) => {
+      const a = mix(1.95, -1.95, t);
+      return [0.18 * Math.cos(a), 0.24 * Math.sin(a)];
+    });
+    const hook = spline([rim[23], [0.03, -0.15], [0.085, -0.05], [0.065, 0.05], [0.01, 0.06]], 12);
+    free([...rim, ...hook.slice(1)].map(at), { waves: 2.5, ear: true });
   }
 
-  // Eyes: a lower lid, and an upper one that opens away from it. Shut, only
-  // the lower curve is left: a calm, content ⌣.
+  // Eyes: an almond that the pen runs round and flicks out of at the outer
+  // corner, left empty. Shut, it's the lower curve with the flick: a calm,
+  // content ⌣.
   const lidL = mix(0.05, 0.065, ex.joy);
   const lidU = 0.13;
   for (const side of [-1, 1]) {
     const th0 = side * 0.35;
-    const lid = (s, top) => {
-      const v = (top ? mix(-lidL, lidU, ex.open) : -lidL) * Math.sin(Math.PI * s);
-      return [th0 + (s - 0.5) * 0.26, v];
-    };
+    const outer = th0 + side * 0.13;
+    const lid = (s, top) => [mix(outer, th0 - side * 0.13, s), (top ? mix(-lidL, lidU, ex.open) : -lidL) * Math.sin(Math.PI * s)];
+    const flick = [[outer + side * 0.035, 0.012], [outer + side * 0.065, 0.045]];
+    let pts;
     if (ex.open > 0.12) {
-      const pts = [];
-      for (let i = 0; i < 13; i++) pts.push(lid(i / 12, false));
-      for (let i = 12; i >= 0; i--) pts.push(lid(i / 12, true));
-      pts.push(lid(0.06, false), lid(0.12, false));
-      add('skin', pts.map(([th, ph], i) => ({ ...onHead(th, ph, 0.006), t: i / pts.length })), { w: 1.9, waves: 1.5 });
+      pts = [...range(13, (s) => lid(s, true)), ...range(13, (s) => lid(1 - s, false)).slice(1), ...flick];
     } else {
-      add('skin', range(13, (t) => {
-        const [th, ph] = lid(t, false);
-        return { ...onHead(th, ph, 0.006), t };
-      }), { w: 2.1, waves: 1 });
+      pts = [...range(13, (s) => lid(1 - s, false)), ...flick];
     }
-    if (ex.open > 0.3) {
-      const v = (lidU * ex.open - lidL) * 0.45 + ex.lookV * 0.022;
-      const r = mix(0.036, 0.026, ex.worry) * clamp((ex.open - 0.3) / 0.25, 0, 1);
-      L.push({ kind: 'skin', dot: r, pts: [{ ...onHead(th0 + ex.lookU * 0.05, v, 0.008), t: 0 }], seed: 0 });
-    }
+    stroke(off(pts, 0.006), { w: 1.9, waves: 1.2 });
   }
 
-  // Brows: the inner ends rise as the worry grows.
-  for (const side of [-1, 1]) {
-    const base = mix(0.21, 0.25, ex.joy);
-    const inner = 0.08 * ex.worry * (1 - ex.joy);
-    const outer = -0.02 * ex.worry;
-    const arch = mix(0.025, 0.045, ex.joy) - 0.02 * ex.worry;
-    add('skin', range(12, (t) => ({ ...onHead(side * mix(0.15, 0.5, t), base + mix(inner, outer, t) + arch * Math.sin(Math.PI * t), 0.008), t })), { w: 2.1, waves: 1 });
+  // Brows. The right one runs on down the side of the nose to its tip and
+  // loops for the nostril, all one line; the inner ends rise with worry.
+  const base = mix(0.21, 0.25, ex.joy);
+  const inner = 0.08 * ex.worry * (1 - ex.joy);
+  const outerDrop = -0.02 * ex.worry;
+  const arch = mix(0.025, 0.045, ex.joy) - 0.02 * ex.worry;
+  const brow = (side, t) => [side * mix(0.15, 0.5, t), base + mix(inner, outerDrop, t) + arch * Math.sin(Math.PI * t)];
+  {
+    const pts = range(12, (t) => brow(-1, t));
+    const e = pts[11];
+    pts.push([e[0] - 0.04, e[1] - 0.025], [e[0] - 0.055, e[1] - 0.06]);
+    stroke(off(pts, 0.008), { w: 2, waves: 1 });
+  }
+  {
+    const browPts = off(range(12, (t) => brow(1, 1 - t)), 0.008, 'skin');
+    const b0 = brow(1, 0);
+    const nose = spline([[b0[0], b0[1], 0.008], [0.07, b0[1] - 0.09, 0.015], [0.045, -0.02, 0.03], [0.03, -0.14, 0.1], [0.012, -0.24, 0.19], [0, -0.3, 0.23], [0.035, -0.335, 0.15], [0.07, -0.32, 0.06]], 22)
+      .slice(1)
+      .map(([u, v, o]) => [u, v, o, 'out']);
+    const n1 = nose[nose.length - 2];
+    const n2 = nose[nose.length - 1];
+    const loopPts = curl(n2[0], n2[1], heading(n1, n2), 0.04, 1, 14).map(([u, v]) => [u, v, 0.05, 'out']);
+    stroke([...browPts, ...nose, ...loopPts, [n2[0] + 0.04, n2[1] + 0.008, 0.02, 'out']], { w: 2.1, waves: 2.5, join: true });
   }
 
-  // Nose: down from between the eyes, out to a point, and a little hook back.
-  const nose = spline([[0, -0.1, 0.02], [0, -0.19, 0.11], [0, -0.29, 0.23], [0.05, -0.33, 0.13], [0.09, -0.31, 0.03]], 18);
-  add('out', nose.map(([th, ph, off], i) => ({ ...onHead(th, ph, off), t: i / 17 })), { waves: 1.2 });
-
-  // Mouth: a smile that flattens, turns down and wobbles with worry, and a
-  // big U once everything's done.
-  const width = mix(mix(0.34, 0.3, ex.worry), 0.48, ex.joy);
-  const depth = mix(0.15, 0.21, ex.joy);
-  const smile = mix(0.3 - 0.65 * ex.worry, 1, ex.joy);
-  const wav = Math.max(0, (ex.worry - 0.45) / 0.55) * (1 - ex.joy);
-  add('skin', range(16, (t) => ({ ...onHead((t - 0.5) * width, -0.5 - smile * depth * Math.sin(Math.PI * t) + wav * 0.02 * Math.sin(4 * Math.PI * t), 0.008), t })), { w: 2.1, waves: 1.5 });
-
-  // Happy cheeks: a few quick hatch marks.
-  if (ex.joy > 0.4) {
-    for (const side of [-1, 1]) {
-      for (let k = 0; k < 3; k++) {
-        const th = side * (0.43 + k * 0.055);
-        add('skin', range(4, (t) => ({ ...onHead(th + side * 0.03 * t, -0.2 - 0.08 * t, 0.006), t })), { w: 1.4, op: clamp((ex.joy - 0.4) / 0.5, 0, 1), waves: 0.5 });
-      }
-    }
+  // Mouth: a curl at one corner, then a smile that flattens, turns down and
+  // wobbles with worry (a big U once everything's done), and a hook up at
+  // the far corner.
+  {
+    const width = mix(mix(0.34, 0.3, ex.worry), 0.48, ex.joy);
+    const depth = mix(0.15, 0.21, ex.joy);
+    const smile = mix(0.3 - 0.65 * ex.worry, 1, ex.joy);
+    const wav = Math.max(0, (ex.worry - 0.45) / 0.55) * (1 - ex.joy);
+    const m = range(18, (t) => [(t - 0.5) * width, -0.5 - smile * depth * Math.sin(Math.PI * t) + wav * 0.02 * Math.sin(4 * Math.PI * t)]);
+    const e = m[17];
+    const pts = [m[0], ...curl(...m[0], heading(m[0], m[1]), 0.03, 1, 12), ...m.slice(1), [e[0] + 0.025, e[1] + 0.02], [e[0] + 0.03, e[1] + 0.045]];
+    stroke(off(pts, 0.008), { w: 2, waves: 1.5 });
   }
+
   // Worry lines on the forehead, and a drop of sweat when it's a lot.
   if (ex.worry > 0.55) {
     const op = clamp((ex.worry - 0.55) / 0.3, 0, 1) * (1 - ex.joy);
     for (const ph of [0.31, 0.355]) {
-      add('skin', range(8, (t) => ({ ...onHead((t - 0.5) * 0.22, ph + 0.008 * Math.sin(TAU * t), 0.008), t })), { w: 1.4, op, waves: 0.8 });
+      stroke(off(range(8, (t) => [(t - 0.5) * 0.22, ph + 0.008 * Math.sin(TAU * t)]), 0.008), { w: 1.4, op, waves: 0.8 });
     }
   }
   if (ex.worry > 0.7) {
     const op = clamp((ex.worry - 0.7) / 0.2, 0, 1) * (1 - ex.joy);
-    add('skin', range(16, (t) => {
-      const a = t * TAU;
-      return { ...onHead(0.68 + 0.032 * Math.sin(a) * Math.sin(a / 2), 0.2 + 0.05 * Math.cos(a), 0.02), t };
-    }), { w: 1.5, op, waves: 0.6, closed: true });
+    stroke(off(range(18, (t) => {
+      const a = t * TAU * 1.06;
+      return [0.68 + 0.032 * Math.sin(a) * Math.sin(a / 2), 0.2 + 0.05 * Math.cos(a)];
+    }), 0.02), { w: 1.5, op, waves: 0.6 });
   }
   return L;
 }
 
 // ---------------------------------------------------------------------------
 // Flat geometry helpers
+
+// Points every `step` along an open line.
+function resampleOpen(pts, step) {
+  const out = [pts[0]];
+  let carry = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    const l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    let d = step - carry;
+    while (d <= l) {
+      out.push([mix(a[0], b[0], d / l), mix(a[1], b[1], d / l)]);
+      d += step;
+    }
+    carry = l - (d - step);
+  }
+  const last = pts[pts.length - 1];
+  if (out[out.length - 1] !== last) out.push(last);
+  return out;
+}
+
+// The outline split where the neck lines meet it: the arc over the top of
+// the head (from the left neck line to the right) and the jaw below.
+function contour(skin, hx, R) {
+  const n = skin.length;
+  const meet = (side) => {
+    const x = hx + side * R * 0.42;
+    let best = null;
+    for (let i = 0; i < n; i++) {
+      const a = skin[i];
+      const b = skin[(i + 1) % n];
+      if ((a[0] - x) * (b[0] - x) <= 0 && a[0] !== b[0]) {
+        const y = a[1] + ((x - a[0]) * (b[1] - a[1])) / (b[0] - a[0]);
+        if (!best || y > best.y) best = { i, x, y };
+      }
+    }
+    return best;
+  };
+  const A = meet(-1);
+  const B = meet(1);
+  if (!A || !B || A.i === B.i) return null;
+  const walk = (P, Q) => {
+    const out = [[P.x, P.y]];
+    for (let i = (P.i + 1) % n, g = 0; g < n; i = (i + 1) % n, g++) {
+      out.push(skin[i]);
+      if (i === Q.i) break;
+    }
+    out.push([Q.x, Q.y]);
+    return out;
+  };
+  const ab = walk(A, B);
+  const ba = walk(B, A);
+  const top = (pts) => Math.min(...pts.map((p) => p[1]));
+  const overTop = top(ab) < top(ba);
+  return {
+    L: [A.x, A.y],
+    R: [B.x, B.y],
+    head: overTop ? ab : ba.slice().reverse(),
+    chin: overTop ? ba.slice().reverse() : ab,
+  };
+}
 
 function hull(pts) {
   const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
@@ -332,8 +395,6 @@ function inkPath(pts, seed, waves, amp) {
   }
   return `${d}L${r1(out[n - 1][0])} ${r1(out[n - 1][1])}`;
 }
-
-const dotPath = (x, y, r) => `M${r1(x - r)} ${r1(y)}a${r1(r)} ${r1(r)} 0 1 0 ${r1(2 * r)} 0a${r1(r)} ${r1(r)} 0 1 0 ${r1(-2 * r)} 0`;
 
 // ---------------------------------------------------------------------------
 // State
@@ -692,29 +753,55 @@ function draw() {
     return [hx + x * C.cr - y * C.sr, hy + x * C.sr + y * C.cr];
   };
 
-  // The outline: the edge of the shape as it now faces.
+  // The outline is half a head, from the left: up the left of the neck, a
+  // loop where it leaves it, round the head and over the top, then (below)
+  // it swings in to become the right brow and the nose, all one line. The
+  // right side, the jaw and the chin are left open.
   const skin = hull(SKIN.map((p) => scr(rot(p))));
-  const ring = resample(skin, 84, hx, hy, -2.35);
-  const outline = ring.map((p, i) => [p[0], p[1], i / 84]);
-  for (let i = 0; i < 6; i++) {
-    const [x, y] = ring[i];
-    const push = 1 + (i / 6) * 0.025;
-    outline.push([hx + (x - hx) * push, hy + (y - hy) * push, (84 + i) / 84]);
+  const cont = contour(skin, hx, R);
+  let way;
+  let swingOK = true;
+  if (cont) {
+    const bottom = st.h + 2;
+    const [lx, ly] = cont.L;
+    const up = [[lx - R * 0.06, bottom], [lx - R * 0.03, mix(bottom, ly, 0.5)], [lx, ly]];
+    const loopPts = curl(lx, ly - R * 0.02, heading(up[1], up[2]), R * 0.075, -1, 16);
+    const head = resampleOpen(cont.head, 3.2);
+    // Turned to show its right profile, the line carries on down that side
+    // so the face has an edge to sit on.
+    const prof = clamp((Math.sin(yaw) - 0.7) / 0.25, 0, 1) * clamp((Math.cos(yaw) + 0.45) / 0.3, 0, 1);
+    swingOK = prof < 0.5;
+    let end = head.findIndex((p) => p[0] > hx + R * (0.5 + 0.8 * prof));
+    if (end < 2) end = head.length;
+    way = [...up, ...loopPts, ...head.slice(1, end)];
+  } else {
+    let ring = resample(skin, 84, hx, hy, Math.PI * 0.72);
+    const ang = (p) => Math.atan2(p[1] - hy, p[0] - hx);
+    if (Math.sin(ang(ring[3]) - ang(ring[0])) < 0) ring = [ring[0], ...ring.slice(1).reverse()];
+    way = ring.slice(0, 46);
   }
-  put(inkPath(outline, 1.7, 7, 0.8), { w: 2.3 });
-
-  // The neck: two lines down from under the jaw.
-  for (const side of [-1, 1]) {
-    const x = hx + side * R * 0.42;
-    let y0 = hy;
-    for (let i = 0; i < skin.length; i++) {
-      const a = skin[i];
-      const b = skin[(i + 1) % skin.length];
-      if ((a[0] - x) * (b[0] - x) <= 0 && a[0] !== b[0]) y0 = Math.max(y0, a[1] + ((x - a[0]) * (b[1] - a[1])) / (b[0] - a[0]));
+  let wayDone = false;
+  // The pen's way round, and on into `more` (the brow) with a swing between.
+  const drawWay = (more = []) => {
+    const n = way.length;
+    const pts = way.map((p, i) => [p[0], p[1], -5 + (4 * i) / n]);
+    if (more.length > 1) {
+      const E = way[n - 1];
+      const B = more[0];
+      const k = Math.hypot(B[0] - E[0], B[1] - E[1]) * 0.42;
+      const hE = heading(way[n - 2], E);
+      const hB = heading(B, more[1]);
+      const c1 = [E[0] + Math.cos(hE) * k, E[1] + Math.sin(hE) * k];
+      const c2 = [B[0] - Math.cos(hB) * k, B[1] - Math.sin(hB) * k];
+      for (let i = 1; i < 12; i++) {
+        const q = bez(E, c1, c2, B, i / 12);
+        pts.push([q[0], q[1], -1 + i / 12]);
+      }
+      pts.push(...more);
     }
-    const x2 = x + side * R * 0.05;
-    put(inkPath([[x, y0 - 1, 0], [mix(x, x2, 0.5), mix(y0, st.h, 0.5), 0.5], [x2, st.h + 2, 1]], 40 + side, 1.5, 0.7), { w: 2.1 });
-  }
+    put(inkPath(pts, 1.7, 2.5, 0.8), { w: 2.1 });
+    wayDone = true;
+  };
 
   // Everything on and around the head.
   const blink = st.blinkFrom >= 0 && t - st.blinkFrom < 0.18 ? Math.abs(Math.cos(((t - st.blinkFrom) / 0.18) * Math.PI)) : 1;
@@ -731,28 +818,42 @@ function draw() {
       const r = rot(s.p);
       const [x, y] = scr(r);
       let vis;
-      if (line.kind === 'skin') {
+      if ((s.k || line.kind) === 'skin') {
         const n = rot(s.n);
         vis = n[0] * -r[0] + n[1] * -r[1] + n[2] * (EYE - r[2]) > 0;
       } else vis = !insideHead(s.p) && !(r[2] < 0 && inPoly(skin, x, y));
       return { x, y, vis, t: s.t, r };
     });
-    if (line.dot) {
-      const p = pts[0];
-      if (p.vis) put(dotPath(p.x, p.y, Math.max(0.8, line.dot * R * (0.55 + 0.45 * clamp(p.r[2], 0, 1)))), { fill: 'currentColor' });
-      continue;
+    let op = line.op;
+    if (line.ear) {
+      // Only the ear on the drawn side: the one round the right fades out.
+      const mx = pts.reduce((a, p) => a + p.x, 0) / pts.length;
+      op *= clamp((hx + R * 0.35 - mx) / (R * 0.4), 0, 1);
+      if (op < 0.03) continue;
     }
     let run = [];
+    let from = 0;
     const flush = () => {
-      if (run.length > 1) put(inkPath(run, line.seed, line.waves, 0.55), { w: line.w, op: r1(line.op) });
+      if (run.length > 1) {
+        let len = 0;
+        for (let i = 1; i < run.length; i++) len += Math.hypot(run[i][0] - run[i - 1][0], run[i][1] - run[i - 1][1]);
+        if (len < 5) { run = []; return; } // no specks where a line turns away
+        const E = way[way.length - 1];
+        // It swings in only when the brow is just below where the line left
+        // off; turned further, the two are drawn apart.
+        if (line.join && swingOK && from === 0 && !wayDone && way.length > 1 && run[0][0] > E[0] - R * 0.2 && Math.hypot(run[0][0] - E[0], run[0][1] - E[1]) < R) drawWay(run);
+        else put(inkPath(run, line.seed, line.waves, 0.7), { w: line.w, op: r1(op) });
+      }
       run = [];
     };
-    for (const p of pts) {
-      if (p.vis) run.push([p.x, p.y, p.t]);
-      else flush();
-    }
+    pts.forEach((p, i) => {
+      if (!p.vis) return flush();
+      if (!run.length) from = i;
+      run.push([p.x, p.y, p.t]);
+    });
     flush();
   }
+  if (!wayDone && way.length > 1) drawWay();
 
   // Sparkles, the moment the last bubble goes.
   const sp = t - st.sparkle;
@@ -769,7 +870,7 @@ function draw() {
     }
   }
 
-  // The bubbles, with their trail of little circles down to the head.
+  // The bubbles, each with a looping trail down to the head.
   for (const key of [...st.bubbles.keys()]) drawBubble(st.bubbles.get(key), { w, R, hx, hy });
 
   for (let i = st.used; i < st.pool.length; i++) {
@@ -778,31 +879,55 @@ function draw() {
   }
 }
 
+// A cloud in one go: big arcs out, with a little loop where each one turns
+// into the next, and the line running on a bit past where it started.
 function cloud(cx, cy, rx, ry, seed) {
-  const K = 9;
+  const K = 8;
+  const N = 136;
+  const a0 = -2.3 + hash1(seed) * 0.6;
+  const rl = Math.min(rx, ry) * 0.24;
   const pts = [];
-  const a0 = -2.5 + hash1(seed) * 0.4;
-  for (let j = 0; j < K + 1; j++) {
-    const aj = a0 + (j / K) * TAU;
-    const ak = a0 + ((j + 1) / K) * TAU;
-    const bulge = 0.17 + 0.1 * hash1(seed + j * 3.7);
-    const steps = j === K ? 2 : 6;
-    for (let s = 0; s < steps; s++) {
-      const f = s / 6;
-      const a = mix(aj, ak, f);
-      const r = 1 + bulge * Math.sin(Math.PI * f) + (j === K ? 0.03 * f : 0);
-      pts.push([cx + Math.cos(a) * rx * r, cy + Math.sin(a) * ry * r, (j + f) / K]);
-    }
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const A = a0 + t * TAU * 1.05;
+    let nx = Math.cos(A) / rx;
+    let ny = Math.sin(A) / ry;
+    const nl = Math.hypot(nx, ny);
+    nx /= nl;
+    ny /= nl;
+    const ph = t * K * TAU * 1.05;
+    const o = rl * (1 + 0.15 * noise(seed + t * 9));
+    pts.push([cx + Math.cos(A) * rx - nx * o * Math.cos(ph) + ny * o * Math.sin(ph), cy + Math.sin(A) * ry - ny * o * Math.cos(ph) - nx * o * Math.sin(ph), t]);
   }
   return pts;
 }
 
-function loop(cx, cy, r, seed) {
+// The trail: one line from the head out to the bubble, bowed a little, that
+// loops round two or three times on the way, each loop bigger than the last.
+function trail(x0, y0, x1, y1, unit, seed) {
+  const len = Math.hypot(x1 - x0, y1 - y0) || 1;
+  const ux = (x1 - x0) / len;
+  const uy = (y1 - y0) / len;
+  const side = seed % 2 ? 1 : -1;
+  const n = len > 64 * unit ? 3 : 2;
+  const bow = Math.min(9, len * 0.07) * side;
+  const at = (s) => {
+    const b = bow * Math.sin(Math.PI * s);
+    return [x0 + ux * s * len - uy * b, y0 + uy * s * len + ux * b];
+  };
+  const spots = Array.from({ length: n }, (_, k) => (k + 0.75) / (n + 0.15));
+  const N = 36;
   const pts = [];
-  for (let i = 0; i <= 12; i++) {
-    const a = seed + (i / 11) * TAU;
-    const rr = r * (1 + (i > 10 ? 0.12 : 0));
-    pts.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, i / 12]);
+  let next = 0;
+  for (let i = 0; i <= N; i++) {
+    const s = i / N;
+    const p = at(s);
+    pts.push([p[0], p[1], s]);
+    if (next < n && s >= spots[next]) {
+      const r = mix(2.6, 5.4, next / (n - 1)) * unit;
+      curl(p[0], p[1], heading(p, at(s + 0.01)), r, -side, 16).forEach((c, j) => pts.push([c[0], c[1], s + j * 0.003]));
+      next++;
+    }
   }
   return pts;
 }
@@ -817,64 +942,69 @@ function drawBubble(b, { w, R, hx, hy }) {
   const wob = 1 + 0.07 * Math.sin(b.wob * Math.PI * 3) * b.wob;
   let scale = b.s * wob;
   let textOp = 1;
-  let trail = [1, 1, 1];
-  let showCloud = true;
+  let trailPart = 1; // how much of the trail is drawn, from the head out
+  let cloudPart = 1; // how much of the cloud is drawn
   let burst = -1;
   if (b.state === 'in') {
+    // Drawn in: the trail from the head, then the cloud round, then the words.
     const p = Math.max(0, b.p);
-    trail = [0, 1, 2].map((i) => clamp((p - 0.12 * (2 - i)) / 0.2, 0, 1));
-    const c = clamp((p - 0.3) / 0.7, 0, 1);
-    scale *= c > 0 ? backOut(c) : 0;
-    textOp = c;
-    showCloud = c > 0;
+    trailPart = clamp(p / 0.35, 0, 1);
+    cloudPart = clamp((p - 0.3) / 0.6, 0, 1);
+    textOp = clamp((p - 0.7) / 0.3, 0, 1);
   } else if (b.state === 'pop') {
+    // Pops: puffs up, bursts into flicks, and the trail runs back to the head.
     const p = b.p;
     if (p < 0.16) scale *= 1 + 0.14 * (p / 0.16);
     else {
-      showCloud = false;
+      cloudPart = 0;
       burst = (p - 0.16) / 0.84;
     }
     textOp = clamp(1 - p * 3, 0, 1);
-    trail = [0, 1, 2].map((i) => (p < 0.22 + 0.13 * i ? 1 : 0));
+    trailPart = 1 - clamp((p - 0.1) / 0.6, 0, 1);
   }
-  const rx = BUB.rx * w * scale;
-  const ry = BUB.ry * w * scale;
+  const rx = BUB.rx * w * scale * 1.05;
+  const ry = BUB.ry * w * scale * 1.08;
 
-  // Trail: from the bubble's edge toward the top of the head.
+  // The trail goes from the head toward the bubble's edge.
   const dirX = cx - hx;
   const dirY = cy - hy;
   const dl = Math.hypot(dirX, dirY) || 1;
-  const hxT = hx + (dirX / dl) * R * 1.12;
-  const hyT = hy + (dirY / dl) * R * 1.12;
-  const ux = (hxT - cx) / (Math.hypot(hxT - cx, hyT - cy) || 1);
-  const uy = (hyT - cy) / (Math.hypot(hxT - cx, hyT - cy) || 1);
-  const edge = (1 / Math.sqrt((ux / (BUB.rx * w * b.s)) ** 2 + (uy / (BUB.ry * w * b.s)) ** 2)) * 1.2;
-  const ex = cx + ux * edge;
-  const ey = cy + uy * edge;
-  const gap = Math.hypot(hxT - ex, hyT - ey);
-  const unit = w / 343;
-  [[0.2, 8], [0.5, 5.8], [0.78, 4]].forEach(([f, r], i) => {
-    const k = trail[i];
-    if (k <= 0 || gap < 18) return;
-    const sz = r * unit * b.s * (b.state === 'in' ? backOut(k) : 1);
-    put(inkPath(loop(mix(ex, hxT, f), mix(ey, hyT, f), sz, b.seed + i), b.seed + i * 5, 1, 0.35), { w: 1.6 });
-  });
+  const hxT = hx + (dirX / dl) * R * 1.14;
+  const hyT = hy + (dirY / dl) * R * 1.14;
+  const gx = cx - hxT;
+  const gy = cy - hyT;
+  const gl = Math.hypot(gx, gy) || 1;
+  const edge = 1 / Math.sqrt((gx / gl / (BUB.rx * w * b.s)) ** 2 + (gy / gl / (BUB.ry * w * b.s)) ** 2);
+  const ex = cx - (gx / gl) * edge * 1.18;
+  const ey = cy - (gy / gl) * edge * 1.18;
+  if (trailPart > 0 && Math.hypot(ex - hxT, ey - hyT) > 16) {
+    const pts = trail(hxT, hyT, ex, ey, (w / 343) * b.s, b.seed);
+    const k = Math.ceil(trailPart * (pts.length - 1)) + 1;
+    if (k > 1) put(inkPath(pts.slice(0, k), b.seed * 0.7, 2, 0.4), { w: 1.7 });
+  }
 
-  if (showCloud && scale > 0.02) put(inkPath(cloud(cx, cy, rx, ry, b.seed), b.seed * 1.3, 4, 0.6), { w: 2, fill: 'var(--bg)' });
+  if (cloudPart > 0 && scale > 0.02) {
+    const pts = cloud(cx, cy, rx, ry, b.seed);
+    const k = Math.ceil(cloudPart * (pts.length - 1)) + 1;
+    put(inkPath(pts.slice(0, k), b.seed * 1.3, 4, 0.5), { w: 2, fill: cloudPart >= 1 ? 'var(--bg)' : null });
+  }
   if (burst >= 0) {
     const e = 1 - (1 - burst) ** 2;
     let d = '';
-    for (let i = 0; i < 10; i++) {
-      const a = (i / 10) * TAU + hash1(b.seed + i) * 0.4;
-      const r0 = 1 + 0.5 * e;
-      const r1x = r0 + 0.25 * (1 - e);
-      d += `M${r1(cx + Math.cos(a) * BUB.rx * w * b.s * r0)} ${r1(cy + Math.sin(a) * BUB.ry * w * b.s * r0)}L${r1(cx + Math.cos(a) * BUB.rx * w * b.s * r1x)} ${r1(cy + Math.sin(a) * BUB.ry * w * b.s * r1x)}`;
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * TAU + hash1(b.seed + i) * 0.4;
+      const p = (rr, da) => [cx + Math.cos(a + da) * BUB.rx * w * b.s * rr, cy + Math.sin(a + da) * BUB.ry * w * b.s * rr];
+      const r0 = 1.05 + 0.5 * e;
+      const q0 = p(r0, 0);
+      const q1 = p(r0 + 0.14 * (1 - e), 0.08);
+      const q2 = p(r0 + 0.22 * (1 - e), 0.22);
+      d += `M${r1(q0[0])} ${r1(q0[1])}Q${r1(q1[0])} ${r1(q1[1])} ${r1(q2[0])} ${r1(q2[1])}`;
     }
-    put(d, { w: 2, op: r1(1 - burst) });
+    put(d, { w: 1.9, op: r1(1 - burst) });
   }
 
-  const bw = BUB.rx * w * 2 * 0.8;
-  const bh = BUB.ry * w * 2 * 0.86;
+  const bw = BUB.rx * w * 2 * 0.82;
+  const bh = BUB.ry * w * 2 * 0.72;
   const btn = b.btn;
   const tf = `translate(${r1(cx - bw / 2)}px, ${r1(cy - bh / 2)}px) scale(${Math.max(0.01, Math.round(scale * 1000) / 1000)})`;
   if (btn._tf !== tf) { btn.style.transform = tf; btn._tf = tf; }

@@ -320,8 +320,8 @@ button.thought {
   touch-action: manipulation;
 }
 button.thought:active { opacity: 1; }
-.thought-n { font-family: var(--font-title); font-size: 21px; line-height: 1; }
-.thought-label { font-size: 13px; line-height: 1.1; }
+.thought-n { font-family: var(--font-title); font-size: 20px; line-height: 1; }
+.thought-label { font-size: 12px; line-height: 1.1; white-space: nowrap; }
 
 /* ---------- Stat boxes ---------- */
 
