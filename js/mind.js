@@ -13,9 +13,8 @@
 const NS = 'http://www.w3.org/2000/svg';
 const TAU = Math.PI * 2;
 const EYE = 5; // the viewer's distance, in head sizes: a touch of perspective
-const ASPECT = 1.08; // stage height over width
-const SHRINK = 0.42; // how much shorter it gets with no bubbles, so the head moves up
-const HEAD = { x: 0.5, y: 0.78, r: 0.19 }; // in stage widths
+const HEAD = { x: 0.5, r: 0.27 }; // in stage widths; it sits at the bottom
+const SKY = 0.57; // bubble heights (SLOTS) are given against this much sky
 const BUB = { rx: 0.16, ry: 0.1 }; // a bubble's size, in stage widths
 
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -416,6 +415,8 @@ const st = {
   joy: 1,
   spin: 0,
   spinV: 0,
+  tilt: 0,
+  tiltV: 0,
   drag: null,
   lookYaw: 0,
   lookPitch: 0,
@@ -431,7 +432,6 @@ const st = {
   lastDraw: 0,
   raf: 0,
   visible: true,
-  room: 0,
   boil: 0,
   onOpen: null,
 };
@@ -462,42 +462,57 @@ function build() {
     kick();
   }).observe(el);
   document.addEventListener('visibilitychange', kick);
+  // The window's height decides the stage's (a phone's toolbars come and go).
+  window.addEventListener('resize', () => { if (st.el.isConnected) { resize(); kick(); } });
 }
 
+// The stage runs from where it starts down to the tab bar, so the neck
+// meets the bar; the head sits at the bottom and the bubbles fill the sky.
 function resize() {
   const w = st.el.clientWidth;
   if (!w) return;
-  const h = Math.round(w * (ASPECT - SHRINK * st.room));
+  const bar = document.getElementById('tabbar');
+  const br = bar && bar.getBoundingClientRect();
+  const barTop = br && br.height && br.top > window.innerHeight / 2 ? br.top : window.innerHeight;
+  const top = st.el.getBoundingClientRect().top + window.scrollY;
+  const h = Math.round(Math.max(w * 0.95, barTop - top));
   if (w === st.w && h === st.h) return;
   st.w = w;
   st.h = h;
   st.el.style.height = `${h}px`;
   st.svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
-  const R = HEAD.r * w;
-  const hy = headY() * w;
-  Object.assign(st.hit.style, { left: `${HEAD.x * w - R * 1.35}px`, top: `${hy - R * 1.4}px`, width: `${R * 2.7}px`, height: `${R * 2.7}px` });
+  layout();
+  const { R, hx, hy } = geom();
+  Object.assign(st.hit.style, { left: `${hx - R * 1.35}px`, top: `${hy - R * 1.4}px`, width: `${R * 2.7}px`, height: `${R * 2.7}px` });
 }
 
-const headY = () => HEAD.y - SHRINK * st.room;
+// Where the head is, in pixels, and how much sky there is above it.
+function geom() {
+  const R = Math.min(HEAD.r * st.w, st.h * 0.19);
+  const hy = st.h - R * 1.5;
+  return { R, hx: HEAD.x * st.w, hy, sky: hy - R * 1.15 };
+}
 
-// Turning the head: drag sideways (up and down still scrolls the page).
-// A tap without a drag gets a little bounce.
+// Turning the head by hand: drag sideways to spin it, up and down to tip
+// it. A tap without a drag gets a little bounce.
 function wireHead(hit) {
   hit.addEventListener('pointerdown', (e) => {
-    st.drag = { id: e.pointerId, x0: e.clientX, spin0: st.spin, moved: false, lx: e.clientX, lt: performance.now(), v: 0 };
+    st.drag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, spin0: st.spin, tilt0: st.tilt, moved: false, lx: e.clientX, lt: performance.now(), v: 0 };
     kick();
   });
   hit.addEventListener('pointermove', (e) => {
     const d = st.drag;
     if (!d || d.id !== e.pointerId) return;
     const dx = e.clientX - d.x0;
-    if (!d.moved && Math.abs(dx) > 6) {
+    const dy = e.clientY - d.y0;
+    if (!d.moved && Math.hypot(dx, dy) > 6) {
       d.moved = true;
       try { hit.setPointerCapture(e.pointerId); } catch { /* fine without */ }
     }
     if (!d.moved) return;
-    const k = Math.PI / (HEAD.r * st.w * 2);
+    const k = Math.PI / (geom().R * 2);
     st.spin = d.spin0 + dx * k;
+    st.tilt = clamp(d.tilt0 - dy * k * 0.8, -0.75, 0.75);
     const now = performance.now();
     const dt = Math.max(1, now - d.lt) / 1000;
     d.v = mix(d.v, ((e.clientX - d.lx) * k) / dt, 0.5);
@@ -509,7 +524,10 @@ function wireHead(hit) {
     const d = st.drag;
     if (!d || d.id !== e.pointerId) return;
     st.drag = null;
-    if (d.moved) st.spinV = performance.now() - d.lt < 80 ? clamp(d.v, -25, 25) : 0;
+    if (d.moved) {
+      st.spinV = performance.now() - d.lt < 80 ? clamp(d.v, -25, 25) : 0;
+      st.tiltV = 0;
+    }
     else if (e.type === 'pointerup') st.boop = st.t;
     kick();
   };
@@ -537,10 +555,12 @@ function newBubble(d, i) {
 function layout() {
   const live = st.order.map((k) => st.bubbles.get(k)).filter((b) => b && b.state !== 'pop');
   const slots = SLOTS[Math.min(8, live.length)];
+  // One or two bubbles have room to spare in a tall sky, so they grow a bit.
+  const grow = live.length <= 2 && st.w ? clamp(geom().sky / (SKY * st.w), 1, 1.2) : 1;
   live.forEach((b, i) => {
     const [x, y] = slots.at[Math.min(i, slots.at.length - 1)];
-    Object.assign(b, { tx: x, ty: y, ts: slots.s });
-    if (b.x == null) Object.assign(b, { x, y, s: slots.s });
+    Object.assign(b, { tx: x, ty: y, ts: slots.s * grow });
+    if (b.x == null) Object.assign(b, { x, y, s: slots.s * grow });
   });
 }
 
@@ -560,6 +580,7 @@ function update({ bubbles = [], pending = 0 } = {}) {
       st.bubbles.set(d.key, b);
     } else if (b.n !== d.n) b.wob = 1;
     b.n = d.n;
+    b.wt = d.weight ?? 1;
     b.btn.querySelector('.thought-n').textContent = String(d.n);
     b.btn.querySelector('.thought-label').textContent = d.label;
     b.btn.setAttribute('aria-label', `${d.title}: ${d.n}. Show them`);
@@ -571,7 +592,6 @@ function update({ bubbles = [], pending = 0 } = {}) {
   if (st.first) {
     st.worry = 1 - Math.exp(-pending / 4.5);
     st.joy = pending > 0 ? 0 : 1;
-    st.room = bubbles.length ? 0 : 1;
   }
   st.first = false;
   st.hit.setAttribute('aria-label', st.total
@@ -598,7 +618,7 @@ export function mindStep(seconds = 0, set = {}) {
 
 // What's showing, for checking it in a test.
 export function mindInfo() {
-  return { worry: st.worry, joy: st.joy, pending: st.pending, spin: st.spin, bubbles: [...st.bubbles.values()].map((b) => ({ key: b.key, n: b.n, state: b.state, p: b.p })) };
+  return { worry: st.worry, joy: st.joy, pending: st.pending, spin: st.spin, tilt: st.tilt, bubbles: [...st.bubbles.values()].map((b) => ({ key: b.key, n: b.n, state: b.state, p: b.p })) };
 }
 
 function kick() {
@@ -614,7 +634,7 @@ function frame(now) {
   st.last = now;
   step(dt);
   // Moving things get every frame; a head just idling gets about 25.
-  const busy = st.drag || Math.abs(st.spinV) > 0.05 || (st.room > 0 && st.room < 1) || [...st.bubbles.values()].some((b) => b.state !== 'on' || b.wob > 0.01);
+  const busy = st.drag || Math.abs(st.spinV) > 0.05 || Math.abs(st.tilt) > 0.002 || [...st.bubbles.values()].some((b) => b.state !== 'on' || b.wob > 0.01);
   if (busy || now - st.lastDraw > 40) {
     st.lastDraw = now;
     draw();
@@ -622,11 +642,12 @@ function frame(now) {
   if (busy || !reduced.matches || Math.abs(st.worry - target().worry) > 0.01 || Math.abs(st.joy - target().joy) > 0.01) st.raf = requestAnimationFrame(frame);
 }
 
-// The face it's heading for. Bubbles still waiting to pop count until they do.
+// The face it's heading for. Bubbles still waiting to pop count until they
+// do; a bubble with nothing to do in it (Coming up) doesn't count.
 function target() {
-  const waiting = [...st.bubbles.values()].filter((b) => b.state === 'pop').reduce((a, b) => a + b.n, 0);
+  const waiting = [...st.bubbles.values()].filter((b) => b.state === 'pop').reduce((a, b) => a + b.n * (b.wt ?? 1), 0);
   const pending = st.pending + waiting;
-  return { worry: 1 - Math.exp(-pending / 4.5), joy: pending > 0 || st.bubbles.size ? 0 : 1 };
+  return { worry: 1 - Math.exp(-pending / 4.5), joy: pending > 0 ? 0 : 1 };
 }
 
 function step(dt) {
@@ -636,8 +657,6 @@ function step(dt) {
   const goal = target();
   st.worry = approach(st.worry, goal.worry, 3, dt);
   st.joy = approach(st.joy, goal.joy, 2.5, dt);
-  st.room = approach(st.room, st.bubbles.size ? 0 : 1, 4, dt);
-  if (Math.abs(st.room - (st.bubbles.size ? 0 : 1)) < 0.002) st.room = st.bubbles.size ? 0 : 1;
   if (st.cheer && goal.joy === 1) {
     st.cheer = false;
     st.sparkle = t;
@@ -658,6 +677,11 @@ function step(dt) {
       }
     }
   }
+  if (!st.drag) {
+    st.tiltV += (-30 * st.tilt - 10 * st.tiltV) * dt;
+    st.tilt += st.tiltV * dt;
+    if (Math.abs(st.tilt) < 1e-4 && Math.abs(st.tiltV) < 1e-3) st.tilt = st.tiltV = 0;
+  }
   st.boil = st.drag || Math.abs(st.spinV) > 0.5 ? Math.floor(t * 8) * 0.37 : 0;
 
   // Looking about: a slow sway, and a glance at a bubble now and then
@@ -666,17 +690,19 @@ function step(dt) {
   if (!calm && !st.glance && t > st.nextGlance && live.length) {
     const b = live[Math.floor(hash1(t * 3.1) * live.length)];
     st.glance = { key: b.key, until: t + 0.9 };
-    st.nextGlance = t + mix(5, 1.8, st.worry) + hash1(t) * 1.5;
+    st.nextGlance = t + mix(14, 7, st.worry) + hash1(t) * 4;
   }
   if (st.glance && t > st.glance.until) st.glance = null;
   const gb = st.glance && st.bubbles.get(st.glance.key);
-  let yawT = calm ? 0 : 0.15 * Math.sin(t * 0.45) + 0.05 * Math.sin(t * 1.27);
-  let pitchT = (live.length ? 0.1 : 0) + (calm ? 0 : 0.04 * Math.sin(t * 0.63));
-  if (gb) {
-    yawT = clamp((gb.x - HEAD.x) * 1.7, -0.85, 0.85);
-    pitchT = clamp((headY() - gb.y) * 0.9, 0.05, 0.5);
+  // Only a little: it mostly holds still and lets you turn it.
+  let yawT = calm ? 0 : 0.035 * Math.sin(t * 0.37);
+  let pitchT = (live.length ? 0.06 : 0) + (calm ? 0 : 0.012 * Math.sin(t * 0.51));
+  if (gb && st.w) {
+    const g = geom();
+    yawT = clamp((gb.x - HEAD.x) * 0.6, -0.3, 0.3);
+    pitchT = clamp(((g.hy - (gb.y / SKY) * g.sky) / st.w) * 0.35, 0.04, 0.2);
   }
-  const rate = gb ? 7 : 2;
+  const rate = gb ? 4 : 1.5;
   st.lookYaw = approach(st.lookYaw, yawT, rate, dt);
   st.lookPitch = approach(st.lookPitch, pitchT, rate, dt);
 
@@ -732,14 +758,14 @@ function draw() {
   const w = st.w;
   const t = st.t;
   const calm = reduced.matches;
-  const R = HEAD.r * w * (1 + (calm ? 0 : 0.006 * Math.sin(t * 1.6)));
-  const hx = HEAD.x * w;
-  const hy = headY() * w;
+  const g = geom();
+  const R = g.R * (1 + (calm ? 0 : 0.003 * Math.sin(t * 1.6)));
+  const { hx, hy, sky } = g;
   const yaw = st.spin + st.lookYaw;
-  const pitch = st.lookPitch;
+  const pitch = st.lookPitch + st.tilt;
   const bt = t - st.boop;
   const squash = bt < 0.5 ? 0.06 * Math.sin(bt * 18) * Math.exp(-bt * 7) : 0;
-  const roll = (calm ? 0 : st.joy * 0.07 * Math.sin(t * 0.55)) + (bt < 0.8 ? 0.08 * Math.sin(bt * 14) * Math.exp(-bt * 5) : 0);
+  const roll = (calm ? 0 : st.joy * 0.025 * Math.sin(t * 0.55)) + (bt < 0.8 ? 0.08 * Math.sin(bt * 14) * Math.exp(-bt * 5) : 0);
   const C = { cy: Math.cos(yaw), sy: Math.sin(yaw), cp: Math.cos(pitch), sp: Math.sin(pitch), cr: Math.cos(roll), sr: Math.sin(roll) };
   const rot = (p) => {
     const x1 = p[0] * C.cy + p[2] * C.sy;
@@ -871,7 +897,9 @@ function draw() {
   }
 
   // The bubbles, each with a looping trail down to the head.
-  for (const key of [...st.bubbles.keys()]) drawBubble(st.bubbles.get(key), { w, R, hx, hy });
+  // Trails first, then the clouds over them, so a trail running up behind
+  // another bubble goes under it.
+  for (const pass of [0, 1]) for (const key of [...st.bubbles.keys()]) drawBubble(st.bubbles.get(key), { w, R, hx, hy, sky }, pass);
 
   for (let i = st.used; i < st.pool.length; i++) {
     const p = st.pool[i];
@@ -932,15 +960,16 @@ function trail(x0, y0, x1, y1, unit, seed) {
   return pts;
 }
 
-function drawBubble(b, { w, R, hx, hy }) {
+function drawBubble(b, { w, R, hx, hy, sky }, pass) {
   if (b.x == null) return;
   const t = st.t;
   const calm = reduced.matches;
-  const bob = calm ? 0 : Math.sin(t * 0.9 + b.seed) * 0.006;
+  const bob = calm ? 0 : Math.sin(t * 0.9 + b.seed) * 0.003;
   const cx = b.x * w;
-  const cy = (b.y + bob) * w;
+  const cy = ((b.y + bob) / SKY) * sky;
+  const bs = b.s;
   const wob = 1 + 0.07 * Math.sin(b.wob * Math.PI * 3) * b.wob;
-  let scale = b.s * wob;
+  let scale = bs * wob;
   let textOp = 1;
   let trailPart = 1; // how much of the trail is drawn, from the head out
   let cloudPart = 1; // how much of the cloud is drawn
@@ -974,13 +1003,16 @@ function drawBubble(b, { w, R, hx, hy }) {
   const gx = cx - hxT;
   const gy = cy - hyT;
   const gl = Math.hypot(gx, gy) || 1;
-  const edge = 1 / Math.sqrt((gx / gl / (BUB.rx * w * b.s)) ** 2 + (gy / gl / (BUB.ry * w * b.s)) ** 2);
+  const edge = 1 / Math.sqrt((gx / gl / (BUB.rx * w * bs)) ** 2 + (gy / gl / (BUB.ry * w * bs)) ** 2);
   const ex = cx - (gx / gl) * edge * 1.18;
   const ey = cy - (gy / gl) * edge * 1.18;
-  if (trailPart > 0 && Math.hypot(ex - hxT, ey - hyT) > 16) {
-    const pts = trail(hxT, hyT, ex, ey, (w / 343) * b.s, b.seed);
-    const k = Math.ceil(trailPart * (pts.length - 1)) + 1;
-    if (k > 1) put(inkPath(pts.slice(0, k), b.seed * 0.7, 2, 0.4), { w: 1.7 });
+  if (pass === 0) {
+    if (trailPart > 0 && Math.hypot(ex - hxT, ey - hyT) > 16) {
+      const pts = trail(hxT, hyT, ex, ey, (w / 343) * bs, b.seed);
+      const k = Math.ceil(trailPart * (pts.length - 1)) + 1;
+      if (k > 1) put(inkPath(pts.slice(0, k), b.seed * 0.7, 2, 0.4), { w: 1.7 });
+    }
+    return;
   }
 
   if (cloudPart > 0 && scale > 0.02) {
@@ -993,7 +1025,7 @@ function drawBubble(b, { w, R, hx, hy }) {
     let d = '';
     for (let i = 0; i < 9; i++) {
       const a = (i / 9) * TAU + hash1(b.seed + i) * 0.4;
-      const p = (rr, da) => [cx + Math.cos(a + da) * BUB.rx * w * b.s * rr, cy + Math.sin(a + da) * BUB.ry * w * b.s * rr];
+      const p = (rr, da) => [cx + Math.cos(a + da) * BUB.rx * w * bs * rr, cy + Math.sin(a + da) * BUB.ry * w * bs * rr];
       const r0 = 1.05 + 0.5 * e;
       const q0 = p(r0, 0);
       const q1 = p(r0 + 0.14 * (1 - e), 0.08);

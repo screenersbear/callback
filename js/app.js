@@ -470,7 +470,10 @@ window.addEventListener('resize', fitBrandTitle);
 function renderToday() {
   const today = todayStr();
   const t = buildToday({ people: S.people, touchpointsByPerson: S.tpsByPerson, news: S.news, loops: S.loops }, today);
-  let html = `
+  // On a phone Today is the numbers and the head: every section is one of
+  // its thought bubbles, so there's no header and no list of sections.
+  const phone = phoneQuery.matches && S.people.length > 0;
+  let html = phone ? '' : `
     <div class="hero-band">
       <div class="brand-row">
         <div class="brand-logo-wrap shine-sweep">${LOGO}</div>
@@ -489,13 +492,11 @@ function renderToday() {
   </div>`;
   // On a phone the numbers sit in a row on top; with the side rail they
   // stack in a column on the left and the rest of Today fills the right.
-  // On a phone the head and its thought bubbles go under the numbers.
-  let mind = '';
-  const dash = (rest, aside = '') => `${html}<div class="dash${aside ? ' has-pick' : ''}">${stats}<div class="dash-main">${mind}${conflictBannerHTML()}${exportReminderHTML(today)}${rest}</div>${aside}</div>`;
-
   const list = todaySectionList(t);
+  if (phone) return `<div class="dash is-mind">${stats}<div class="dash-main">${conflictBannerHTML()}${exportReminderHTML(today)}${mindSlotHTML(list)}</div></div>`;
+  const dash = (rest, aside = '') => `${html}<div class="dash${aside ? ' has-pick' : ''}">${stats}<div class="dash-main">${conflictBannerHTML()}${exportReminderHTML(today)}${rest}</div>${aside}</div>`;
+
   const blocks = list.map((b, i) => ({ key: b.key, n: b.n, html: sectionBlock(b.key, b.title, b.n, b.inner, i % 2 ? 'navy' : 'yellow') }));
-  if (phoneQuery.matches) mind = mindSlotHTML(list);
   if (!list.some((b) => b.key !== 'today-light')) return dash(caughtUpHTML(today) + blocks.map((b) => b.html).join(''));
   // A big window (full screen, or a big Mac window) gets the board: a column
   // per section, as many as fit, and whoever you click opens on the right.
@@ -550,17 +551,18 @@ function todaySectionList(t) {
   return sections;
 }
 
-// The head on a phone: a thought bubble for each section with something
-// to do, most pressing first. Coming up has none (nothing to do yet).
-// Light touches weigh half, being small.
-const THOUGHTS = [['overdue', 'overdue'], ['due', 'due today'], ['justmet', 'just met'], ['replies', 'reply?'], ['loops', 'open loops'], ['news', 'their news'], ['resurfaced', 'resurfaced'], ['today-light', 'light touches']];
+// The head on a phone: a thought bubble for each of Today's sections with
+// anything in it, most pressing first. Light touches weigh half, being
+// small, and Coming up doesn't weigh at all (nothing to do yet).
+const THOUGHTS = [['overdue', 'overdue'], ['due', 'due today'], ['justmet', 'just met'], ['replies', 'reply?'], ['loops', 'open loops'], ['news', 'their news'], ['resurfaced', 'resurfaced'], ['today-light', 'light touches'], ['coming', 'coming up']];
+const WEIGHT = { 'today-light': 0.5, coming: 0 };
 const phoneQuery = window.matchMedia('(max-width: 899px)');
 let todayMind = { bubbles: [], pending: 0 };
 
 function mindSlotHTML(list) {
   const byKey = new Map(list.map((b) => [b.key, b]));
-  const bubbles = THOUGHTS.filter(([k]) => byKey.has(k)).map(([key, label]) => ({ key, label, title: byKey.get(key).title, n: byKey.get(key).n }));
-  todayMind = { bubbles, pending: bubbles.reduce((a, b) => a + (b.key === 'today-light' ? b.n / 2 : b.n), 0) };
+  const bubbles = THOUGHTS.filter(([k]) => byKey.has(k)).map(([key, label]) => ({ key, label, title: byKey.get(key).title, n: byKey.get(key).n, weight: WEIGHT[key] ?? 1 }));
+  todayMind = { bubbles, pending: bubbles.reduce((a, b) => a + b.n * b.weight, 0) };
   return '<div class="mind-slot" data-mind-slot></div>';
 }
 
