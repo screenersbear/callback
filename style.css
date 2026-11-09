@@ -1813,7 +1813,8 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
   display: flex;
   background: var(--surface);
   border-top: 3px solid var(--ink);
-  padding: 6px 0 calc(6px + env(safe-area-inset-bottom));
+  /* Low on the screen: the labels sit just above the home indicator. */
+  padding: 3px 0 max(4px, calc(env(safe-area-inset-bottom) - 14px));
   max-width: 560px;
   margin: 0 auto;
   transform: translateZ(0);
@@ -1830,7 +1831,7 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
   flex-direction: column;
   align-items: center;
   gap: 3px;
-  padding: 6px 2px;
+  padding: 4px 2px;
   color: var(--text-dim);
   text-decoration: none;
   font-size: 11px;
@@ -1846,7 +1847,7 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
 .tab.active::before {
   content: '';
   position: absolute;
-  top: -9px;
+  top: -6px;
   left: 18%;
   right: 18%;
   height: 5px;

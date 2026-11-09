@@ -13,7 +13,8 @@
 const NS = 'http://www.w3.org/2000/svg';
 const TAU = Math.PI * 2;
 const EYE = 5; // the viewer's distance, in head sizes: a touch of perspective
-const HEAD = { x: 0.5, r: 0.27 }; // in stage widths; it sits at the bottom
+const HEAD = { x: 0.5, r: 0.3 }; // in stage widths; it sits at the bottom
+const REST_YAW = -0.32; // at rest it looks a little to the left, not at you
 const SKY = 0.57; // bubble heights (SLOTS) are given against this much sky
 const BUB = { rx: 0.16, ry: 0.1 }; // a bubble's size, in stage widths
 
@@ -418,7 +419,7 @@ const st = {
   tilt: 0,
   tiltV: 0,
   drag: null,
-  lookYaw: 0,
+  lookYaw: REST_YAW,
   lookPitch: 0,
   glance: null,
   nextGlance: 2,
@@ -488,7 +489,7 @@ function resize() {
 
 // Where the head is, in pixels, and how much sky there is above it.
 function geom() {
-  const R = Math.min(HEAD.r * st.w, st.h * 0.19);
+  const R = Math.min(HEAD.r * st.w, st.h * 0.21);
   const hy = st.h - R * 1.5;
   return { R, hx: HEAD.x * st.w, hy, sky: hy - R * 1.15 };
 }
@@ -695,11 +696,11 @@ function step(dt) {
   if (st.glance && t > st.glance.until) st.glance = null;
   const gb = st.glance && st.bubbles.get(st.glance.key);
   // Only a little: it mostly holds still and lets you turn it.
-  let yawT = calm ? 0 : 0.035 * Math.sin(t * 0.37);
+  let yawT = REST_YAW + (calm ? 0 : 0.035 * Math.sin(t * 0.37));
   let pitchT = (live.length ? 0.06 : 0) + (calm ? 0 : 0.012 * Math.sin(t * 0.51));
   if (gb && st.w) {
     const g = geom();
-    yawT = clamp((gb.x - HEAD.x) * 0.6, -0.3, 0.3);
+    yawT = clamp(REST_YAW * 0.5 + (gb.x - HEAD.x) * 0.6, -0.45, 0.3);
     pitchT = clamp(((g.hy - (gb.y / SKY) * g.sky) / st.w) * 0.35, 0.04, 0.2);
   }
   const rate = gb ? 4 : 1.5;
@@ -787,6 +788,8 @@ function draw() {
   const cont = contour(skin, hx, R);
   let way;
   let swingOK = true;
+  let upPart = null;
+  let arc = null;
   if (cont) {
     const bottom = st.h + 2;
     const [lx, ly] = cont.L;
@@ -799,7 +802,9 @@ function draw() {
     swingOK = prof < 0.5;
     let end = head.findIndex((p) => p[0] > hx + R * (0.5 + 0.8 * prof));
     if (end < 2) end = head.length;
-    way = [...up, ...loopPts, ...head.slice(1, end)];
+    upPart = [...up, ...loopPts];
+    arc = head;
+    way = [...upPart, ...head.slice(1, end)];
   } else {
     let ring = resample(skin, 84, hx, hy, Math.PI * 0.72);
     const ang = (p) => Math.atan2(p[1] - hy, p[0] - hx);
@@ -814,7 +819,7 @@ function draw() {
     if (more.length > 1) {
       const E = way[n - 1];
       const B = more[0];
-      const k = Math.hypot(B[0] - E[0], B[1] - E[1]) * 0.42;
+      const k = Math.hypot(B[0] - E[0], B[1] - E[1]) * 0.3;
       const hE = heading(way[n - 2], E);
       const hB = heading(B, more[1]);
       const c1 = [E[0] + Math.cos(hE) * k, E[1] + Math.sin(hE) * k];
@@ -839,6 +844,7 @@ function draw() {
     lookU: st.glance ? clamp(yawT * 1.2, -1, 1) : 0,
     lookV: st.glance ? clamp(st.lookPitch * 1.6, -1, 1) : 0,
   };
+  let joinRun = null;
   for (const line of headLines(ex)) {
     const pts = line.pts.map((s) => {
       const r = rot(s.p);
@@ -864,10 +870,8 @@ function draw() {
         let len = 0;
         for (let i = 1; i < run.length; i++) len += Math.hypot(run[i][0] - run[i - 1][0], run[i][1] - run[i - 1][1]);
         if (len < 5) { run = []; return; } // no specks where a line turns away
-        const E = way[way.length - 1];
-        // It swings in only when the brow is just below where the line left
-        // off; turned further, the two are drawn apart.
-        if (line.join && swingOK && from === 0 && !wayDone && way.length > 1 && run[0][0] > E[0] - R * 0.2 && Math.hypot(run[0][0] - E[0], run[0][1] - E[1]) < R) drawWay(run);
+        // The brow-and-nose line waits: the outline may run on into it.
+        if (line.join && from === 0 && !joinRun) joinRun = { run, line, op };
         else put(inkPath(run, line.seed, line.waves, 0.7), { w: line.w, op: r1(op) });
       }
       run = [];
@@ -879,7 +883,23 @@ function draw() {
     });
     flush();
   }
+  // The outline leaves the head at the temple, a little above and to the
+  // right of where the brow starts, and swings in to become it. Turned so
+  // far that the brow is left of the middle, the two are drawn apart.
+  if (joinRun && swingOK && arc) {
+    const B = joinRun.run[0];
+    let top = 0;
+    arc.forEach((p, i) => { if (p[1] < arc[top][1]) top = i; });
+    const end = arc.findIndex((p, i) => i > top && p[0] > B[0] + R * 0.12 && p[1] > B[1] - R * 0.55);
+    const E = end > top + 1 ? arc[end - 1] : null;
+    if (E && B[0] > hx - R * 0.05 && Math.hypot(B[0] - E[0], B[1] - E[1]) < R * 1.1) {
+      way = [...upPart, ...arc.slice(1, end)];
+      drawWay(joinRun.run);
+    }
+  }
+  const swung = wayDone;
   if (!wayDone && way.length > 1) drawWay();
+  if (joinRun && !swung) put(inkPath(joinRun.run, joinRun.line.seed, joinRun.line.waves, 0.7), { w: joinRun.line.w, op: r1(joinRun.op) });
 
   // Sparkles, the moment the last bubble goes.
   const sp = t - st.sparkle;
