@@ -1894,15 +1894,16 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
 }
 
 /* Desktop: the same sliding bar along the bottom as on a phone (the
-   sections' rail is gone), and the page in the middle of the window. The
-   page next door, drawn beside it while the bar is swiped (.peek-app), is
-   laid out the same way. */
+   sections' rail is gone). Pages start at the left; on a wide window the
+   spare room goes on the right, not on both sides. The page next door,
+   drawn beside it while the bar is swiped (.peek-app), is laid out the
+   same way. */
 @media (min-width: 900px) {
   :root { --bar-h: 60px; }
 
   :is(#app, .peek-app) {
     max-width: 920px;
-    margin: 0 auto;
+    margin: 0;
     padding: 0 32px calc(var(--bar-h) + 40px);
   }
 
@@ -1910,8 +1911,8 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
      column below. 100% here is the column's own width. */
   .hero-band {
     width: 100vw;
-    margin-left: calc(50% - 50vw);
-    padding: 28px calc(50vw - 50%) 24px;
+    margin-left: -32px;
+    padding: 28px calc(100vw - 32px - 100%) 24px 32px;
     display: flex;
     align-items: center;
     justify-content: space-between;
