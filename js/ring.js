@@ -19,7 +19,7 @@ const AROUND = 14; // the ring's length, in heights
 const EYE = 3; // the camera's distance from the front of the ring, in heights
 const ARM = 0.4; // an arm's length, in its owner's height
 const FRONT = 0.56; // the biggest figure at the front, in stage heights
-const BACK = 0.3; // where the far side's feet are, in stage heights from the top
+const BACK = 0.36; // where the far side's feet are, in stage heights from the top
 const FEET = 34; // room under the front row's feet for their names, in pixels
 
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -365,9 +365,14 @@ function resize() {
 function view() {
   if (!st.ghosts && st.real) return smallView();
   const k = Math.min(FRONT * st.h, st.w * 0.64);
-  const yf = st.h - FEET;
   const sb = EYE / (EYE + (2 * st.ring) / TAU);
-  return { k, cx: st.w / 2, yf, hz: (BACK * st.h - sb * yf) / (1 - sb) };
+  // The whole ring sits in the middle of the room it has: as much space
+  // over the far side's heads as under the front row's names.
+  const big = st.items.reduce((m, it) => Math.max(m, it.size), 0.84);
+  const top = BACK * st.h - big * k * sb;
+  const up = Math.max(0, top / 2);
+  const yf = st.h - FEET - up;
+  return { k, cx: st.w / 2, yf, hz: (BACK * st.h - up - sb * yf) / (1 - sb) };
 }
 
 // Just the people who are there: smaller, a ring only as big as they make

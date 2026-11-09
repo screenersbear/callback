@@ -25,6 +25,11 @@ const SPIN_L = 0.85;
 const SPIN_R = 1.25;
 const softSpin = (raw) => (raw < 0 ? SPIN_L * Math.tanh(raw / SPIN_L) : SPIN_R * Math.tanh(raw / SPIN_R));
 const rawSpin = (v) => (v < 0 ? SPIN_L * Math.atanh(clamp(v / SPIN_L, -0.999, 0)) : SPIN_R * Math.atanh(clamp(v / SPIN_R, 0, 0.999)));
+// And tipping it up and down: up to look over the bubbles, down at the bar.
+const TILT_UP = 0.42;
+const TILT_DOWN = 0.5;
+const softTilt = (raw) => (raw > 0 ? TILT_UP * Math.tanh(raw / TILT_UP) : TILT_DOWN * Math.tanh(raw / TILT_DOWN));
+const rawTilt = (v) => (v > 0 ? TILT_UP * Math.atanh(clamp(v / TILT_UP, 0, 0.999)) : TILT_DOWN * Math.atanh(clamp(v / TILT_DOWN, -0.999, 0)));
 
 // How the buddy looks, picked by tapping its face (kept on this device).
 // One list, no groups: a plain face with the one hair it started with,
@@ -712,6 +717,7 @@ const st = {
   faceAt: 0,
   tilt: 0,
   tiltV: 0,
+  tiltGoal: 0,
   drag: null,
   lookYaw: REST_YAW,
   lookPitch: REST_PITCH,
@@ -763,6 +769,14 @@ function build() {
     e.preventDefault();
     e.stopPropagation();
   }, true);
+  // On a phone Today doesn't move at all: a drag anywhere on it (outside a
+  // popup) only moves what's under the finger, so the page can't be pulled
+  // down. (iOS still pulled it about even with the page set not to scroll.)
+  document.addEventListener('touchmove', (e) => {
+    if (!st.el || !st.el.isConnected || !st.el.closest('.dash.is-mind')) return;
+    if (e.target.closest && e.target.closest('.sheet-overlay')) return;
+    if (e.cancelable) e.preventDefault();
+  }, { passive: false });
   new ResizeObserver(() => { resize(); kick(); }).observe(el);
   new IntersectionObserver((entries) => {
     st.visible = entries[entries.length - 1].isIntersecting;
@@ -804,7 +818,7 @@ function geom() {
 // it. A tap without a drag gets a little bounce.
 function wireHead(hit) {
   hit.addEventListener('pointerdown', (e) => {
-    st.drag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, raw0: rawSpin(st.spin), moved: false };
+    st.drag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, raw0: rawSpin(st.spin), rawT0: rawTilt(st.tilt), moved: false };
     kick();
   });
   hit.addEventListener('pointermove', (e) => {
@@ -817,10 +831,11 @@ function wireHead(hit) {
       try { hit.setPointerCapture(e.pointerId); } catch { /* fine without */ }
     }
     if (!d.moved) return;
-    // Left and right only, slower than the finger, and harder the further
-    // it goes; let go and it turns back.
+    // Slower than the finger, and harder the further it goes; let go and
+    // it turns back. Up tips the chin up, down tips it down.
     const k = (Math.PI / (geom().R * 2)) * 0.5;
     st.spinGoal = softSpin(d.raw0 + dx * k);
+    st.tiltGoal = softTilt(d.rawT0 - dy * k);
     kick();
   });
   const end = (e) => {
@@ -869,6 +884,8 @@ function newBubble(d, i) {
     }
     const [x, y] = fitSpot(c.from[0] + dx / st.w, c.from[1] + (dy / geom().sky) * SKY, b.ts);
     Object.assign(b, { x, y, tx: x, ty: y });
+    // The face watches it go, until it's let go.
+    st.glance = { key: b.key, until: Infinity };
     kick();
   });
   const drop = (e) => {
@@ -878,6 +895,7 @@ function newBubble(d, i) {
     if (c.moved) {
       b.moved = performance.now();
       settle(b, c.from);
+      st.glance = { key: b.key, until: st.t + 0.5 };
     }
     kick();
   };
@@ -1057,7 +1075,7 @@ export function mindStep(seconds = 0, set = {}) {
 
 // What's showing, for checking it in a test.
 export function mindInfo() {
-  return { worry: st.worry, joy: st.joy, pending: st.pending, spin: st.spin, tilt: st.tilt, bubbles: [...st.bubbles.values()].map((b) => ({ key: b.key, n: b.n, state: b.state, p: b.p })) };
+  return { worry: st.worry, joy: st.joy, pending: st.pending, spin: st.spin, tilt: st.tilt, lookYaw: st.lookYaw, lookPitch: st.lookPitch, glance: st.glance && st.glance.key, bubbles: [...st.bubbles.values()].map((b) => ({ key: b.key, n: b.n, state: b.state, p: b.p })) };
 }
 
 function kick() {
@@ -1073,7 +1091,7 @@ function frame(now) {
   st.last = now;
   step(dt);
   // Moving things get every frame; a head just idling gets about 25.
-  const busy = st.drag || Math.abs(st.spinV) > 0.05 || Math.abs(st.spin) > 0.002 || Math.abs(st.tilt) > 0.002 || [...st.bubbles.values()].some((b) => b.state !== 'on' || b.wob > 0.01);
+  const busy = st.drag || (st.carry && st.carry.moved) || Math.abs(st.spinV) > 0.05 || Math.abs(st.spin) > 0.002 || Math.abs(st.tilt) > 0.002 || [...st.bubbles.values()].some((b) => b.state !== 'on' || b.wob > 0.01);
   if (busy || now - st.lastDraw > 40) {
     st.lastDraw = now;
     draw();
@@ -1107,11 +1125,10 @@ function step(dt) {
   st.spinV += (-(st.drag ? 40 : 14) * (st.spin - spinTo) - (st.drag ? 12 : 7.5) * st.spinV) * dt;
   st.spin += st.spinV * dt;
   if (!st.drag && Math.abs(st.spin) < 1e-4 && Math.abs(st.spinV) < 1e-3) st.spin = st.spinV = 0;
-  if (!st.drag) {
-    st.tiltV += (-30 * st.tilt - 10 * st.tiltV) * dt;
-    st.tilt += st.tiltV * dt;
-    if (Math.abs(st.tilt) < 1e-4 && Math.abs(st.tiltV) < 1e-3) st.tilt = st.tiltV = 0;
-  }
+  const tiltTo = st.drag && st.drag.moved ? st.tiltGoal : 0;
+  st.tiltV += (-(st.drag ? 40 : 30) * (st.tilt - tiltTo) - (st.drag ? 12 : 10) * st.tiltV) * dt;
+  st.tilt += st.tiltV * dt;
+  if (!st.drag && Math.abs(st.tilt) < 1e-4 && Math.abs(st.tiltV) < 1e-3) st.tilt = st.tiltV = 0;
   st.boil = st.drag || Math.abs(st.spinV) > 0.5 ? Math.floor(t * 8) * 0.37 : 0;
 
   // Looking about: a slow sway, and a glance at a bubble now and then
@@ -1124,15 +1141,17 @@ function step(dt) {
   }
   if (st.glance && t > st.glance.until) st.glance = null;
   const gb = st.glance && st.bubbles.get(st.glance.key);
-  // Only a little: it mostly holds still and lets you turn it.
+  // Only a little: it mostly holds still and lets you turn it. A bubble
+  // being carried it follows properly, wherever it goes.
+  const carried = !!(gb && st.carry && st.carry.moved && st.carry.b === gb);
   let yawT = REST_YAW + (calm ? 0 : 0.035 * Math.sin(t * 0.37));
   let pitchT = REST_PITCH + (live.length ? 0.03 : 0) + (calm ? 0 : 0.012 * Math.sin(t * 0.51));
-  if (gb && st.w) {
+  if (gb && st.w && gb.x != null) {
     const g = geom();
-    yawT = clamp(REST_YAW * 0.5 + (gb.x - HEAD.x) * 0.6, -0.45, 0.3);
-    pitchT = clamp(((g.hy - (gb.y / SKY) * g.sky) / st.w) * 0.35 + REST_PITCH * 0.5, REST_PITCH * 0.7, REST_PITCH + 0.14);
+    yawT = clamp(REST_YAW * 0.5 + (gb.x - HEAD.x) * (carried ? 0.95 : 0.6), carried ? -0.75 : -0.45, carried ? 0.6 : 0.3);
+    pitchT = clamp(((g.hy - (gb.y / SKY) * g.sky) / st.w) * (carried ? 0.5 : 0.35) + REST_PITCH * 0.5, REST_PITCH * 0.7, REST_PITCH + (carried ? 0.32 : 0.14));
   }
-  const rate = gb ? 4 : 1.5;
+  const rate = carried ? 8 : gb ? 4 : 1.5;
   st.lookYaw = approach(st.lookYaw, yawT, rate, dt);
   st.lookPitch = approach(st.lookPitch, pitchT, rate, dt);
 
