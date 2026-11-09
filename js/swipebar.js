@@ -1,21 +1,25 @@
-// The bottom bar on a phone: one button that slides through the sections.
+// The bottom bar: one button that slides through the sections, on a phone
+// and in a wide window (the Mac app) alike.
 //
 // The section you're in sits in the middle as its icon, no words, with a
 // little triangle on each side that has another section. Swipe along the
 // bar to the left and the page slides off that way with the next section
 // drawn right beside it, coming in from the right as one strip (no gap
-// between them); swipe to the right to go back. A tap on a triangle does
-// the same, and a tap on the icon goes to the top of its section, the way
-// its tab did. Wide windows keep the rail of tabs.
+// between them); swipe to the right to go back. On a Mac the same goes for
+// a two-finger swipe on the trackpad over the bar, or a drag with the
+// mouse. A tap on a triangle does the same, and a tap on the icon goes to
+// the top of its section, the way its tab did.
 //
 // The page next door (a "peek") is drawn by the app (setSwipePeek) into a
 // layer of its own beside this one; once it's slid all the way in, the app
 // goes there for real and the layer is taken away in the same moment.
 
-const phone = matchMedia('(max-width: 899px)');
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 const STEP = 46; // px from one icon to the next on the strip
 const SLIDE_MS = 260;
+// How far the page has to be swiped to go over: a quarter of a phone's
+// screen, and no further than this on a big window.
+const far = (w) => Math.min(w * 0.25, 180);
 
 const S = {
   bar: null,
@@ -32,6 +36,7 @@ const S = {
   dragged: 0,
   peek: null,
   peekDir: 0,
+  wheel: null,
 };
 let makePeek = null;
 
@@ -52,6 +57,8 @@ function peekFor(dir) {
   el.setAttribute('aria-hidden', 'true');
   el.inert = true;
   el.style.transform = `translate3d(${dir * (window.innerWidth || 1)}px, 0, 0)`;
+  el.style.right = 'auto';
+  el.style.width = `${window.innerWidth || 1}px`;
   const page = document.createElement('div');
   page.className = 'peek-app';
   el.appendChild(page);
@@ -59,7 +66,20 @@ function peekFor(dir) {
   S.peek = el;
   S.peekDir = dir;
   try { makePeek(t.key, page); } catch (err) { console.error(err); }
+  // Where scroll bars are always shown (a Mac with a mouse), a page taller
+  // than the window will have one once it's there: drawn that much
+  // narrower, so it lines up with itself.
+  const sb = scrollBarWidth();
+  if (sb && page.offsetHeight > el.clientHeight) el.style.width = `${(window.innerWidth || 1) - sb}px`;
   return el;
+}
+function scrollBarWidth() {
+  const d = document.createElement('div');
+  d.style.cssText = 'position: absolute; top: -200px; width: 100px; height: 100px; overflow: scroll; visibility: hidden;';
+  document.body.appendChild(d);
+  const w = d.offsetWidth - d.clientWidth;
+  d.remove();
+  return w;
 }
 function dropPeek() {
   if (S.peek) S.peek.remove();
@@ -123,6 +143,10 @@ function label() {
   S.next.disabled = !n;
   S.prev.setAttribute('aria-label', p ? `Previous: ${p.name}` : 'Nothing before this');
   S.next.setAttribute('aria-label', n ? `Next: ${n.name}` : 'Nothing after this');
+  // Named when the pointer rests on them (Mac).
+  S.now.title = t.name;
+  S.prev.title = p ? p.name : '';
+  S.next.title = n ? n.name : '';
 }
 
 // Called by the app after each page is drawn, with the section it's in.
@@ -142,7 +166,7 @@ export function updateSwipeBar(tab) {
     stripTo(S.idx, 0, false);
     S.busy = false;
     sliding(false);
-  } else if (!S.drag && !S.busy) stripTo(S.idx);
+  } else if (!S.drag && !S.wheel && !S.busy) stripTo(S.idx);
 }
 
 // Off to the next (1) or previous (-1) section, the page sliding away from
@@ -217,9 +241,48 @@ function settle(from) {
   setTimeout(() => { if (!S.drag && !S.busy) sliding(false); }, 260);
 }
 
+// Taken hold of: the page is the finger's (or the trackpad's) now, even if
+// it was still springing back from the last one.
+function grab() {
+  sliding(true);
+  const v = view();
+  if (v) v.getAnimations().forEach((an) => an.cancel());
+}
+
+// The page moved along by `dx` px, the page next door riding beside it;
+// returns where the page is.
+function follow(dx) {
+  // Nothing that way: it gives a little, then stops.
+  const dir = dx < 0 ? 1 : -1;
+  const has = S.tabs[S.idx + dir];
+  const w = window.innerWidth || 1;
+  const x = has ? Math.max(-w, Math.min(w, dx)) : (dx * 0.3) / (1 + Math.abs(dx) / w);
+  const v = view();
+  if (v) v.style.transform = `translate3d(${x.toFixed(1)}px, 0, 0)`;
+  // Kept a moment longer when the finger wobbles back over the middle.
+  let p = null;
+  if (S.peek && S.peekDir !== dir && Math.abs(x) < 12) p = S.peek;
+  else if (has) p = peekFor(dir);
+  else dropPeek();
+  if (p) p.style.transform = `translate3d(${(S.peekDir * w + x).toFixed(1)}px, 0, 0)`;
+  stripTo(S.idx, x);
+  return x;
+}
+
+// Let go at `x`, moving at `v` px/ms: over to the next section if it went
+// far enough (or was flicked that way), else back.
+function release(x, ok = true, v = 0) {
+  S.dragged = performance.now();
+  const w = window.innerWidth || 1;
+  const dir = x < 0 ? 1 : -1;
+  const flick = Math.abs(v) > 0.45 && Math.sign(v) === Math.sign(x) && Math.abs(x) > 24;
+  if (ok && S.tabs[S.idx + dir] && (Math.abs(x) > far(w) || flick)) go(dir, x);
+  else settle(x);
+}
+
 function wire(bar) {
   bar.addEventListener('pointerdown', (e) => {
-    if (!phone.matches || S.busy || e.button) return;
+    if (S.busy || S.wheel || e.button) return;
     S.drag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, moved: false, x: 0, v: 0, t: performance.now(), lx: e.clientX };
   });
   bar.addEventListener('pointermove', (e) => {
@@ -234,44 +297,20 @@ function wire(bar) {
         return;
       }
       d.moved = true;
-      sliding(true);
-      // Grabbed again while the last one was still springing back: the
-      // finger has it now.
-      const v0 = view();
-      if (v0) v0.getAnimations().forEach((an) => an.cancel());
+      grab();
       try { bar.setPointerCapture(e.pointerId); } catch { /* fine */ }
     }
     const now = performance.now();
     d.v = (e.clientX - d.lx) / Math.max(1, now - d.t);
     d.lx = e.clientX;
     d.t = now;
-    // Nothing that way: it gives a little, then stops.
-    const dir = dx < 0 ? 1 : -1;
-    const has = S.tabs[S.idx + dir];
-    const w = window.innerWidth || 1;
-    d.x = has ? dx : (dx * 0.3) / (1 + Math.abs(dx) / w);
-    const v = view();
-    if (v) v.style.transform = `translate3d(${d.x.toFixed(1)}px, 0, 0)`;
-    // The page next door rides along beside it (kept a moment longer when
-    // the finger wobbles back over the middle).
-    let p = null;
-    if (S.peek && S.peekDir !== dir && Math.abs(d.x) < 12) p = S.peek;
-    else if (has) p = peekFor(dir);
-    else dropPeek();
-    if (p) p.style.transform = `translate3d(${(S.peekDir * w + d.x).toFixed(1)}px, 0, 0)`;
-    stripTo(S.idx, d.x);
+    d.x = follow(dx);
   });
   const end = (e) => {
     const d = S.drag;
     if (!d || e.pointerId !== d.id) return;
     S.drag = null;
-    if (!d.moved) return;
-    S.dragged = performance.now();
-    const w = window.innerWidth || 1;
-    const dir = d.x < 0 ? 1 : -1;
-    const flick = Math.abs(d.v) > 0.45 && Math.sign(d.v) === Math.sign(d.x) && Math.abs(d.x) > 24;
-    if (e.type === 'pointerup' && S.tabs[S.idx + dir] && (Math.abs(d.x) > w * 0.25 || flick)) go(dir, d.x);
-    else settle(d.x);
+    if (d.moved) release(d.x, e.type === 'pointerup', d.v);
   };
   bar.addEventListener('pointerup', end);
   bar.addEventListener('pointercancel', end);
@@ -282,6 +321,42 @@ function wire(bar) {
       e.stopPropagation();
     }
   }, true);
+  // Two fingers on a Mac trackpad (or a sideways scroll): the page follows
+  // them like a finger, and the swipe ends when they've stopped. Up and
+  // down scrolls the page as usual.
+  bar.addEventListener('wheel', (e) => {
+    if (e.ctrlKey) return; // a pinch
+    const k = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerWidth : 1;
+    const dx = e.deltaX * k;
+    const dy = e.deltaY * k;
+    let wh = S.wheel;
+    if (!wh) {
+      if (Math.abs(dx) <= Math.abs(dy)) return;
+      // Sideways is never the browser's back or forward here.
+      e.preventDefault();
+      if (S.busy || S.drag) return;
+      wh = S.wheel = { x: 0, at: 0, gone: false, quiet: 0 };
+      grab();
+    }
+    e.preventDefault();
+    clearTimeout(wh.quiet);
+    wh.quiet = setTimeout(() => {
+      S.wheel = null;
+      if (!wh.gone) release(wh.at);
+    }, 160);
+    // Already on its way over: the rest of this swipe (the trackpad keeps
+    // coasting a while) moves nothing.
+    if (wh.gone) return;
+    wh.x -= dx;
+    wh.at = follow(wh.x);
+    const w = window.innerWidth || 1;
+    const dir = wh.at < 0 ? 1 : -1;
+    if (Math.abs(wh.at) > far(w) * 1.6 && S.tabs[S.idx + dir]) {
+      wh.gone = true;
+      S.dragged = performance.now();
+      go(dir, wh.at);
+    }
+  }, { passive: false });
 }
 
 // For tests.

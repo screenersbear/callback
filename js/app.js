@@ -509,7 +509,7 @@ function renderToday() {
     ${statBox(`${week.regular.length}<small>/${g.touchpoints}</small>`, 'Touchpoints this week', null, 'touchpoints')}
     ${statBox(`${week.added.length}<small>/${g.newPeople}</small>`, 'New people this week', null, 'added')}
   </div>`;
-  // On a phone the numbers sit in a row on top; with the side rail they
+  // On a phone the numbers sit in a row on top; on a wider window they
   // stack in a column on the left and the rest of Today fills the right.
   const list = todaySectionList(t);
   if (phone) return `<div class="dash is-mind">${stats}<div class="dash-main">${conflictBannerHTML()}${exportReminderHTML(today)}${mindSlotHTML(list)}</div></div>`;
@@ -651,7 +651,7 @@ const PER_ITEM = { justmet: 3, overdue: 3, due: 3, resurfaced: 3, loops: 1.2, ne
 // fit side by side (a full-screen 14 or 16 inch Mac is 1496 or wider).
 // The sizes here match the board's in style.css.
 const bigQuery = window.matchMedia('(min-width: 1400px)');
-const BOARD = { rail: 200, pad: 32, stats: 172, gap: 28, col: 340, colGap: 20, panelMin: 560, panelMax: 1000 };
+const BOARD = { rail: 0, pad: 32, stats: 172, gap: 28, col: 340, colGap: 20, panelMin: 560, panelMax: 1000 };
 
 // How many columns fit beside the numbers, and beside the open person.
 function boardFit(withPanel) {
@@ -1250,8 +1250,12 @@ function shootMap() {
 function peekPage(name, page) {
   const keep = [ringPeople, ringOpts, mapNow, todayMind];
   try {
-    page.innerHTML = `<div class="view" data-route="${name}">${ROUTES[name]()}</div>`;
+    // Laid out the way render() would: the list beside an empty page on a
+    // wide window, Today's board on a big one.
+    const list = splitList(name);
+    page.innerHTML = `<div class="view${list ? ' is-split' : ''}" data-route="${name}">${list ? splitHTML({ name, id: null }, list) : ROUTES[name]()}</div>`;
     const pv = page.firstElementChild;
+    if (pv.querySelector('.board')) pv.classList.add('is-board');
     const fromDetail = /^#\/(person|org|circle)\//.test(location.hash);
     const y = fromDetail ? S.ui.scroll.get(`${name}/`) || 0 : 0;
     if (y) page.style.transform = `translate3d(0, ${-y}px, 0)`;
