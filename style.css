@@ -334,8 +334,10 @@ button.thought {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  padding: 0;
+  gap: 1px;
+  /* The words sit a little high in the cloud, so the tails of g, p and y
+     stay clear of its bottom line. */
+  padding: 0 0 9px;
   border: 0;
   background: none;
   color: var(--text);

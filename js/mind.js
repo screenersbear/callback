@@ -1458,9 +1458,12 @@ function drawBubble(b, { w, R, hx, hy, sky }, pass) {
   if (b.x == null) return;
   const t = st.t;
   const calm = reduced.matches;
-  const bob = calm ? 0 : Math.sin(t * 0.9 + b.seed) * 0.003;
-  const cx = b.x * w;
-  const cy = ((b.y + bob) / SKY) * sky;
+  // Each cloud drifts ever so slightly on its own slow loop: a few px side
+  // to side and up and down, never in step with the others.
+  const driftX = calm ? 0 : (Math.sin(t * 0.31 + b.seed) * 0.6 + Math.sin(t * 0.17 + b.seed * 1.7) * 0.4) * 0.009;
+  const driftY = calm ? 0 : (Math.sin(t * 0.43 + b.seed * 0.6) * 0.7 + Math.sin(t * 0.9 + b.seed) * 0.3) * 0.004;
+  const cx = (b.x + driftX) * w;
+  const cy = ((b.y + driftY) / SKY) * sky;
   const bs = b.s;
   const wob = 1 + 0.07 * Math.sin(b.wob * Math.PI * 3) * b.wob;
   let scale = bs * wob;
