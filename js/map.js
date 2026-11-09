@@ -1,27 +1,32 @@
-// Circles and Organizations, on a phone: a map you look down on at a slant.
-// Each circle is a little ring of its people holding hands, as big as the
+// Circles and Organizations, on a phone: a little world you look down on
+// in perspective, like People's ring, so what's near is bigger than what's
+// far. Each circle is a ring of its people holding hands, as big as the
 // circle is; each organization is a building drawn in a loose line, taller
-// the more people work there. A finger moves the map about; a tap flies in
-// to that circle, or in at one of the building's windows, and then the app
-// opens it (the People ring, with just those people).
+// the more people work there. One finger moves the map about and two pinch
+// it in and out; a tap flies in to that circle, or in at one of the
+// building's windows, and then the app opens it (the People ring, with
+// just those people).
 //
 // One canvas, kept and moved between pages, like ring.js. Where you left
-// each map is kept while the app is open.
+// each map, and how close you were, is kept while the app is open.
 
 import { bodyLine, shake, trace, armRoots, handBetween, hashStr, lightness } from './ring.js';
 
 const TAU = Math.PI * 2;
-const TILT = 0.5; // the ground, squashed: how steeply you look down on it
-const UP = 0.86; // standing things, a little shortened
+const PITCH = 0.62; // how steeply you look down at the ground, in radians
+const LENS = 1.7; // the lens, in screen widths: the perspective
+const NEAR = 0.05; // nothing nearer the eye than this is drawn
 const GAP = 0.8; // between people in a little ring, in their heights
 const ARM = 0.4; // an arm's length, in its owner's height
 const MOST = 40; // the most people drawn round one circle
 const LABEL_W = 150; // the widest a name gets, in pixels
 const FLY = 0.72; // seconds to fly in
 const BACKOUT = 0.55; // and out again
+const CLOSEST = 4; // a pinch goes in to four times as big as at the start
+const FARTHEST = 0.3; // and out to a third as big (or to the whole map)
+const FONT = 'Mansalva, "Bradley Hand", cursive';
 
-// Buildings are drawn at a smaller scale than people, so a street of them
-// still fits.
+// The buildings are drawn smaller than people would be.
 const zoomOf = (kind) => (kind === 'orgs' ? 0.6 : 1);
 
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -42,14 +47,17 @@ const st = {
   kind: 'circles',
   items: [],
   key: null,
-  box: null, // everything, in map units
-  base: 40, // pixels per person's height
-  k: 40, // the same, for this map (buildings are drawn smaller)
-  cam: { x: 0, y: 0 },
-  vel: { x: 0, y: 0 },
+  box: null, // the ground it all stands on, in heights: x0, x1, z0 (near), z1 (far)
+  fit: null, // where to stand to see all of it
+  base: 40, // pixels per person's height where you look, at the start
+  F: 900, // the lens, in pixels
+  cam: { x: 0, z: 0, D: 20 }, // the spot on the ground you look at, and how far back you are
+  vel: { x: 0, z: 0 },
   cams: {}, // where each map was left
+  ptrs: new Map(), // fingers down, where they are
   drag: null,
-  fly: null, // { id, to, k0, k1, c0, c1, t, out }
+  pinch: null,
+  fly: null,
   t: 0,
   last: 0,
   lastDraw: 0,
@@ -90,7 +98,7 @@ function resize() {
   if (w === st.w && h === st.h && dpr === st.dpr) return;
   Object.assign(st, { w, h, dpr });
   st.base = clamp(w / 7.6, 34, 54);
-  st.k = st.base * zoomOf(st.kind);
+  st.F = LENS * w;
   st.el.style.height = `${h}px`;
   st.cv.width = Math.round(w * dpr);
   st.cv.height = Math.round(h * dpr);
@@ -100,11 +108,11 @@ function resize() {
 }
 
 // ---------------------------------------------------------------------------
-// What's on the map. Everything is in map units (a person's height), x to
-// the right and y down the screen, with the ground already squashed.
+// What's on the map. Everything stands on the ground: x to the right, z
+// away from you, y up, all in a person's height.
 
-// A circle: its people round a ring, the first at the front. Big circles
-// stop at MOST people drawn.
+// A circle: its people round a ring, facing in, the first at the front.
+// Big circles stop at MOST people drawn.
 function ringItem(c) {
   const people = c.people.slice(0, MOST).map((p, i) => ({ ...p, seed: hashStr(`${c.id}:${p.id || i}`) }));
   const n = people.length;
@@ -121,14 +129,16 @@ function ringItem(c) {
       a -= (gaps[i] / around) * TAU;
     }
   });
-  const tall = n ? Math.max(...people.map((p) => p.size)) * UP : UP;
-  return { ...c, type: 'ring', count: c.count ?? c.people.length, R, people, x0: -R - 0.5, x1: R + 0.5, y0: -R * TILT - tall - 0.2, y1: R * TILT + 0.95 };
+  const tall = n ? Math.max(...people.map((p) => p.size)) : 1;
+  return { ...c, type: 'ring', count: c.count ?? c.people.length, R, people, tall, mx: 0, mz: 0, reach: R + 0.5 + tall };
 }
 
 // A building, by kind of organization: an office with a water tank on the
 // roof (agency), a shop with an awning (brand), a wide stage with a big
 // door (production), a tall block with an aerial (publication), a sawtooth
-// roof (studio), or a house with a pitched roof (anything else).
+// roof (studio), or a house with a pitched roof (anything else). It stands
+// on its front corner, one side running back to the left, one to the
+// right.
 const BUILDINGS = {
   agency: { a: 0.75, b: 0.95, floor: 0.4, roof: 'tank' },
   brand: { a: 0.8, b: 1.15, floor: 0.42, roof: 'shop' },
@@ -146,7 +156,7 @@ function buildingItem(o) {
   const a = B.a * wide;
   const b = B.b * wide;
   const H = floors * B.floor + 0.12;
-  const roofUp = { tank: 0.38, shop: 0.22, stage: 0.3, aerial: 0.55, saw: 0.3, gable: 0.42 }[B.roof] || 0;
+  const roofUp = { tank: 0.45, shop: 0.22, stage: 0.3, aerial: 0.55, saw: 0.3, gable: 0.42 }[B.roof] || 0;
   return {
     ...o,
     type: 'building',
@@ -157,41 +167,133 @@ function buildingItem(o) {
     floors,
     floor: B.floor,
     seed: hashStr(o.id),
-    x0: -a * 0.866 - 0.3,
-    x1: b * 0.866 + 0.3,
-    y0: -H - (a + b) * 0.5 - roofUp - 0.15,
-    y1: 0.95,
+    tall: H + roofUp,
+    mx: 0.433 * (b - a),
+    mz: 0.25 * (a + b),
+    reach: Math.max(a, b) + H + roofUp,
   };
 }
 
 // Lay them out from the middle in a loose spiral, the first in the middle,
-// each in the first free spot it comes to.
-function layout(items) {
+// each in the first free spot it comes to. Each keeps room in front for
+// its name, and behind for what stands up off the ground. Names shrink
+// less than things do with distance, so farther back they need more
+// ground; and from the far side you look along the ground more, so what
+// stands up there hides more of what's behind it.
+function layout(items, k) {
+  const sp = Math.sin(PITCH);
+  const cp = Math.cos(PITCH);
+  const D0 = st.F / k;
+  const ext = (it, z) => {
+    const s = clamp(D0 / (D0 + z * cp), 0.45, 2.2);
+    const sc = clamp(Math.sqrt(s), 0.78, 1.2); // as the names are drawn
+    const half = (Math.min(LABEL_W, it.name.length * 7.8 + 10) * sc) / 2 / (k * s);
+    const label = (48 * sc) / (k * s * sp);
+    const up = (it.tall * (D0 * cp + z)) / Math.max(D0 * sp * 0.3, D0 * sp - it.tall);
+    return it.type === 'ring'
+      ? { x0: Math.min(-it.R - 0.3, -half), x1: Math.max(it.R + 0.3, half), z0: -it.R - 0.3 - label, z1: it.R + 0.3 + up }
+      : { x0: Math.min(-0.866 * it.a - 0.3, -half), x1: Math.max(0.866 * it.b + 0.3, half), z0: -0.2 - label, z1: 0.5 * (it.a + it.b) + 0.2 + up };
+  };
   const placed = [];
-  const pad = 0.25;
-  const free = (it, x, y) => placed.every((o) => x + it.x1 + pad < o.x + o.x0 || x + it.x0 - pad > o.x + o.x1 || y + it.y1 + pad < o.y + o.y0 || y + it.y0 - pad > o.y + o.y1);
+  const pad = 0.3;
+  const free = (e, x, z) => placed.every((o) => x + e.x1 + pad < o.x + o.x0 || x + e.x0 - pad > o.x + o.x1 || z + e.z1 + pad < o.z + o.z0 || z + e.z0 - pad > o.z + o.z1);
   for (const it of items) {
     let x = 0;
-    let y = 0;
+    let z = 0;
+    let e = ext(it, 0);
     for (let t = 0; t < 4000 && placed.length; t++) {
       const ang = t * 0.31;
       const r = 0.05 * t;
-      // A touch wider than tall, like a phone held upright sees a map.
+      // Deeper than wide: the ground is seen at a slant, so depth comes
+      // out short on the screen, and a phone is held upright.
       x = Math.cos(ang) * r;
-      y = Math.sin(ang) * r * 1.15;
-      if (free(it, x, y)) break;
+      z = Math.sin(ang) * r * 2.6;
+      e = ext(it, z);
+      if (free(e, x, z)) break;
     }
-    it.x = x;
-    it.y = y;
+    Object.assign(it, e, { x, z });
     placed.push(it);
   }
   const box = items.reduce((b, it) => ({
     x0: Math.min(b.x0, it.x + it.x0),
     x1: Math.max(b.x1, it.x + it.x1),
-    y0: Math.min(b.y0, it.y + it.y0),
-    y1: Math.max(b.y1, it.y + it.y1),
-  }), { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity });
-  return items.length ? box : { x0: -1, x1: 1, y0: -1, y1: 1 };
+    z0: Math.min(b.z0, it.z + it.z0),
+    z1: Math.max(b.z1, it.z + it.z1),
+  }), { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity });
+  return items.length ? box : { x0: -1, x1: 1, z0: -1, z1: 1 };
+}
+
+// Where to stand to see the whole map, in the middle of the screen: the
+// nearest back far enough that its near edge fits across and it fits top
+// to bottom (the far side is smaller, so it takes less of the screen).
+const startK = () => st.base * zoomOf(st.kind);
+function fitView() {
+  const b = st.box;
+  const sig = `${st.kind}|${st.key}|${st.w}x${st.h}`;
+  if (st.fit && st.fit.sig === sig) return st.fit;
+  const x = (b.x0 + b.x1) / 2;
+  // Each one's patch of ground (with its name in front and room behind
+  // for what stands up), on the screen.
+  const spread = (L) => {
+    let out = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity };
+    for (const it of st.items) {
+      for (const [gx, gz] of [[it.x0, it.z0], [it.x1, it.z0], [it.x0, it.z1], [it.x1, it.z1]]) {
+        const p = L.P(it.x + gx, 0, it.z + gz);
+        if (!p) return null;
+        out = { x0: Math.min(out.x0, p[0]), x1: Math.max(out.x1, p[0]), y0: Math.min(out.y0, p[1]), y1: Math.max(out.y1, p[1]) };
+      }
+    }
+    return out;
+  };
+  // Looking at the spot that puts it all in the middle, top to bottom and
+  // side to side.
+  const place = (D) => {
+    let found = null;
+    let gx = x;
+    for (let pass = 0; pass < 3; pass++) {
+      let lo = b.z0;
+      let hi = b.z1;
+      for (let i = 0; i < 24; i++) {
+        const z = (lo + hi) / 2;
+        const s = spread(lens({ T: [gx, 0, z], D, pitch: PITCH }));
+        if (!s) {
+          lo = z;
+          continue;
+        }
+        found = { x: gx, z, s };
+        // Sitting low on the screen: look a little nearer.
+        if ((s.y0 + s.y1) / 2 > st.h / 2) hi = z;
+        else lo = z;
+      }
+      if (!found) break;
+      gx += (((found.s.x0 + found.s.x1) / 2 - st.w / 2) * D) / st.F;
+    }
+    return found;
+  };
+  const fits = (D) => {
+    const e = place(D);
+    if (!e) return null;
+    const { s } = e;
+    const ok = s.y1 < st.h * 0.96 && s.y0 > st.h * 0.03 && s.x0 > st.w * 0.02 && s.x1 < st.w * 0.98;
+    return ok ? { x: e.x, z: e.z, D } : null;
+  };
+  let lo = 0.5;
+  let hi = 400;
+  let best = fits(hi) || { x, z: (b.z0 + b.z1) / 2, D: hi };
+  for (let i = 0; i < 30; i++) {
+    const D = Math.sqrt(lo * hi);
+    const f = fits(D);
+    if (f) {
+      best = f;
+      hi = D;
+    } else lo = D;
+  }
+  st.fit = { ...best, sig, place };
+  return st.fit;
+}
+function range() {
+  const d = st.F / startK();
+  return { lo: d / CLOSEST, hi: Math.max(d / FARTHEST, fitView().D * 1.25) };
 }
 
 // The middle of everything at the start, or where this map was left.
@@ -199,41 +301,45 @@ function update(kind, list, key) {
   const fresh = kind !== st.kind || key !== st.key;
   if (st.kind && st.items.length) st.cams[st.kind] = { ...st.cam };
   st.kind = kind;
-  st.k = st.base * zoomOf(kind);
   if (fresh) {
     st.items = list.map((x) => (kind === 'orgs' ? buildingItem(x) : ringItem(x)));
-    // Room for each name under it, so no two names run together.
-    for (const it of st.items) {
-      const half = Math.min(LABEL_W, it.name.length * 7.8 + 10) / 2 / st.k;
-      it.x0 = Math.min(it.x0, -half);
-      it.x1 = Math.max(it.x1, half);
-    }
-    st.box = layout(st.items);
+    st.box = layout(st.items, startK());
     st.key = key;
   }
   const kept = st.cams[kind];
-  st.cam = kept ? { ...kept } : { x: (st.box.x0 + st.box.x1) / 2, y: (st.box.y0 + st.box.y1) / 2 };
-  st.vel = { x: 0, y: 0 };
+  st.cam = kept ? { ...kept } : startCam();
+  st.vel = { x: 0, z: 0 };
   holdIn();
   const n = st.items.length;
   const what = kind === 'orgs' ? (n === 1 ? 'one organization' : `${n} organizations`) : n === 1 ? 'one circle' : `${n} circles`;
-  st.cv.setAttribute('aria-label', `A map of your ${kind === 'orgs' ? 'organizations as buildings' : 'circles, each a ring of its people'}, ${what}. Drag to move around, tap one to go in.`);
+  st.cv.setAttribute('aria-label', `A map of your ${kind === 'orgs' ? 'organizations as buildings' : 'circles, each a ring of its people'}, ${what}. Drag to move around, pinch to zoom in and out, tap one to go in.`);
+}
+
+// At the start: the whole map, filling the screen, unless that's so far
+// back the people are hard to see (then as close as that, in the middle
+// of it) or, for a few, so close they're huge.
+function startCam() {
+  const f = fitView();
+  const d = st.F / startK();
+  const D = clamp(f.D, d / 1.5, d / 0.75);
+  const at = D === f.D ? f : f.place(D);
+  const b = st.box;
+  return at ? { x: at.x, z: at.z, D } : { x: (b.x0 + b.x1) / 2, z: (b.z0 + b.z1) / 2, D };
 }
 
 // Not so far off that everything's gone: the middle of the screen stays
-// over the map (or, when it all fits, the map stays in the middle).
+// over the map. Not too close, or too far back.
 function limits() {
   const b = st.box;
-  const hw = st.w / 2 / st.k;
-  const hh = st.h / 2 / st.k;
-  const lim = (lo, hi, half) => (hi - lo < half * 2 ? [(lo + hi) / 2, (lo + hi) / 2] : [lo + half * 0.55, hi - half * 0.55]);
-  return { x: lim(b.x0, b.x1, hw), y: lim(b.y0, b.y1, hh) };
+  const r = range();
+  return { x: [b.x0, b.x1], z: [b.z0, b.z1], D: [r.lo, r.hi] };
 }
 function holdIn() {
   if (!st.box || !st.w) return;
+  st.cam.D = clamp(st.cam.D, ...limits().D);
   const L = limits();
   st.cam.x = clamp(st.cam.x, L.x[0], L.x[1]);
-  st.cam.y = clamp(st.cam.y, L.y[0], L.y[1]);
+  st.cam.z = clamp(st.cam.z, L.z[0], L.z[1]);
 }
 
 export function mountMap(slot, { kind = 'circles', items = [], key = '' } = {}, { onOpen, from = null } = {}) {
@@ -243,12 +349,12 @@ export function mountMap(slot, { kind = 'circles', items = [], key = '' } = {}, 
   resize();
   update(kind, items, key);
   st.fly = null;
+  st.ptrs.clear();
+  st.drag = null;
+  st.pinch = null;
   // Back out of a circle or building: start in close and pull back.
   const it = from && st.items.find((x) => x.id === from);
-  if (it && !reduced.matches) {
-    const aim = aimAt(it);
-    st.fly = { id: it.id, out: true, t: 0, k0: st.k * aim.zoom, k1: st.k, c0: aim.c, c1: { ...st.cam }, at: aim.c };
-  }
+  if (it && !reduced.matches) startFly(it, true);
   draw();
   kick();
 }
@@ -260,27 +366,41 @@ export function mapStep(seconds = 0, set = {}) {
   draw();
 }
 
+const r2 = (v) => Math.round(v * 100) / 100;
 export function mapInfo() {
   return {
     kind: st.kind,
-    k: st.k,
-    cam: { x: Math.round(st.cam.x * 100) / 100, y: Math.round(st.cam.y * 100) / 100 },
+    D: r2(st.cam.D),
+    k: r2(st.F / st.cam.D),
+    cam: { x: r2(st.cam.x), z: r2(st.cam.z) },
+    range: range(),
     box: st.box,
-    fly: st.fly && { id: st.fly.id, out: st.fly.out, t: Math.round(st.fly.t * 100) / 100 },
-    items: st.items.map((it) => ({ id: it.id, name: it.name, x: Math.round(it.x * 100) / 100, y: Math.round(it.y * 100) / 100, R: it.R, floors: it.floors })),
+    fly: st.fly && { id: st.fly.id, out: st.fly.out, t: r2(st.fly.t) },
+    items: st.items.map((it) => ({ id: it.id, name: it.name, x: r2(it.x), z: r2(it.z), R: it.R, floors: it.floors })),
     hits: st.hits.map((h) => ({ id: h.id, x: Math.round((h.x0 + h.x1) / 2), y: Math.round((h.y0 + h.y1) / 2) })),
   };
 }
 
 // Where to fly to for each: the middle of a ring, close enough to be in
 // it; or one of a building's windows, close enough that it fills the
-// screen.
+// screen, looking at it more nearly straight on.
 function aimAt(it) {
   if (it.type === 'building') {
     const win = windowSpot(it);
-    return { c: { x: it.x + win.x, y: it.y + win.y }, zoom: clamp((st.w * 2.8) / (win.size * st.k), 10, 160) };
+    return { at: win.c, D: clamp((st.F * win.size) / (st.w * 2.8), 0.08, st.cam.D / 8), pitch: 0.32 };
   }
-  return { c: { x: it.x, y: it.y - 0.35 }, zoom: clamp((st.w * 1.6) / ((it.R * 2 + 0.6) * st.k), 4, 30) };
+  return { at: [it.x, 0.4, it.z], D: clamp((st.F * (it.R * 2 + 0.6)) / (st.w * 1.6), 0.5, st.cam.D), pitch: PITCH };
+}
+
+function startFly(it, out) {
+  const aim = aimAt(it);
+  const here = { T: [st.cam.x, 0, st.cam.z], D: st.cam.D, pitch: PITCH };
+  const there = { T: aim.at, D: aim.D, pitch: aim.pitch };
+  const [a, b] = out ? [there, here] : [here, there];
+  // What you fly at slides across the screen evenly as you go, so it
+  // never swings off the edge on the way.
+  const off = (c) => c.T.map((v, i) => (aim.at[i] - v) / c.D);
+  st.fly = { id: it.id, out, t: 0, at: aim.at, D0: a.D, D1: b.D, p0: a.pitch, p1: b.pitch, off0: off(a), off1: off(b) };
 }
 
 function go(it) {
@@ -289,71 +409,185 @@ function go(it) {
     if (st.onOpen) st.onOpen(it.id);
     return;
   }
-  const aim = aimAt(it);
-  st.vel = { x: 0, y: 0 };
-  st.fly = { id: it.id, out: false, t: 0, k0: st.k, k1: st.k * aim.zoom, c0: { ...st.cam }, c1: aim.c, at: aim.c };
+  st.vel = { x: 0, z: 0 };
+  startFly(it, false);
   kick();
 }
 
 // ---------------------------------------------------------------------------
-// Touch: drag the map about (it runs on a little when let go); tap one to
-// go in.
+// The camera and its lens.
+
+// The camera now, flying or not: what it looks at (up off the ground, for
+// a window), how far back it is, how steeply it looks down, and how far in.
+function camera() {
+  const f = st.fly;
+  if (!f) return { T: [st.cam.x, 0, st.cam.z], D: st.cam.D, pitch: PITCH, p: 0 };
+  const e = ease(clamp(f.t, 0, 1));
+  const D = f.D0 * Math.pow(f.D1 / f.D0, e);
+  const T = f.at.map((v, i) => v - mix(f.off0[i], f.off1[i], e) * D);
+  return { T, D, pitch: mix(f.p0, f.p1, e), p: f.out ? 1 - e : e };
+}
+const here = () => ({ T: [st.cam.x, 0, st.cam.z], D: st.cam.D, pitch: PITCH });
+
+// From the ground to the screen (P: a point to [x, y, its depth], or null
+// when it's behind you), and back (ground: the spot under a point on the
+// screen).
+function lens(c) {
+  const sp = Math.sin(c.pitch);
+  const cp = Math.cos(c.pitch);
+  const C = [c.T[0], c.T[1] + c.D * sp, c.T[2] - c.D * cp];
+  const F = st.F;
+  const cx = st.w / 2;
+  const cy = st.h / 2;
+  const P = (x, y, z) => {
+    const dy = y - C[1];
+    const dz = z - C[2];
+    const zc = dz * cp - dy * sp;
+    if (zc < NEAR) return null;
+    return [cx + (F * (x - C[0])) / zc, cy - (F * (dy * cp + dz * sp)) / zc, zc];
+  };
+  const ground = (sx, sy) => {
+    const u = -(sy - cy) / F;
+    const dy = Math.min(u * cp - sp, -0.02);
+    const t = -C[1] / dy;
+    return [C[0] + ((sx - cx) / F) * t, C[2] + (u * sp + cp) * t];
+  };
+  return { P, ground, F };
+}
+
+// ---------------------------------------------------------------------------
+// Touch: drag the map about (it runs on a little when let go), pinch it in
+// and out; tap one to go in.
+
+const rel = (e) => {
+  const r = st.cv.getBoundingClientRect();
+  return [e.clientX - r.left, e.clientY - r.top];
+};
+
+// A finger down or up: one finger moves the map, two pinch it.
+function grip(moved) {
+  const pts = [...st.ptrs.entries()];
+  const L = lens(here());
+  st.drag = null;
+  st.pinch = null;
+  if (pts.length >= 2) {
+    const [a, b] = [pts[0][1], pts[1][1]];
+    const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    st.pinch = { ids: [pts[0][0], pts[1][0]], d0: Math.max(20, Math.hypot(a[0] - b[0], a[1] - b[1])), D0: st.cam.D, G: L.ground(...mid) };
+  } else if (pts.length === 1) {
+    const [id, p] = pts[0];
+    st.drag = { id, p0: p, T0: { x: st.cam.x, z: st.cam.z }, G0: L.ground(...p), moved, t: performance.now(), v: { x: 0, z: 0 } };
+  }
+}
+
+// The ground under the finger stays under it.
+function dragMove() {
+  const d = st.drag;
+  const p = st.ptrs.get(d.id);
+  if (!d.moved) {
+    if (Math.hypot(p[0] - d.p0[0], p[1] - d.p0[1]) < 7) return;
+    d.moved = true;
+  }
+  const g = lens({ T: [d.T0.x, 0, d.T0.z], D: st.cam.D, pitch: PITCH }).ground(...p);
+  const x = d.T0.x + d.G0[0] - g[0];
+  const z = d.T0.z + d.G0[1] - g[1];
+  const now = performance.now();
+  const dt = Math.max(1, now - d.t) / 1000;
+  d.v.x = mix(d.v.x, (x - st.cam.x) / dt, 0.35);
+  d.v.z = mix(d.v.z, (z - st.cam.z) / dt, 0.35);
+  d.t = now;
+  st.cam.x = x;
+  st.cam.z = z;
+  holdSoft();
+  kick();
+}
+
+// Two fingers: closer or farther by how far apart they go, and the ground
+// between them stays between them.
+function pinchMove() {
+  const P = st.pinch;
+  const a = st.ptrs.get(P.ids[0]);
+  const b = st.ptrs.get(P.ids[1]);
+  if (!a || !b) return;
+  const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const dist = Math.max(20, Math.hypot(a[0] - b[0], a[1] - b[1]));
+  const [lo, hi] = limits().D;
+  const D = (P.D0 * P.d0) / dist;
+  st.cam.D = D < lo ? lo * Math.pow(D / lo, 0.3) : D > hi ? hi * Math.pow(D / hi, 0.3) : D;
+  const g = lens(here()).ground(...mid);
+  st.cam.x += P.G[0] - g[0];
+  st.cam.z += P.G[1] - g[1];
+  holdSoft();
+  kick();
+}
 
 function wire(cv) {
   cv.addEventListener('pointerdown', (e) => {
     if (e.button || st.fly) return;
-    st.drag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, t: performance.now(), c0: { ...st.cam }, moved: false, v: { x: 0, y: 0 } };
-    st.vel = { x: 0, y: 0 };
+    st.ptrs.set(e.pointerId, rel(e));
+    try { cv.setPointerCapture(e.pointerId); } catch { /* fine */ }
+    st.vel = { x: 0, z: 0 };
+    // A second finger turns a drag into a pinch (and never a tap).
+    grip(st.ptrs.size > 1);
     kick();
   });
   cv.addEventListener('pointermove', (e) => {
-    const d = st.drag;
-    if (!d || e.pointerId !== d.id) return;
-    const dx = e.clientX - d.x0;
-    const dy = e.clientY - d.y0;
-    if (!d.moved) {
-      if (Math.abs(dx) < 7 && Math.abs(dy) < 7) return;
-      d.moved = true;
-      try { cv.setPointerCapture(e.pointerId); } catch { /* fine */ }
-    }
-    const now = performance.now();
-    const dt = Math.max(1, now - d.t) / 1000;
-    d.v.x = mix(d.v.x, -(e.clientX - d.x) / st.k / dt, 0.35);
-    d.v.y = mix(d.v.y, -(e.clientY - d.y) / st.k / dt, 0.35);
-    d.x = e.clientX;
-    d.y = e.clientY;
-    d.t = now;
-    st.cam.x = d.c0.x - dx / st.k;
-    st.cam.y = d.c0.y - dy / st.k;
-    holdSoft();
-    kick();
+    if (!st.ptrs.has(e.pointerId)) return;
+    st.ptrs.set(e.pointerId, rel(e));
+    if (st.pinch) pinchMove();
+    else if (st.drag && st.drag.id === e.pointerId) dragMove();
   });
   const end = (e) => {
+    if (!st.ptrs.has(e.pointerId)) return;
+    st.ptrs.delete(e.pointerId);
     const d = st.drag;
-    if (!d || e.pointerId !== d.id) return;
-    st.drag = null;
-    if (d.moved) {
-      if (performance.now() - d.t < 90) st.vel = { x: clamp(d.v.x, -14, 14), y: clamp(d.v.y, -14, 14) };
-    } else if (e.type === 'pointerup') {
-      const r = st.cv.getBoundingClientRect();
-      tap(e.clientX - r.left, e.clientY - r.top);
+    if (st.pinch) {
+      // One finger left on: it carries on moving the map.
+      grip(true);
+    } else if (d && d.id === e.pointerId) {
+      st.drag = null;
+      if (d.moved) {
+        const most = st.cam.D * 0.8;
+        if (performance.now() - d.t < 90) st.vel = { x: clamp(d.v.x, -most, most), z: clamp(d.v.z, -most, most) };
+      } else if (e.type === 'pointerup') {
+        tap(...rel(e));
+      }
     }
     kick();
   };
   cv.addEventListener('pointerup', end);
   cv.addEventListener('pointercancel', end);
+  // Safari's own pinch would zoom the page instead.
+  cv.addEventListener('gesturestart', (e) => e.preventDefault());
   cv.addEventListener('wheel', (e) => {
     e.preventDefault();
-    st.cam.x += e.deltaX / st.k;
-    st.cam.y += e.deltaY / st.k;
+    if (st.fly) return;
+    const p = rel(e);
+    if (e.ctrlKey) {
+      // A pinch on a trackpad: in and out about the pointer.
+      const G = lens(here()).ground(...p);
+      st.cam.D = clamp(st.cam.D * Math.exp(e.deltaY * 0.01), ...limits().D);
+      const g = lens(here()).ground(...p);
+      st.cam.x += G[0] - g[0];
+      st.cam.z += G[1] - g[1];
+    } else {
+      const k = st.F / st.cam.D;
+      st.cam.x += e.deltaX / k;
+      st.cam.z -= e.deltaY / (k * Math.sin(PITCH));
+    }
     holdIn();
     kick();
   }, { passive: false });
   cv.addEventListener('keydown', (e) => {
-    const step = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+    const step = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] }[e.key];
     if (step) {
       e.preventDefault();
-      st.vel = { x: step[0] * 5, y: step[1] * 5 };
+      st.vel = { x: step[0] * st.cam.D * 0.25, z: step[1] * st.cam.D * 0.4 };
+      kick();
+    } else if (e.key === '+' || e.key === '=' || e.key === '-') {
+      e.preventDefault();
+      st.cam.D = clamp(st.cam.D * (e.key === '-' ? 1.25 : 0.8), ...limits().D);
+      holdIn();
       kick();
     } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
@@ -367,7 +601,7 @@ function holdSoft() {
   const L = limits();
   const give = (v, lo, hi) => (v < lo ? lo - Math.sqrt(lo - v) * 0.6 : v > hi ? hi + Math.sqrt(v - hi) * 0.6 : v);
   st.cam.x = give(st.cam.x, L.x[0], L.x[1]);
-  st.cam.y = give(st.cam.y, L.y[0], L.y[1]);
+  st.cam.z = give(st.cam.z, L.z[0], L.z[1]);
 }
 
 function tap(x, y) {
@@ -378,7 +612,7 @@ function tap(x, y) {
 function nearest() {
   let best = null;
   for (const it of st.items) {
-    const d = Math.hypot(it.x - st.cam.x, it.y - st.cam.y);
+    const d = Math.hypot(it.x + it.mx - st.cam.x, it.z + it.mz - st.cam.z);
     if (!best || d < best.d) best = { it, d };
   }
   return best && best.it;
@@ -393,11 +627,12 @@ function kick() {
   st.raf = requestAnimationFrame(frame);
 }
 
-const moving = () => st.drag || (st.fly && !st.fly.done) || Math.abs(st.vel.x) + Math.abs(st.vel.y) > 0.01 || outside();
+const moving = () => (st.drag && st.drag.moved) || st.pinch || (st.fly && !st.fly.done) || Math.abs(st.vel.x) + Math.abs(st.vel.z) > 0.01 || outside();
 function outside() {
   if (!st.box) return false;
   const L = limits();
-  return st.cam.x < L.x[0] - 0.001 || st.cam.x > L.x[1] + 0.001 || st.cam.y < L.y[0] - 0.001 || st.cam.y > L.y[1] + 0.001;
+  const out = (v, [lo, hi]) => v < lo - 0.001 || v > hi + 0.001;
+  return out(st.cam.x, L.x) || out(st.cam.z, L.z) || out(st.cam.D, L.D);
 }
 
 function frame(now) {
@@ -422,10 +657,8 @@ function step(dt) {
     if (f.done) return;
     f.t += dt / (f.out ? BACKOUT : FLY);
     if (f.t >= 1) {
-      if (f.out) {
-        st.fly = null;
-        st.cam = { ...f.c1 };
-      } else {
+      if (f.out) st.fly = null;
+      else {
         // Stay in, on the blank page, until the app opens it; the map
         // stays where it was, for coming back out.
         f.t = 1;
@@ -436,45 +669,31 @@ function step(dt) {
     }
     return;
   }
-  if (!st.drag) {
-    if (st.vel.x || st.vel.y) {
-      st.cam.x += st.vel.x * dt;
-      st.cam.y += st.vel.y * dt;
-      const decay = Math.exp(-3 * dt);
-      st.vel.x *= decay;
-      st.vel.y *= decay;
-      if (Math.abs(st.vel.x) + Math.abs(st.vel.y) < 0.01) st.vel = { x: 0, y: 0 };
-    }
-    // Past the edge: back in, softly.
-    const L = limits();
-    const pull = (v, lo, hi) => (v < lo ? v + (lo - v) * Math.min(1, 9 * dt) : v > hi ? v + (hi - v) * Math.min(1, 9 * dt) : v);
-    const x = pull(st.cam.x, L.x[0], L.x[1]);
-    const y = pull(st.cam.y, L.y[0], L.y[1]);
-    if (x !== st.cam.x) st.vel.x = 0;
-    if (y !== st.cam.y) st.vel.y = 0;
-    st.cam.x = x;
-    st.cam.y = y;
+  if (st.drag || st.pinch) return;
+  if (st.vel.x || st.vel.z) {
+    st.cam.x += st.vel.x * dt;
+    st.cam.z += st.vel.z * dt;
+    const decay = Math.exp(-3 * dt);
+    st.vel.x *= decay;
+    st.vel.z *= decay;
+    if (Math.abs(st.vel.x) + Math.abs(st.vel.z) < 0.01) st.vel = { x: 0, z: 0 };
   }
-}
-
-// The camera now, flying or not: its zoom and middle, and how far in.
-function camera() {
-  const f = st.fly;
-  if (!f) return { k: st.k, c: st.cam, p: 0 };
-  const e = ease(clamp(f.t, 0, 1));
-  // Zoom evenly (in proportion), and slide what you're flying at across
-  // the screen evenly too: into the middle going in, out of it coming back.
-  const k = f.k0 * Math.pow(f.k1 / f.k0, e);
-  const off0 = { x: (f.at.x - f.c0.x) * f.k0, y: (f.at.y - f.c0.y) * f.k0 };
-  const off1 = { x: (f.at.x - f.c1.x) * f.k1, y: (f.at.y - f.c1.y) * f.k1 };
-  const c = { x: f.at.x - mix(off0.x, off1.x, e) / k, y: f.at.y - mix(off0.y, off1.y, e) / k };
-  return { k, c, p: f.out ? 1 - e : e };
+  // Past the edge, or pinched too far: back, softly.
+  const L = limits();
+  const pull = (v, [lo, hi]) => (v < lo ? v + (lo - v) * Math.min(1, 9 * dt) : v > hi ? v + (hi - v) * Math.min(1, 9 * dt) : v);
+  const x = pull(st.cam.x, L.x);
+  const z = pull(st.cam.z, L.z);
+  if (x !== st.cam.x) st.vel.x = 0;
+  if (z !== st.cam.z) st.vel.z = 0;
+  st.cam.x = x;
+  st.cam.z = z;
+  st.cam.D = pull(st.cam.D, L.D);
 }
 
 // ---------------------------------------------------------------------------
 // Drawing
 
-const line = (a, b, n) => Array.from({ length: n }, (_, i) => [mix(a[0], b[0], i / (n - 1)), mix(a[1], b[1], i / (n - 1))]);
+const line = (a, b, n) => Array.from({ length: n }, (_, i) => a.map((v, j) => mix(v, b[j], i / (n - 1))));
 const chain = (pts, n = 6) => pts.slice(1).reduce((out, p, i) => out.concat(line(pts[i], p, n).slice(i ? 1 : 0)), []);
 
 function draw() {
@@ -493,26 +712,35 @@ function draw() {
   const dim = cs.getPropertyValue('--text-dim').trim() || textInk;
   const colours = Object.fromEntries(['client', 'active', 'warm', 'cold', 'parked', 'none'].map((k) => [k, cs.getPropertyValue(`--w-${k}`).trim() || ink]));
   const cam = camera();
-  const K = cam.k;
-  const S = (x, y) => [w / 2 + (x - cam.c.x) * K, h / 2 + (y - cam.c.y) * K];
+  const L = lens(cam);
+  const k0 = startK();
   const flying = st.fly ? st.fly.id : null;
   // Flying in, the others fade away; the one you're going into stays.
   const others = flying ? 1 - clamp(cam.p * 1.6, 0, 1) : 1;
+  // Farther off, a little fainter, like the far side of People's ring.
+  const far = (zc) => clamp(1.3 - 0.3 * (zc / cam.D), 0.5, 1);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  const pen = { ctx, ink, paper, dark, colours, K };
-  // Off the screen: not drawn.
-  const seen = (it) => {
-    const [ax, ay] = S(it.x, it.y);
-    return ax + it.x1 * K > -20 && ax + it.x0 * K < w + 20 && ay + it.y1 * K > -20 && ay + it.y0 * K < h + 20;
-  };
+  const pen = { ctx, ink, paper, dark, colours, L, far };
+  // Where each is, and whether it's on the screen at all.
+  const where = new Map();
+  for (const it of st.items) {
+    const c = L.P(it.x + it.mx, 0, it.z + it.mz);
+    let on = !!c;
+    if (c) {
+      const r = (it.reach * L.F) / c[2];
+      on = c[0] + r > -30 && c[0] - r < w + 30 && c[1] + r > -30 && c[1] - r < h + 30;
+    }
+    if (on || it.id === flying) where.set(it.id, { zc: c ? c[2] : cam.D, box: null });
+  }
+  const grow = (box, x0, y0, x1, y1) => (box ? { x0: Math.min(box.x0, x0), y0: Math.min(box.y0, y0), x1: Math.max(box.x1, x1), y1: Math.max(box.y1, y1) } : { x0, y0, x1, y1 });
 
   if (st.kind === 'orgs') {
-    const order = [...st.items].sort((a, b) => a.y - b.y);
+    const order = st.items.filter((it) => where.has(it.id)).sort((a, b) => where.get(b.id).zc - where.get(a.id).zc);
     for (const it of order) {
-      if (!seen(it)) continue;
-      ctx.globalAlpha = it.id === flying ? 1 : others;
-      drawBuilding(pen, it, S(it.x, it.y));
+      const W = where.get(it.id);
+      ctx.globalAlpha = (it.id === flying ? 1 : others) * far(W.zc);
+      W.box = drawBuilding(pen, it, W.zc);
     }
   } else {
     // Everyone from every ring, back to front, so the near ones cross
@@ -520,80 +748,115 @@ function draw() {
     const sway = reduced.matches ? 0 : 0.03 * Math.sin(st.t * 1.25);
     const figs = [];
     for (const it of st.items) {
-      if (!seen(it)) continue;
+      const W = where.get(it.id);
+      if (!W) continue;
       const alpha = it.id === flying ? 1 : others;
       if (!it.people.length) {
-        drawEmptyRing(pen, it, S, alpha);
+        W.box = drawEmptyRing(pen, it, alpha);
         continue;
       }
       const ring = it.people.map((p) => {
         const fx = it.x + Math.cos(p.th) * it.R;
-        const fy = it.y + Math.sin(p.th) * it.R * TILT;
-        const [sx, sy] = S(fx, fy);
-        const hp = p.size * UP * K;
-        const lean = sway;
-        const put = ([u, v]) => [sx + (u + lean * v * (0.55 + 0.45 * v)) * hp, sy - v * hp];
+        const fz = it.z - Math.sin(p.th) * it.R;
+        const foot = L.P(fx, 0, fz);
+        const head = L.P(fx, p.size, fz);
+        if (!foot || !head || foot[1] - head[1] < 1.5) return null;
+        const [sx, sy, zc] = foot;
+        const hp = sy - head[1];
+        const put = ([u, v]) => [sx + (u + sway * v * (0.55 + 0.45 * v)) * hp, sy - v * hp];
         const kind = p.figure || 'person';
-        return { p, it, sx, sy, hp, put, kind, alpha, back: Math.sin(p.th) < -0.2, sh: armRoots(kind).map(put), hands: [null, null] };
+        W.box = grow(W.box, sx - hp * 0.32, sy - hp * 1.02, sx + hp * 0.32, sy + 4);
+        // They face into the ring: the near side has its back to you, the
+        // far side faces you, so which hand is on which side swaps.
+        const facing = Math.sin(p.th) < 0;
+        return { p, it, sx, sy, zc, hp, put, kind, alpha: alpha * far(zc), back: Math.sin(p.th) < -0.2, right: facing ? 0 : 1, sh: armRoots(kind).map(put), hands: [null, null] };
       });
-      // Hands with the next one round: whichever hands face each other on
-      // the screen.
+      // Hands: each one's right with the next one's left, round the ring
+      // (two people just hold the one pair). Always the same pairs, so
+      // nobody swaps hands as the map moves.
       const n = ring.length;
-      const pairs = n === 2 ? [[0, 1]] : n > 2 ? ring.map((_, i) => [i, (i + 1) % n]) : [];
-      for (const [i, j] of pairs) {
-        const [l, r] = ring[i].sx <= ring[j].sx ? [ring[i], ring[j]] : [ring[j], ring[i]];
-        const lh = l.hands[1] ? 0 : 1;
-        const rh = r.hands[0] ? 1 : 0;
-        if (l.hands[lh] || r.hands[rh]) continue;
-        const hand = handBetween(l.sh[lh], ARM * l.hp, r.sh[rh], ARM * r.hp);
-        l.hands[lh] = hand;
-        r.hands[rh] = hand;
+      const pairs = n === 2 ? 1 : n > 2 ? n : 0;
+      for (let i = 0; i < pairs; i++) {
+        const a = ring[i];
+        const b = ring[(i + 1) % n];
+        if (!a || !b) continue;
+        const hand = handBetween(a.sh[a.right], ARM * a.hp, b.sh[1 - b.right], ARM * b.hp);
+        a.hands[a.right] = hand;
+        b.hands[1 - b.right] = hand;
       }
-      figs.push(...ring);
+      figs.push(...ring.filter(Boolean));
     }
-    figs.sort((a, b) => a.sy - b.sy);
+    figs.sort((a, b) => b.zc - a.zc);
     for (const f of figs) drawFigure(pen, f);
   }
 
-  // Names under each, and how many, over everything.
+  // Names under each, and how many, over everything: the nearest first,
+  // and one that would land on another slides aside, or down, to clear it.
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
+  const tags = [];
   for (const it of st.items) {
-    if (!seen(it)) continue;
+    if (!where.has(it.id)) continue;
+    const a = it.type === 'ring' ? L.P(it.x, 0, it.z - it.R - 0.3) : L.P(it.x, 0, it.z - 0.15);
+    if (a) tags.push({ it, a });
+  }
+  tags.sort((p, q) => p.a[2] - q.a[2]);
+  const taken = [];
+  for (const { it, a } of tags) {
+    const W = where.get(it.id);
     const alpha = it.id === flying ? 1 - clamp(cam.p * 3, 0, 1) : others;
-    const [ax, ay] = S(it.x, it.y);
-    const below = it.type === 'ring' ? it.R * TILT * K : 0;
-    const y0 = ay + below + 7;
-    const maxW = LABEL_W * (K / st.k);
-    let size = 17;
-    ctx.font = `${size}px Mansalva, "Bradley Hand", cursive`;
+    const sc = clamp(Math.sqrt(L.F / a[2] / k0), 0.78, 1.2);
+    let size = Math.round(17 * sc);
+    const small = Math.round(13 * sc);
+    const maxW = LABEL_W * sc;
+    ctx.font = `${size}px ${FONT}`;
     let label = it.name;
     while (ctx.measureText(label).width > maxW && size > 13) {
       size -= 1;
-      ctx.font = `${size}px Mansalva, "Bradley Hand", cursive`;
+      ctx.font = `${size}px ${FONT}`;
     }
     while (ctx.measureText(label).width > maxW && label.length > 4) label = `${label.slice(0, -2).trimEnd()}…`;
-    if (alpha > 0.02) {
-      ctx.globalAlpha = alpha;
-      ctx.lineWidth = 4;
-      ctx.strokeStyle = paper;
-      ctx.strokeText(label, ax, y0);
-      ctx.fillStyle = textInk;
-      ctx.fillText(label, ax, y0);
-      const n = it.type === 'ring' ? it.count : it.n;
-      const sub = n ? `${n} ${n === 1 ? 'person' : 'people'}` : 'Nobody yet';
-      ctx.font = `13px Mansalva, "Bradley Hand", cursive`;
-      ctx.strokeText(sub, ax, y0 + size + 1);
-      ctx.fillStyle = dim;
-      ctx.fillText(sub, ax, y0 + size + 1);
+    const n = it.type === 'ring' ? it.count : it.n;
+    const sub = n ? `${n} ${n === 1 ? 'person' : 'people'}` : 'Nobody yet';
+    const tw = Math.max(ctx.measureText(label).width, sub.length * small * 0.46);
+    const hh = size + small + 2;
+    const at = (dx, dy) => ({ x: a[0] + dx, y0: a[1] + 6 + dy, x0: a[0] + dx - tw / 2 - 3, x1: a[0] + dx + tw / 2 + 3, y1: a[1] + 6 + dy + hh });
+    const hits = (bx) => taken.find((b) => b.x0 < bx.x1 && bx.x0 < b.x1 && b.y0 < bx.y1 && bx.y0 < b.y1);
+    let box = at(0, 0);
+    const other = hits(box);
+    if (other) {
+      const right = other.x1 - box.x0 + 2;
+      const left = other.x0 - box.x1 - 2;
+      const tries = [at(Math.abs(left) < right ? left : right, 0), at(Math.abs(left) < right ? right : left, 0), at(0, other.y1 - box.y0 + 2)];
+      box = tries.find((t) => Math.abs(t.x - a[0]) < tw && !hits(t)) || box;
     }
-    if (!flying) st.hits.push({ id: it.id, x0: ax + it.x0 * K, x1: ax + it.x1 * K, y0: ay + it.y0 * K, y1: ay + it.y1 * K });
+    taken.push(box);
+    W.box = grow(W.box, box.x0, box.y0, box.x1, box.y1);
+    if (alpha <= 0.02) continue;
+    ctx.globalAlpha = alpha;
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = paper;
+    ctx.strokeText(label, box.x, box.y0);
+    ctx.fillStyle = textInk;
+    ctx.fillText(label, box.x, box.y0);
+    ctx.font = `${small}px ${FONT}`;
+    ctx.strokeText(sub, box.x, box.y0 + size + 1);
+    ctx.fillStyle = dim;
+    ctx.fillText(sub, box.x, box.y0 + size + 1);
   }
   ctx.globalAlpha = 1;
+  // For taps: what each covers, the nearest first.
+  if (!flying) {
+    for (const it of st.items) {
+      const W = where.get(it.id);
+      if (W && W.box) st.hits.push({ id: it.id, zc: W.zc, ...W.box });
+    }
+    st.hits.sort((a, b) => a.zc - b.zc);
+  }
   // Flying into a building: its window grows round the screen.
   if (st.fly && st.kind === 'orgs') {
     const it = st.items.find((x) => x.id === st.fly.id);
-    if (it) drawWindowFill(pen, it, S, cam.p);
+    if (it) drawWindowFill(pen, it, cam.p);
   }
   // The last of the way in (or the start of the way out): the page shows
   // through, ready for what opens.
@@ -606,8 +869,6 @@ function draw() {
       ctx.globalAlpha = 1;
     }
   }
-  // Nearest the front first, for taps.
-  st.hits.sort((a, b) => b.y1 - a.y1);
 }
 
 function drawFigure(pen, f) {
@@ -615,7 +876,7 @@ function drawFigure(pen, f) {
   const { p, hp } = f;
   const path = new Path2D();
   trace(path, shake(bodyLine(f.kind, hp > 70, f.put, f.hands, hp), p.seed, clamp(0.006 * hp, 0.22, 1.2)));
-  const lw = clamp(hp / 30, 1, 2.2);
+  const lw = clamp(hp / 30, 0.9, 2.6);
   ctx.setLineDash([]);
   ctx.globalAlpha = f.alpha;
   ctx.strokeStyle = paper;
@@ -629,36 +890,59 @@ function drawFigure(pen, f) {
   ctx.setLineDash([]);
 }
 
+// Points on the screen, in runs: a line that goes behind you is cut there.
+function runs(L, pts) {
+  const out = [];
+  let cur = [];
+  for (const q of pts) {
+    const p = L.P(q[0], q[1], q[2]);
+    if (p) cur.push(p);
+    else {
+      if (cur.length > 1) out.push(cur);
+      cur = [];
+    }
+  }
+  if (cur.length > 1) out.push(cur);
+  return out;
+}
+const boxOf = (pts) => pts.reduce((b, [x, y]) => ({ x0: Math.min(b.x0, x), y0: Math.min(b.y0, y), x1: Math.max(b.x1, x), y1: Math.max(b.y1, y) }), { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity });
+
 // A circle with nobody in it yet: just where the ring would be.
-function drawEmptyRing(pen, it, S, alpha) {
-  const { ctx, ink } = pen;
+function drawEmptyRing(pen, it, alpha) {
+  const { ctx, ink, L, far } = pen;
   const pts = Array.from({ length: 40 }, (_, i) => {
     const a = (i / 39) * TAU * 1.04;
-    return S(it.x + Math.cos(a) * it.R, it.y + Math.sin(a) * it.R * TILT);
+    return [it.x + Math.cos(a) * it.R, 0, it.z + Math.sin(a) * it.R];
   });
+  const lines = runs(L, pts);
+  if (!lines.length) return null;
   const path = new Path2D();
-  trace(path, shake(pts, hashStr(it.id), 0.6));
-  ctx.globalAlpha = alpha * 0.6;
+  for (const run of lines) trace(path, shake(run, hashStr(it.id), 0.6));
+  const mid = L.P(it.x, 0, it.z);
+  ctx.globalAlpha = alpha * 0.6 * (mid ? far(mid[2]) : 1);
   ctx.strokeStyle = ink;
   ctx.lineWidth = 1.5;
   ctx.setLineDash([4, 4]);
   ctx.stroke(path);
   ctx.setLineDash([]);
+  const b = boxOf(lines.flat());
+  return { x0: b.x0, y0: b.y0 - 24, x1: b.x1, y1: b.y1 };
 }
 
 // ---------------------------------------------------------------------------
-// Buildings: in map units from the front bottom corner, a left face going
-// up and left and a right face going up and right.
+// Buildings: from the front corner, a left side running back to the left
+// (L), a right side running back to the right (R), and the roof between
+// (T), each at a height.
 
 function faces(it) {
-  const { a, b } = it;
-  const L = (t, z) => [-0.866 * a * t, -0.5 * a * t - z];
-  const R = (t, z) => [0.866 * b * t, -0.5 * b * t - z];
-  const T = (u, v, z) => [-0.866 * a * u + 0.866 * b * v, -0.5 * a * u - 0.5 * b * v - z];
+  const { a, b, x, z } = it;
+  const L = (t, y) => [x - 0.866 * a * t, y, z + 0.5 * a * t];
+  const R = (t, y) => [x + 0.866 * b * t, y, z + 0.5 * b * t];
+  const T = (u, v, y) => [x - 0.866 * a * u + 0.866 * b * v, y, z + 0.5 * a * u + 0.5 * b * v];
   return { L, R, T };
 }
 
-// The window to fly in at: on the right face, about the middle floor.
+// The window to fly in at: on the right side, about the middle floor.
 function windowSpot(it) {
   const { R } = faces(it);
   const fl = Math.floor((it.floors - 1) / 2);
@@ -667,72 +951,67 @@ function windowSpot(it) {
   const cols = winCols(it.b);
   const c = Math.floor((cols - 1) / 2);
   const [t0, t1] = winSpan(c, cols);
-  const mid = R((t0 + t1) / 2, (z0 + z1) / 2);
-  return { x: mid[0], y: mid[1], size: Math.max(Math.abs(R(t1, z0)[0] - R(t0, z0)[0]), z1 - z0), t0, t1, z0, z1 };
+  return { c: R((t0 + t1) / 2, (z0 + z1) / 2), size: Math.max(it.b * (t1 - t0), z1 - z0), t0, t1, z0, z1 };
 }
 const winCols = (len) => clamp(Math.round(len / 0.32), 2, 5);
 const winSpan = (c, cols) => [(c + 0.22) / cols, (c + 0.78) / cols];
 
-function drawBuilding(pen, it, at) {
-  const { ctx, ink, paper, K } = pen;
+function drawBuilding(pen, it, zc) {
+  const { ctx, ink, paper, L: lensOf } = pen;
   const { L, R, T } = faces(it);
-  const { a, b, H } = it;
-  const P = ([x, y]) => [at[0] + x * K, at[1] + y * K];
+  const { H } = it;
   const strokes = [];
-  const add = (pts, w = 1.7) => strokes.push({ pts: pts.map(P), w });
+  const add = (pts, w = 1.7) => strokes.push({ pts, w });
   // The outline, round in one go: front corner, along the right, up, over
   // the back, down the left and back to the front.
   add(chain([L(0, 0), R(1, 0), R(1, H), T(1, 1, H), L(1, H), L(1, 0), L(0, 0), L(0, H)], 7), 1.9);
   add(chain([L(1, H), T(0, 0, H), R(1, H)], 7), 1.9);
-  // Windows, a row to a floor, on both faces; a door on the left.
+  // Windows, a row to a floor, on both sides; a door on the left.
   const win = (F, t0, t1, z0, z1) => add(chain([F(t0, z0), F(t1, z0), F(t1, z1), F(t0, z1), F(t0, z0 + (z1 - z0) * 0.25)], 4), 1.3);
   const groundDoor = it.roof !== 'shop' && it.roof !== 'stage';
   for (let f = 0; f < it.floors; f++) {
     const z0 = 0.12 + f * it.floor + it.floor * 0.28;
     const z1 = z0 + it.floor * 0.46;
-    [[R, b], [L, a]].forEach(([F, len]) => {
+    [[R, it.b], [L, it.a]].forEach(([F, len]) => {
       const cols = winCols(len);
       for (let c = 0; c < cols; c++) {
         if (f === 0 && F === L && groundDoor && c === Math.floor(cols / 2)) continue;
-        if (f === 0 && F === R && it.roof === 'shop') continue;
-        if (f === 0 && F === R && it.roof === 'stage') continue;
+        if (f === 0 && F === R && (it.roof === 'shop' || it.roof === 'stage')) continue;
         const [t0, t1] = winSpan(c, cols);
         win(F, t0, t1, z0, z1);
       }
     });
   }
   if (groundDoor) {
-    const cols = winCols(a);
+    const cols = winCols(it.a);
     const c = Math.floor(cols / 2);
     const [t0, t1] = winSpan(c, cols);
     add(chain([L(t0, 0), L(t0, it.floor * 0.8), L(t1, it.floor * 0.8), L(t1, 0)], 4), 1.4);
   }
   // The roof, or what's on it, by kind.
   if (it.roof === 'tank') {
-    const c = T(0.55, 0.5, H);
+    // A water tank on legs: a round tub with a pointed lid.
+    const [cx, , cz] = T(0.55, 0.5, H);
     const r = 0.13;
-    const legs = [c[0] - r * 0.8, c[0] + r * 0.8];
-    add([[legs[0], c[1]], [legs[0], c[1] - 0.14]], 1.2);
-    add([[legs[1], c[1]], [legs[1], c[1] - 0.14]], 1.2);
-    const top = c[1] - 0.14;
-    const tank = [];
-    for (let i = 0; i <= 14; i++) {
+    const y0 = H + 0.14;
+    add([[cx - r * 0.8, H, cz], [cx - r * 0.8, y0, cz]], 1.2);
+    add([[cx + r * 0.8, H, cz], [cx + r * 0.8, y0, cz]], 1.2);
+    const tub = Array.from({ length: 15 }, (_, i) => {
       const ang = Math.PI * (i / 14);
-      tank.push([c[0] - Math.cos(ang) * r, top + Math.sin(ang) * r * 0.45]);
-    }
-    add([...tank, [c[0] + r, top - 0.2], [c[0], top - 0.27], [c[0] - r, top - 0.2], [c[0] - r, top]], 1.4);
+      return [cx - Math.cos(ang) * r, y0, cz - Math.sin(ang) * r];
+    });
+    add([...tub, [cx + r, y0 + 0.2, cz], [cx, y0 + 0.27, cz], [cx - r, y0 + 0.2, cz], [cx - r, y0, cz]], 1.4);
   } else if (it.roof === 'aerial') {
     const c = T(0.5, 0.5, H);
-    add(chain([c, [c[0], c[1] - 0.5]], 6), 1.3);
-    add(chain([[c[0] - 0.1, c[1] - 0.3], [c[0] + 0.1, c[1] - 0.34]], 3), 1.2);
-    add(chain([[c[0] - 0.06, c[1] - 0.42], [c[0] + 0.06, c[1] - 0.44]], 3), 1.2);
+    const up = (dx, y) => [c[0] + dx, y, c[2]];
+    add(chain([c, up(0, H + 0.5)], 6), 1.3);
+    add(chain([up(-0.1, H + 0.3), up(0.1, H + 0.34)], 3), 1.2);
+    add(chain([up(-0.06, H + 0.42), up(0.06, H + 0.44)], 3), 1.2);
   } else if (it.roof === 'saw') {
     // Teeth along the top, up over the left edge.
-    const teeth = [];
     const n = 3;
-    for (let i = 0; i < n; i++) {
-      teeth.push(T(0, i / n, H), T(0, (i + 0.15) / n, H + 0.3), T(0, (i + 1) / n, H));
-    }
+    const teeth = [];
+    for (let i = 0; i < n; i++) teeth.push(T(0, i / n, H), T(0, (i + 0.15) / n, H + 0.3), T(0, (i + 1) / n, H));
     add(chain(teeth, 4), 1.6);
     for (let i = 0; i < n; i++) add(chain([T(0, (i + 0.15) / n, H + 0.3), T(1, (i + 0.15) / n, H + 0.3)], 5), 1.3);
     // The same teeth along the far end, behind.
@@ -750,7 +1029,7 @@ function drawBuilding(pen, it, at) {
     // and a sign on the roof.
     const fl = it.floor;
     add(chain([R(0.12, 0.06), R(0.88, 0.06), R(0.88, fl * 0.62), R(0.12, fl * 0.62), R(0.12, 0.06)], 5), 1.3);
-    const out = (p) => [p[0] + 0.07, p[1] + 0.11];
+    const out = (p) => [p[0] + 0.06, p[1] - 0.03, p[2] - 0.1];
     const scallop = [];
     const n = 4;
     for (let i = 0; i <= n * 8; i++) {
@@ -759,7 +1038,7 @@ function drawBuilding(pen, it, at) {
       scallop.push(out(R(t, fl * 0.74 - dip)));
     }
     add([R(0.08, fl * 0.95), out(R(0.08, fl * 0.74)), ...scallop, out(R(0.92, fl * 0.74)), R(0.92, fl * 0.95)], 1.4);
-    add(chain([R(0.15, it.H), R(0.15, it.H + 0.22), R(0.85, it.H + 0.22), R(0.85, it.H)], 5), 1.4);
+    add(chain([R(0.15, H), R(0.15, H + 0.22), R(0.85, H + 0.22), R(0.85, H)], 5), 1.4);
   } else if (it.roof === 'stage') {
     // A big rolling door, and a curved roof.
     add(chain([R(0.22, 0), R(0.22, it.floor * 1.05), R(0.78, it.floor * 1.05), R(0.78, 0)], 5), 1.5);
@@ -771,34 +1050,44 @@ function drawBuilding(pen, it, at) {
     add(arch(0), 1.7);
     add(arch(1), 1.3);
   }
-  // Each line with a little paper round it, then the ink.
-  ctx.setLineDash([]);
-  const paths = strokes.map((s, i) => {
-    const path = new Path2D();
-    trace(path, shake(s.pts, it.seed + i * 7, clamp(0.012 * K, 0.3, 1.6)));
-    return { path, w: s.w };
+  // On the screen, each line with a little paper round it, then the ink;
+  // thicker the nearer it is.
+  const K = lensOf.F / zc;
+  const amp = clamp(0.012 * K, 0.3, 1.6);
+  const paths = [];
+  let box = null;
+  strokes.forEach((s, i) => {
+    runs(lensOf, s.pts).forEach((run, j) => {
+      const path = new Path2D();
+      trace(path, shake(run, it.seed + i * 7 + j * 3, amp));
+      paths.push({ path, w: s.w });
+      const b = boxOf(run);
+      box = box ? { x0: Math.min(box.x0, b.x0), y0: Math.min(box.y0, b.y0), x1: Math.max(box.x1, b.x1), y1: Math.max(box.y1, b.y1) } : b;
+    });
   });
-  const alpha = ctx.globalAlpha;
+  ctx.setLineDash([]);
   ctx.strokeStyle = paper;
   for (const s of paths) {
     ctx.lineWidth = s.w + 2.6;
     ctx.stroke(s.path);
   }
   ctx.strokeStyle = ink;
+  const thick = clamp(K / 40, 0.85, 1.8);
   for (const s of paths) {
-    ctx.lineWidth = s.w * clamp(K / 40, 0.85, 1.6);
+    ctx.lineWidth = s.w * thick;
     ctx.stroke(s.path);
   }
-  ctx.globalAlpha = alpha;
+  return box;
 }
 
 // Going in at a building's window: the window's frame grows past the
 // edges of the screen, with the paper inside.
-function drawWindowFill(pen, it, S, p) {
-  const { ctx, ink, paper } = pen;
+function drawWindowFill(pen, it, p) {
+  const { ctx, ink, paper, L } = pen;
   const win = windowSpot(it);
   const { R } = faces(it);
-  const corners = [R(win.t0, win.z0), R(win.t1, win.z0), R(win.t1, win.z1), R(win.t0, win.z1)].map(([x, y]) => S(it.x + x, it.y + y));
+  const corners = [R(win.t0, win.z0), R(win.t1, win.z0), R(win.t1, win.z1), R(win.t0, win.z1)].map((q) => L.P(...q));
+  if (corners.some((c) => !c)) return;
   const inside = new Path2D();
   corners.forEach(([x, y], i) => (i ? inside.lineTo(x, y) : inside.moveTo(x, y)));
   inside.closePath();

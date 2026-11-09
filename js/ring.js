@@ -8,6 +8,10 @@
 // is drawn as a man with a tie, a woman in a dress, or a person like the one
 // on a sign. They sway together a little, and lean back against a swipe as
 // if pulled along, swinging past upright when it stops.
+//
+// Inside an organization nobody is made up: five people or fewer stand in
+// a line holding hands, more make a small ring of just them, in the middle
+// of the page.
 
 const TAU = Math.PI * 2;
 const GAP = 0.6; // from one person to the next, in their heights
@@ -236,6 +240,8 @@ const st = {
   hits: [],
   onOpen: null,
   backdrop: null, // 'windows': inside a building, a few windows float behind
+  ghosts: true, // made-up people close a short ring
+  line: false, // just a few, and no made-up people: a line, not a ring
 };
 
 function build() {
@@ -278,10 +284,28 @@ function resize() {
 // Pixels per height at the front, and where the front and the far side
 // stand.
 function view() {
+  if (!st.ghosts && st.real) return smallView();
   const k = Math.min(FRONT * st.h, st.w * 0.64);
   const yf = st.h - FEET;
   const sb = EYE / (EYE + (2 * st.ring) / TAU);
   return { k, cx: st.w / 2, yf, hz: (BACK * st.h - sb * yf) / (1 - sb) };
+}
+
+// Just the people who are there: smaller, a ring only as big as they make
+// (or a line), the whole of it in the middle of the page. The far side
+// stands a little up the page, as if you looked down on them at a slant.
+function smallView() {
+  const big = Math.max(...st.items.map((it) => it.size));
+  const R = st.line ? 0 : st.ring / TAU;
+  const wide = st.line ? st.len + 0.6 : 2 * R + 0.7;
+  const k = Math.min(st.w * 0.5, st.h * 0.4, (st.w * 0.92) / wide);
+  const sb = EYE / (EYE + 2 * R);
+  const rise = 2 * R * k * 0.42 * sb;
+  // From the front row's feet: the highest head, and the names below.
+  const top = Math.min(-big * k, -rise - big * k * sb);
+  const yf = Math.round((st.h - (FEET - top)) / 2 - top);
+  const yb = yf - rise;
+  return { k, cx: st.w / 2, yf, hz: sb < 1 ? (yb - sb * yf) / (1 - sb) : yf };
 }
 
 // Where a spot `d` round the ring from the front lands on the screen.
@@ -294,14 +318,16 @@ function project(d, v) {
   return { ph, s, x: v.cx + X * s * v.k, y: v.hz + (v.yf - v.hz) * s };
 }
 
-const gapOf = (a, b) => GAP * (a.size + b.size) / 2;
+// Just the people who are there stand a little further apart, so a small
+// ring of them doesn't bunch up.
+const gapOf = (a, b) => (st.ghosts ? GAP : 0.95) * (a.size + b.size) / 2;
 
 function update(people, key) {
   const items = people.map((p) => ({ ...p, seed: hashStr(p.id) }));
   const real = items.length;
   // Made-up people close a short ring, each a little different.
   const chain = () => items.reduce((a, it, i) => (i ? a + gapOf(items[i - 1], it) : 0), 0);
-  for (let g = 0; real && chain() + gapOf(items[items.length - 1], items[0]) < AROUND; g++) {
+  for (let g = 0; st.ghosts && real && chain() + gapOf(items[items.length - 1], items[0]) < AROUND; g++) {
     const h = hash1(g * 7.3 + 1);
     items.push({ id: null, ghost: true, figure: ['person', 'man', 'woman'][Math.floor(hash1(g * 3.1 + 2) * 3)], size: 0.58 + h * 0.26, seed: 500 + g });
   }
@@ -312,22 +338,25 @@ function update(people, key) {
   });
   st.items = items;
   st.real = real;
-  st.len = items.length ? pos + gapOf(items[items.length - 1], items[0]) : AROUND;
-  // All the way round when it's made up to a ring; else just the part that
-  // fits, with the rest of the list round the back, out of sight.
-  st.ring = items.length > real ? st.len : AROUND;
+  st.line = !st.ghosts && real <= 5;
+  st.len = st.line ? pos : items.length ? pos + gapOf(items[items.length - 1], items[0]) : AROUND;
+  // All the way round when it's made up to a ring (or just them); else
+  // just the part that fits, with the rest of the list round the back,
+  // out of sight.
+  st.ring = items.length > real || !st.ghosts ? st.len : AROUND;
   if (key !== st.key) {
     st.key = key;
     st.scroll = startScroll();
     st.vel = 0;
   }
-  if (st.cv) st.cv.setAttribute('aria-label', real ? `Your people holding hands in a ring, ${real === 1 ? 'one person' : `${real} people`}. Swipe sideways to turn it, tap someone to open them.` : 'Nobody here.');
+  const who = real === 1 ? 'one person' : `${real} people`;
+  if (st.cv) st.cv.setAttribute('aria-label', !real ? 'Nobody here.' : st.line ? `${who} standing in a line, holding hands. Tap someone to open them.` : `Your people holding hands in a ring, ${who}. Swipe sideways to turn it, tap someone to open them.`);
 }
 
 // The first person stands at the front, a little left of the middle, so
 // the list reads left to right; a short list stands in the middle.
 function startScroll() {
-  if (!st.real || !st.w) return 0;
+  if (!st.real || !st.w || st.line) return 0;
   const first = st.items[0].pos;
   const lastReal = st.items[st.real - 1].pos;
   const v = view();
@@ -343,10 +372,12 @@ function startScroll() {
   return lastReal - first < lead * 2 ? (first + lastReal) / 2 : first + lead;
 }
 
-export function mountRing(slot, { people = [], key = '' } = {}, { onOpen, backdrop = null } = {}) {
+export function mountRing(slot, { people = [], key = '' } = {}, { onOpen, backdrop = null, ghosts = true } = {}) {
   if (!st.el) build();
   st.onOpen = onOpen;
   st.backdrop = backdrop;
+  if (ghosts !== st.ghosts) st.key = null;
+  st.ghosts = ghosts;
   slot.appendChild(st.el);
   resize();
   update(people, key);
@@ -363,7 +394,7 @@ export function ringStep(seconds = 0, set = {}) {
 
 export function ringInfo() {
   const front = nearestFront();
-  return { real: st.real, ghosts: st.items.length - st.real, len: st.len, ring: st.ring, scroll: st.scroll, vel: st.vel, lean: st.lean, front: front && front.id, hits: st.hits.map((h) => ({ id: h.id, x: Math.round((h.x0 + h.x1) / 2), y: Math.round(h.y1), s: Math.round(h.s * 100) / 100 })) };
+  return { real: st.real, line: st.line, ghosts: st.items.length - st.real, len: st.len, ring: st.ring, scroll: st.scroll, vel: st.vel, lean: st.lean, front: front && front.id, hits: st.hits.map((h) => ({ id: h.id, x: Math.round((h.x0 + h.x1) / 2), y: Math.round(h.y1), s: Math.round(h.s * 100) / 100 })) };
 }
 
 function wrap(d) {
@@ -398,7 +429,7 @@ function wire(cv) {
     const dy = e.clientY - d.y0;
     if (!d.moved) {
       if (Math.abs(dx) < 7 && Math.abs(dy) < 7) return;
-      if (Math.abs(dy) > Math.abs(dx)) {
+      if (Math.abs(dy) > Math.abs(dx) || st.line) {
         st.drag = null;
         return;
       }
@@ -430,14 +461,14 @@ function wire(cv) {
   cv.addEventListener('pointerup', end);
   cv.addEventListener('pointercancel', end);
   cv.addEventListener('wheel', (e) => {
-    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY) || st.line) return;
     e.preventDefault();
     st.scroll += e.deltaX / view().k;
     st.vel = clamp(e.deltaX / view().k * 20, -6, 6);
     kick();
   }, { passive: false });
   cv.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !st.line) {
       e.preventDefault();
       st.vel = e.key === 'ArrowLeft' ? -2.4 : 2.4;
       kick();
@@ -515,13 +546,16 @@ function handBetween(a, la, b, lb) {
   const dy = b[1] - a[1];
   const d = Math.hypot(dx, dy) || 1e-6;
   if (d >= la + lb - 0.5) return [a[0] + (dx * la) / (la + lb), a[1] + (dy * la) / (la + lb)];
-  const along = (d * d + la * la - lb * lb) / (2 * d);
-  const off = Math.sqrt(Math.max(0, la * la - along * along));
+  // (One standing almost right behind the other: the hand stays between
+  // them, hanging down.)
+  const along = clamp((d * d + la * la - lb * lb) / (2 * d), 0, Math.min(d, la));
   const ux = dx / d;
   const uy = dy / d;
-  const p1 = [a[0] + ux * along - uy * off, a[1] + uy * along + ux * off];
-  const p2 = [a[0] + ux * along + uy * off, a[1] + uy * along - ux * off];
-  return p1[1] > p2[1] ? p1 : p2;
+  // Elbows down: of the two ways the arms can bend, the lower one. With
+  // one standing right behind the other there's no lower one, so the
+  // arms straighten there instead of flicking from side to side.
+  const off = Math.sqrt(Math.max(0, la * la - along * along)) * Math.min(1, Math.abs(ux) / 0.3) * (ux < 0 ? -1 : 1);
+  return [a[0] + ux * along - uy * off, a[1] + uy * along + ux * off];
 }
 
 // Inside an organization: two or three windows floating on the far wall,
@@ -590,9 +624,9 @@ function draw() {
   // Everyone in the ring that can be seen, where they stand and lean.
   const on = [];
   st.items.forEach((it, i) => {
-    const d = wrap(it.pos - st.scroll);
+    const d = st.line ? 0 : wrap(it.pos - st.scroll);
     if (Math.abs(d) > half) return;
-    const p = project(d, v);
+    const p = st.line ? { ph: 0, s: 1, x: v.cx + (it.pos - st.len / 2) * v.k, y: v.yf } : project(d, v);
     const hp = it.size * p.s * v.k;
     if (p.x < -hp || p.x > w + hp) return;
     // Out of the circle past the back (a long list): fade at the seam.
@@ -608,7 +642,7 @@ function draw() {
   // round the back.
   for (const o of on) {
     const nb = byIndex.get((o.i + 1) % n);
-    if (!nb || (st.ring < st.len && nb.d < o.d)) continue;
+    if (!nb || (st.ring < st.len && nb.d < o.d) || (st.line && o.i === n - 1)) continue;
     const hand = handBetween(o.sh[1], ARM * o.hp, nb.sh[0], ARM * nb.hp);
     o.hands[1] = hand;
     nb.hands[0] = hand;
@@ -621,7 +655,7 @@ function draw() {
     const { it, p, hp } = o;
     const path = new Path2D();
     trace(path, shake(bodyLine(o.kind, hp > 70, o.put, o.hands, hp), it.seed, clamp(0.006 * hp, 0.25, 1.4)));
-    const near = clamp((p.s - sBack) / (1 - sBack), 0, 1);
+    const near = sBack < 1 ? clamp((p.s - sBack) / (1 - sBack), 0, 1) : 1;
     const lw = Math.max(0.8, 2.1 * Math.pow(p.s, 0.7));
     ctx.setLineDash([]);
     ctx.globalAlpha = o.fade;

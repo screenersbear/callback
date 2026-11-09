@@ -302,6 +302,10 @@ button:active, .row-card:active, .stat-box:active, .item-head:active { opacity: 
    sit just under the status bar, and the head's stage runs down to the tab
    bar (mind.js sizes it) so the neck meets the bar and nothing scrolls. */
 html:has(.dash.is-mind) { background: var(--bg); }
+/* And it holds still: no scrolling or bouncing up and down. The bubbles
+   are moved about by hand instead (mind.js). */
+html:has(.dash.is-mind), body:has(.dash.is-mind) { overflow: hidden; overscroll-behavior: none; }
+.dash.is-mind { touch-action: none; }
 #app:has(.dash.is-mind) { padding-bottom: 0; }
 .dash.is-mind { padding-top: 12px; }
 .dash.is-mind > .stats-row { margin-bottom: 6px; }
@@ -335,7 +339,7 @@ button.thought {
   text-align: center;
   letter-spacing: 0;
   transform-origin: 50% 50%;
-  touch-action: manipulation;
+  touch-action: none;
 }
 button.thought:active { opacity: 1; }
 .thought-n { font-family: var(--font-hand); font-size: 27px; font-weight: 400; line-height: 1; }
@@ -1075,6 +1079,8 @@ details.loop-done[open] summary { margin-bottom: 8px; }
 .person-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 20px; }
 .news-picks { border-top: 1px solid var(--line); padding-top: 14px; }
 .warmth-btn-hint { font-size: 15px; font-weight: 700; letter-spacing: 0.5px; color: var(--text); }
+/* Warmth, relationship and interest change with a tap on them. */
+.warmth-btn { cursor: pointer; }
 
 .next-panel {
   position: relative;

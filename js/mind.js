@@ -8,7 +8,9 @@
 // round with a finger and still looks drawn from any side. Each bubble is a Today section
 // with something waiting: tapping one opens it, and once it's empty it pops
 // (when you can see it: not behind a sheet, not scrolled away). The face
-// worries more the more is waiting, and smiles once nothing is.
+// worries more the more is waiting, and smiles once nothing is. A bubble
+// can be picked up and put somewhere else (dropped on another, they swap
+// places), and stays where it's put, on this device.
 
 const NS = 'http://www.w3.org/2000/svg';
 const TAU = Math.PI * 2;
@@ -545,10 +547,27 @@ function inkPath(pts, seed, waves, amp) {
 // ---------------------------------------------------------------------------
 // State
 
+// Where each bubble has been put, kept on this device: its middle, across
+// in stage widths and down in the sky's height (like SLOTS).
+const SPOTS_KEY = 'callback.bubbleSpots';
+function readSpots() {
+  try {
+    const v = JSON.parse(localStorage.getItem(SPOTS_KEY) || '{}');
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+  } catch {
+    return {};
+  }
+}
+function saveSpots() {
+  try { localStorage.setItem(SPOTS_KEY, JSON.stringify(st.spots)); } catch { /* this device only */ }
+}
+
 const st = {
   el: null,
   svg: null,
   hit: null,
+  spots: readSpots(),
+  carry: null, // a bubble being moved by hand
   pool: [],
   used: 0,
   w: 0,
@@ -691,9 +710,40 @@ function newBubble(d, i) {
   btn.type = 'button';
   btn.className = 'thought';
   btn.innerHTML = '<span class="thought-n"></span><span class="thought-label"></span>';
-  const b = { key: d.key, seed: hashStr(d.key), state: 'in', p: st.first ? -0.14 * i : 0, wob: 0, x: null, y: null, s: 1, tx: 0, ty: 0, ts: 1, btn, n: d.n };
+  const b = { key: d.key, seed: hashStr(d.key), state: 'in', p: st.first ? -0.14 * i : 0, wob: 0, x: null, y: null, s: 1, tx: 0, ty: 0, ts: 1, btn, n: d.n, moved: -9 };
+  // Picked up and moved: it follows the finger, and isn't opened.
+  btn.addEventListener('pointerdown', (e) => {
+    if (e.button || b.state === 'pop' || st.carry) return;
+    st.carry = { b, id: e.pointerId, x0: e.clientX, y0: e.clientY, from: [b.tx, b.ty], moved: false };
+  });
+  btn.addEventListener('pointermove', (e) => {
+    const c = st.carry;
+    if (!c || c.b !== b || c.id !== e.pointerId) return;
+    const dx = e.clientX - c.x0;
+    const dy = e.clientY - c.y0;
+    if (!c.moved) {
+      if (Math.hypot(dx, dy) < 8) return;
+      c.moved = true;
+      try { btn.setPointerCapture(e.pointerId); } catch { /* fine without */ }
+    }
+    const [x, y] = fitSpot(c.from[0] + dx / st.w, c.from[1] + (dy / geom().sky) * SKY, b.ts);
+    Object.assign(b, { x, y, tx: x, ty: y });
+    kick();
+  });
+  const drop = (e) => {
+    const c = st.carry;
+    if (!c || c.b !== b || c.id !== e.pointerId) return;
+    st.carry = null;
+    if (c.moved) {
+      b.moved = performance.now();
+      settle(b, c.from);
+    }
+    kick();
+  };
+  btn.addEventListener('pointerup', drop);
+  btn.addEventListener('pointercancel', drop);
   btn.addEventListener('click', () => {
-    if (b.state === 'pop') return;
+    if (b.state === 'pop' || performance.now() - b.moved < 500) return;
     st.glance = { key: b.key, until: st.t + 1.1 };
     b.wob = 0.7;
     kick();
@@ -705,14 +755,89 @@ function newBubble(d, i) {
 
 function layout() {
   const live = st.order.map((k) => st.bubbles.get(k)).filter((b) => b && b.state !== 'pop');
+  if (!live.length || !st.w) return;
   const slots = SLOTS[Math.min(8, live.length)];
   // One or two bubbles have room to spare in a tall sky, so they grow a bit.
-  const grow = live.length <= 2 && st.w ? clamp(geom().sky / (SKY * st.w), 1, 1.2) : 1;
-  live.forEach((b, i) => {
-    const [x, y] = slots.at[Math.min(i, slots.at.length - 1)];
-    Object.assign(b, { tx: x, ty: y, ts: slots.s * grow });
-    if (b.x == null) Object.assign(b, { x, y, s: slots.s * grow });
+  const grow = live.length <= 2 ? clamp(geom().sky / (SKY * st.w), 1, 1.2) : 1;
+  const s = slots.s * grow;
+  const put = (b, [x, y]) => {
+    if (!(st.carry && st.carry.b === b)) Object.assign(b, { tx: x, ty: y });
+    b.ts = s;
+    if (b.x == null) Object.assign(b, { x, y, s });
+    taken.push([x, y]);
+  };
+  const taken = [];
+  const clash = ([x, y]) => taken.some(([u, v]) => overlap(bubPx(x, y, s), bubPx(u, v, s)) < 1);
+  // Ones that have been put somewhere stay there; the rest take their own
+  // slot, or the first free one.
+  for (const b of live) if (st.spots[b.key]) put(b, fitSpot(...st.spots[b.key], s));
+  const pool = [...slots.at, ...SLOTS[8].at];
+  let i = 0;
+  for (const b of live) {
+    if (st.spots[b.key]) continue;
+    const own = slots.at[Math.min(i, slots.at.length - 1)];
+    i += 1;
+    put(b, !clash(own) ? own : pool.find((p) => !clash(p)) || own);
+  }
+}
+
+// A bubble's middle and half sizes on the screen, in pixels.
+function bubPx(x, y, s) {
+  return { cx: x * st.w, cy: (y / SKY) * geom().sky, rx: BUB.rx * st.w * s * 1.05, ry: BUB.ry * st.w * s * 1.08 };
+}
+// How far apart two bubbles are: under 1, they overlap.
+const overlap = (a, q) => Math.hypot((a.cx - q.cx) / (a.rx + q.rx), (a.cy - q.cy) / (a.ry + q.ry));
+
+// Somewhere a bubble fits: on the stage, and clear of the head.
+function fitSpot(x, y, s) {
+  if (!st.w) return [x, y];
+  const g = geom();
+  const rx = BUB.rx * st.w * s * 1.05;
+  const ry = BUB.ry * st.w * s * 1.08;
+  const inside = (cx, cy) => [clamp(cx, rx + 4, st.w - rx - 4), clamp(cy, ry + 4, st.h - ry - 8)];
+  let [cx, cy] = inside(x * st.w, (y / SKY) * g.sky);
+  const dx = cx - g.hx;
+  const dy = cy - g.hy;
+  const d = Math.hypot(dx, dy) || 1;
+  const need = g.R * 1.2 + Math.max(rx, ry) * 0.85;
+  if (d < need) [cx, cy] = inside(g.hx + (dx / d) * need, g.hy + (dy / d) * need);
+  return [cx / st.w, (cy / g.sky) * SKY];
+}
+
+// Let go: dropped on another bubble, the two swap places; else it's
+// nudged off any it's partly on. Where it ends up is kept.
+function settle(b, from) {
+  const others = [...st.bubbles.values()].filter((o) => o !== b && o.state !== 'pop' && o.x != null);
+  const at = (o) => bubPx(o.tx, o.ty, o.ts);
+  const me = at(b);
+  const under = others.find((o) => {
+    const q = at(o);
+    return Math.hypot((me.cx - q.cx) / q.rx, (me.cy - q.cy) / q.ry) < 0.8;
   });
+  if (under) {
+    [b.tx, b.ty] = [under.tx, under.ty];
+    [under.tx, under.ty] = from;
+    st.spots[under.key] = [under.tx, under.ty];
+  } else {
+    for (let k = 0; k < 12; k++) {
+      let moved = false;
+      for (const o of others) {
+        const a = at(b);
+        const q = at(o);
+        const qn = overlap(a, q);
+        if (qn >= 1) continue;
+        const sx = a.rx + q.rx;
+        const sy = a.ry + q.ry;
+        const ux = qn > 0.01 ? (a.cx - q.cx) / sx / qn : 0;
+        const uy = qn > 0.01 ? (a.cy - q.cy) / sy / qn : -1;
+        [b.tx, b.ty] = fitSpot((q.cx + ux * sx * 1.03) / st.w, ((q.cy + uy * sy * 1.03) / geom().sky) * SKY, b.ts);
+        moved = true;
+      }
+      if (!moved) break;
+    }
+  }
+  st.spots[b.key] = [b.tx, b.ty];
+  saveSpots();
 }
 
 function update({ bubbles = [], pending = 0 } = {}) {

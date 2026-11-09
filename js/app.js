@@ -1149,8 +1149,9 @@ const ringData = (list) => ({
   key: list.map((p) => p.id).join(','),
 });
 const RING_OPTS = { onOpen: (id) => { location.hash = `#/person/${id}`; } };
-// Inside a building, a few windows float behind the ring.
-const RING_INSIDE = { ...RING_OPTS, backdrop: 'windows' };
+// Inside a building, a few windows float behind them, and only the real
+// people stand there: five or fewer in a line, more in a small ring.
+const RING_INSIDE = { ...RING_OPTS, backdrop: 'windows', ghosts: false };
 let ringOpts = RING_OPTS;
 
 function ringHTML(list) {
@@ -1389,11 +1390,11 @@ function renderPerson(id, { panel = false } = {}) {
       ${sub ? `<p class="person-sub">${sub}</p>` : ''}
       <div class="person-badges">
         <button type="button" class="warmth-btn" data-action="change-warmth" data-id="${pid}" aria-label="Change warmth, now ${esc(WARMTH_INFO[p.warmth].label)}">
-          ${warmthBadge(p.warmth)}<span class="warmth-btn-hint">Change</span></button>
+          ${warmthBadge(p.warmth)}</button>
         <button type="button" class="warmth-btn" data-action="change-rel" data-id="${pid}" aria-label="Change relationship, now ${esc(relWords(p))}">
-          <span class="rel-set">${relLabels(p)}</span><span class="warmth-btn-hint">Change</span></button>
+          <span class="rel-set">${relLabels(p)}</span></button>
         <button type="button" class="warmth-btn" data-action="change-interest" data-id="${pid}" aria-label="Change interest, now ${esc(interestInfo(p.interest).label)}">
-          ${interestLabel(p.interest, { prefix: true })}<span class="warmth-btn-hint">Change</span></button>
+          ${interestLabel(p.interest, { prefix: true })}</button>
         ${p.dreamList ? `<button type="button" class="warmth-btn" data-action="dream-off" data-id="${pid}" aria-label="On your dream list. Take them off it">
           ${dreamBadge()}<span class="warmth-btn-hint">Remove</span></button>` : ''}
         ${p.lightTouch ? `<button type="button" class="warmth-btn" data-action="light-off" data-id="${pid}" aria-label="Light touch is on. Turn it off">
