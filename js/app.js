@@ -20,7 +20,7 @@ import {
   relTypesOf, relFields,
 } from './model.js';
 import { openSheet, confirmSheet, choiceSheet, toast, closeAllSheets } from './ui.js';
-import { updateSwipeBar } from './swipebar.js';
+import { updateSwipeBar, setSwipePeek } from './swipebar.js';
 import * as sync from './sync.js';
 import { getPath } from './merge.js';
 import { mountMind, BUDDIES, buddyStyle, setBuddy, buddySVG } from './mind.js';
@@ -1224,6 +1224,53 @@ function mapHTML(kind, list) {
   return `<div class="map-wrap" id="${kind === 'orgs' ? 'orgList' : 'circleMap'}"><div class="map-slot" data-map-slot></div>
     <ul class="visually-hidden">${mapNow.items.map((x) => `<li><a href="#/${kind}/${esc(x.id)}">${esc(x.name)}</a></li>`).join('')}</ul></div>`;
 }
+// The section next door, drawn beside this page while the bottom bar is
+// swiped (swipebar.js) so the two slide as one. Today's head, People's ring
+// and a map are mounted in it for real when this page isn't using them;
+// Circles and Orgs share the one map, so beside one the other is a picture
+// of how it looked last time (or empty, the first time). Drawing it mustn't
+// change what this page relies on, so those are put back after. It shows
+// the section where going there will show it: at the top, or where it was
+// left when coming from someone's page.
+const mapShots = {};
+function copyCanvas(cv) {
+  const c = document.createElement('canvas');
+  c.width = cv.width;
+  c.height = cv.height;
+  try { c.getContext('2d').drawImage(cv, 0, 0); } catch { /* left blank */ }
+  const w = cv.clientWidth || parseFloat(cv.style.width) || 0;
+  const h = cv.clientHeight || parseFloat(cv.style.height) || 0;
+  c.style.cssText = `display: block; width: ${w}px; height: ${h}px;`;
+  return c;
+}
+function shootMap() {
+  const cv = view.querySelector('[data-map-slot] canvas');
+  if (cv && cv.width && mapNow) mapShots[mapNow.kind] = copyCanvas(cv);
+}
+function peekPage(name, page) {
+  const keep = [ringPeople, ringOpts, mapNow, todayMind];
+  try {
+    page.innerHTML = `<div class="view" data-route="${name}">${ROUTES[name]()}</div>`;
+    const pv = page.firstElementChild;
+    const fromDetail = /^#\/(person|org|circle)\//.test(location.hash);
+    const y = fromDetail ? S.ui.scroll.get(`${name}/`) || 0 : 0;
+    if (y) page.style.transform = `translate3d(0, ${-y}px, 0)`;
+    const mind = pv.querySelector('[data-mind-slot]');
+    if (mind) mountMind(mind, todayMind, { onOpen: thoughtSheet, onFace: buddySheet });
+    mountRingIn(pv);
+    const slot = pv.querySelector('[data-map-slot]');
+    if (slot && mapNow) {
+      if (view.querySelector('[data-map-slot] canvas')) {
+        const shot = mapShots[mapNow.kind];
+        if (shot) slot.appendChild(copyCanvas(shot));
+      } else mountMap(slot, mapNow, { onOpen: () => {} });
+    }
+  } finally {
+    [ringPeople, ringOpts, mapNow, todayMind] = keep;
+  }
+}
+setSwipePeek(peekPage);
+
 function mountMapIn(root, from = null) {
   const slot = root.querySelector('[data-map-slot]');
   if (!slot || !mapNow) return;
@@ -3163,6 +3210,8 @@ function render() {
   const panelY = oldPanel && pick && oldPanel.dataset.id === pick.id ? oldPanel.scrollTop : 0;
   const colsY = same ? [...view.querySelectorAll('.board-col')].map((c) => c.scrollTop) : [];
   if (pick && pick.focus) S.ui.collapsed.delete('pick-timeline');
+  // A picture of the map going away, for beside the other one (peekPage).
+  if (!same) shootMap();
   view.innerHTML = list ? splitHTML(r, list) : ROUTES[r.name](r.id);
   view.classList.toggle('is-split', !!list);
   if (list) {

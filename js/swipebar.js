@@ -2,16 +2,20 @@
 //
 // The section you're in sits in the middle as its icon, no words, with a
 // little triangle on each side that has another section. Swipe along the
-// bar to the left and the page slides off that way while the next section
-// comes in from the right; swipe to the right to go back. A tap on a
-// triangle does the same, and a tap on the icon goes to the top of its
-// section, the way its tab did. Wide windows keep the rail of tabs.
+// bar to the left and the page slides off that way with the next section
+// drawn right beside it, coming in from the right as one strip (no gap
+// between them); swipe to the right to go back. A tap on a triangle does
+// the same, and a tap on the icon goes to the top of its section, the way
+// its tab did. Wide windows keep the rail of tabs.
+//
+// The page next door (a "peek") is drawn by the app (setSwipePeek) into a
+// layer of its own beside this one; once it's slid all the way in, the app
+// goes there for real and the layer is taken away in the same moment.
 
 const phone = matchMedia('(max-width: 899px)');
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 const STEP = 46; // px from one icon to the next on the strip
-const OUT_MS = 190;
-const IN_MS = 260;
+const SLIDE_MS = 260;
 
 const S = {
   bar: null,
@@ -26,10 +30,49 @@ const S = {
   enter: 0,
   exit: null,
   dragged: 0,
+  peek: null,
+  peekDir: 0,
 };
+let makePeek = null;
+
+// The app hands over how to draw a section into a peek: fn(key, page).
+export function setSwipePeek(fn) {
+  makePeek = fn;
+}
+
+// The section `dir` away (1 the next, -1 the one before) drawn beside this
+// page, ready to slide in.
+function peekFor(dir) {
+  if (S.peek && S.peekDir === dir) return S.peek;
+  dropPeek();
+  const t = S.tabs[S.idx + dir];
+  if (!t || !makePeek) return null;
+  const el = document.createElement('div');
+  el.className = 'peek';
+  el.setAttribute('aria-hidden', 'true');
+  el.inert = true;
+  el.style.transform = `translate3d(${dir * (window.innerWidth || 1)}px, 0, 0)`;
+  const page = document.createElement('div');
+  page.className = 'peek-app';
+  el.appendChild(page);
+  document.body.appendChild(el);
+  S.peek = el;
+  S.peekDir = dir;
+  try { makePeek(t.key, page); } catch (err) { console.error(err); }
+  return el;
+}
+function dropPeek() {
+  if (S.peek) S.peek.remove();
+  S.peek = null;
+  S.peekDir = 0;
+}
 
 const tri = '<svg viewBox="0 0 10 12" aria-hidden="true"><path d="M2.3 1.5Q5.6 3.8 8.7 6.1 5.5 8.3 2.2 10.5 2.5 6 2.3 1.5Z" fill="currentColor" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>';
 const view = () => document.getElementById('view');
+// While a page is slid aside it hangs off the edge of the screen; clipped
+// (style.css), so the page never gets wider than the screen (the width
+// jumped and the two pages came apart).
+const sliding = (on) => document.documentElement.classList.toggle('is-swiping', on);
 
 function build() {
   if (S.bar) return true;
@@ -88,18 +131,17 @@ export function updateSwipeBar(tab) {
   const i = S.tabs.findIndex((t) => t.key === tab);
   if (i >= 0) S.idx = i;
   label();
-  const v = view();
-  if (S.enter && v) {
-    // Came here by sliding: the new page comes in from that side.
-    const from = S.enter * (window.innerWidth || 1);
+  if (S.enter) {
+    // Came here by sliding: the page is drawn where its peek was, so the
+    // peek goes and the page is put back in place in the same moment.
     S.enter = 0;
     clearTimeout(S.enterLate);
     if (S.exit) S.exit.cancel();
     S.exit = null;
+    dropPeek();
     stripTo(S.idx, 0, false);
-    v.animate([{ transform: `translate3d(${from}px, 0, 0)` }, { transform: 'translate3d(0, 0, 0)' }], { duration: IN_MS, easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)' });
-    // Free to swipe again once it's mostly in.
-    setTimeout(() => { S.busy = false; }, IN_MS * 0.6);
+    S.busy = false;
+    sliding(false);
   } else if (!S.drag && !S.busy) stripTo(S.idx);
 }
 
@@ -114,11 +156,18 @@ function go(dir, from = 0) {
     return;
   }
   S.busy = true;
+  sliding(true);
   const w = window.innerWidth || 1;
+  const p = peekFor(dir);
   stripTo(S.idx + dir, 0, true);
   v.style.transform = '';
-  const ms = OUT_MS * (1 - Math.min(0.6, Math.abs(from) / w));
-  S.exit = v.animate([{ transform: `translate3d(${from}px, 0, 0)` }, { transform: `translate3d(${-dir * w}px, 0, 0)` }], { duration: ms, easing: 'cubic-bezier(0.4, 0, 0.9, 0.6)', fill: 'forwards' });
+  const ms = SLIDE_MS * (1 - 0.5 * Math.min(1, Math.abs(from) / w));
+  const ease = 'cubic-bezier(0.25, 0.6, 0.3, 1)';
+  S.exit = v.animate([{ transform: `translate3d(${from}px, 0, 0)` }, { transform: `translate3d(${-dir * w}px, 0, 0)` }], { duration: ms, easing: ease, fill: 'forwards' });
+  if (p) {
+    p.style.transform = '';
+    p.animate([{ transform: `translate3d(${dir * w + from}px, 0, 0)` }, { transform: 'translate3d(0, 0, 0)' }], { duration: ms, easing: ease, fill: 'forwards' });
+  }
   // On when it's slid off, or a moment after if the phone held the
   // animation up (put away mid-swipe).
   let gone = false;
@@ -132,7 +181,9 @@ function go(dir, from = 0) {
       S.enter = 0;
       if (S.exit) S.exit.cancel();
       S.exit = null;
+      dropPeek();
       S.busy = false;
+      sliding(false);
       stripTo(S.idx);
     }, 700);
     location.hash = t.href;
@@ -141,16 +192,29 @@ function go(dir, from = 0) {
   setTimeout(off, ms + 120);
 }
 
-// Back to where it was, dragged not far enough.
+// Back to where it was, dragged not far enough: the peek slides back out.
 function settle(from) {
   const v = view();
   stripTo(S.idx, 0, true);
+  const p = S.peek;
+  const dir = S.peekDir;
+  S.peek = null;
+  S.peekDir = 0;
+  if (p) {
+    const w = window.innerWidth || 1;
+    p.style.transform = '';
+    const a = p.animate([{ transform: `translate3d(${dir * w + from}px, 0, 0)` }, { transform: `translate3d(${dir * w}px, 0, 0)` }], { duration: 220, easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)', fill: 'forwards' });
+    a.onfinish = () => p.remove();
+    setTimeout(() => p.remove(), 400);
+  }
   if (!v || !from) {
     if (v) v.style.transform = '';
+    sliding(false);
     return;
   }
   v.style.transform = '';
   v.animate([{ transform: `translate3d(${from}px, 0, 0)` }, { transform: 'translate3d(0, 0, 0)' }], { duration: 220, easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)' });
+  setTimeout(() => { if (!S.drag && !S.busy) sliding(false); }, 260);
 }
 
 function wire(bar) {
@@ -170,6 +234,11 @@ function wire(bar) {
         return;
       }
       d.moved = true;
+      sliding(true);
+      // Grabbed again while the last one was still springing back: the
+      // finger has it now.
+      const v0 = view();
+      if (v0) v0.getAnimations().forEach((an) => an.cancel());
       try { bar.setPointerCapture(e.pointerId); } catch { /* fine */ }
     }
     const now = performance.now();
@@ -177,11 +246,19 @@ function wire(bar) {
     d.lx = e.clientX;
     d.t = now;
     // Nothing that way: it gives a little, then stops.
-    const has = S.tabs[S.idx + (dx < 0 ? 1 : -1)];
+    const dir = dx < 0 ? 1 : -1;
+    const has = S.tabs[S.idx + dir];
     const w = window.innerWidth || 1;
     d.x = has ? dx : (dx * 0.3) / (1 + Math.abs(dx) / w);
     const v = view();
     if (v) v.style.transform = `translate3d(${d.x.toFixed(1)}px, 0, 0)`;
+    // The page next door rides along beside it (kept a moment longer when
+    // the finger wobbles back over the middle).
+    let p = null;
+    if (S.peek && S.peekDir !== dir && Math.abs(d.x) < 12) p = S.peek;
+    else if (has) p = peekFor(dir);
+    else dropPeek();
+    if (p) p.style.transform = `translate3d(${(S.peekDir * w + d.x).toFixed(1)}px, 0, 0)`;
     stripTo(S.idx, d.x);
   });
   const end = (e) => {
@@ -209,5 +286,5 @@ function wire(bar) {
 
 // For tests.
 export function swipeBarInfo() {
-  return { idx: S.idx, tab: S.tabs[S.idx] && S.tabs[S.idx].key, prev: !S.prev?.disabled, next: !S.next?.disabled, busy: S.busy, strip: S.strip && S.strip.style.transform };
+  return { idx: S.idx, tab: S.tabs[S.idx] && S.tabs[S.idx].key, prev: !S.prev?.disabled, next: !S.next?.disabled, busy: S.busy, strip: S.strip && S.strip.style.transform, peek: S.peek ? S.tabs[S.idx + S.peekDir]?.key : null };
 }

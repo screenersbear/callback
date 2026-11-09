@@ -773,7 +773,7 @@ function build() {
   // popup) only moves what's under the finger, so the page can't be pulled
   // down. (iOS still pulled it about even with the page set not to scroll.)
   document.addEventListener('touchmove', (e) => {
-    if (!st.el || !st.el.isConnected || !st.el.closest('.dash.is-mind')) return;
+    if (!st.el || !st.el.isConnected || !st.el.closest('.dash.is-mind') || st.el.closest('.peek')) return;
     if (e.target.closest && e.target.closest('.sheet-overlay')) return;
     if (e.cancelable) e.preventDefault();
   }, { passive: false });
@@ -795,7 +795,10 @@ function resize() {
   const bar = document.getElementById('tabbar');
   const br = bar && bar.getBoundingClientRect();
   const barTop = br && br.height && br.top > window.innerHeight / 2 ? br.top : window.innerHeight;
-  const top = st.el.getBoundingClientRect().top + window.scrollY;
+  // From the top of its page: the window's (scrolled) or, drawn beside it
+  // while the bottom bar is swiped, the peek's.
+  const page = st.el.closest('.peek-app');
+  const top = st.el.getBoundingClientRect().top + (page ? -page.getBoundingClientRect().top : window.scrollY);
   const h = Math.round(Math.max(w * 0.95, barTop - top));
   if (w === st.w && h === st.h) return;
   st.w = w;

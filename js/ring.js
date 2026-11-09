@@ -348,7 +348,10 @@ function resize() {
   const bar = document.getElementById('tabbar');
   const br = bar && bar.getBoundingClientRect();
   const barTop = br && br.height && br.top > window.innerHeight / 2 ? br.top : window.innerHeight;
-  const top = st.el.getBoundingClientRect().top + window.scrollY;
+  // From the top of its page: the window's (scrolled) or, drawn beside it
+  // while the bottom bar is swiped, the peek's.
+  const page = st.el.closest('.peek-app');
+  const top = st.el.getBoundingClientRect().top + (page ? -page.getBoundingClientRect().top : window.scrollY);
   const h = Math.round(Math.max(w * 0.95, barTop - top));
   const dpr = Math.min(3, window.devicePixelRatio || 1);
   if (w === st.w && h === st.h && dpr === st.dpr) return;
