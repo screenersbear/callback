@@ -2553,3 +2553,26 @@ html:has(.map-wrap), html:has(.ring-wrap.is-inside) { background: var(--bg); }
   /* Inside a circle or organization, its page is already on the right. */
   .split-list .hand-end { display: none; }
 }
+
+/* ---------- A phone held sideways (11-10) ----------
+   index.html marks html.is-sideways from the phone's own turn; this covers
+   the page with a note until it's upright again. */
+.turn-back { display: none; }
+html.is-sideways, html.is-sideways body { overflow: hidden; }
+html.is-sideways .turn-back {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 24px;
+  background: var(--bg);
+  color: var(--hero);
+  text-align: center;
+}
+.turn-back svg { width: 72px; height: 72px; margin-bottom: 8px; }
+.turn-back-title { margin: 0; font-family: var(--font-hand); font-size: 26px; color: var(--text); }
+.turn-back-text { margin: 0; font-size: 15px; color: var(--text-dim); }
