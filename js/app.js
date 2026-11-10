@@ -3110,8 +3110,8 @@ function weekRecord(ws) {
 function goalBar(label, n, goal) {
   const pct = goal ? Math.min(100, Math.round((n / goal) * 100)) : 0;
   return `<div class="goal">
-    <p class="goal-head"><span>${esc(label)}</span><span>${n} of ${goal}${n >= goal ? ' ✓' : ''}</span></p>
-    <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="${goal}" aria-valuenow="${n}" aria-label="${esc(label)}"><span style="width:${pct}%"></span></div>
+    <p class="goal-head"><span>${esc(label)}</span>${n >= goal ? '<span>✓</span>' : ''}</p>
+    <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="${goal}" aria-valuenow="${n}" aria-valuetext="${n} of ${goal}" aria-label="${esc(label)}"><span style="width:${pct}%"></span></div>
   </div>`;
 }
 
@@ -3134,7 +3134,11 @@ function statSheet(kind) {
   const s = openSheet({ title, body, className: 'stat-sheet' });
   s.body.addEventListener('click', (e) => {
     const go = e.target.closest('[data-go]');
-    if (go) location.hash = go.dataset.go;
+    if (go) {
+      s.close();
+      location.hash = go.dataset.go;
+      return;
+    }
     if (e.target.closest('[data-add]')) {
       s.close();
       personForm(null);
@@ -3205,7 +3209,7 @@ function statContent(kind) {
     title = 'New people this week';
     body = `${weekLine(`${added.length} of ${g.newPeople}`)}
       ${added.length ? rows(added) : '<p class="hint">Nobody added yet this week.</p>'}
-      <button type="button" class="primary small-btn stat-add" data-add>+ Add person</button>
+      <button type="button" class="primary small-btn stat-add" data-add>+ add another!</button>
       ${weekLink}`;
   }
   return { title, body };
@@ -3252,7 +3256,7 @@ function renderWeek() {
     <p class="week-range">This week <span class="dot">·</span> ${esc(weekRange(ws))}</p>
     <div class="dash no-stats">
     <div class="dash-main">${weekCols([`
-    ${w.light.length ? `<p class="week-split">${plural(w.regular.length, 'touchpoint')}, ${plural(w.light.length, 'light touch', 'light touches')}</p>` : ''}
+    ${w.light.length ? `<p class="week-split">${plural(w.light.length, 'light touch', 'light touches')} this week</p>` : ''}
     ${w.wrapped.length ? `<p class="week-split week-wrapped">${WRAP_ICON}${plural(w.wrapped.length, 'project')} wrapped this week</p>` : ''}
     <div class="goals">
       ${goalBar('Touchpoints', w.regular.length, g.touchpoints)}
@@ -4325,6 +4329,11 @@ window.addEventListener('hashchange', (e) => {
   const from = new URL(e.oldURL).hash || '#/today';
   S.ui.scroll.set(currentKey, window.scrollY);
   const r = parseRoute();
+  // A bubble's panel beside the head (wide windows) goes once you leave
+  // Today. Opening someone from it and coming straight Back keeps it.
+  const detail = (h) => /^#\/(person|org|circle)\//.test(h);
+  if (r.name === 'today' ? detail(from) && !S.ui.goingBack : !detail(location.hash)) S.ui.thoughtKey = null;
+  S.ui.goingBack = false;
   if (r.name === 'person' || r.name === 'org' || r.name === 'circle') {
     if (!/^#\/(person|org|circle)\//.test(from) || !S.ui.backTo) S.ui.backTo = from;
   } else {
@@ -6532,6 +6541,7 @@ const ACTIONS = {
   'add-org': () => orgForm(null),
   'edit-org': (el) => orgForm(S.orgById.get(el.dataset.id)),
   back: (el) => {
+    S.ui.goingBack = true;
     if (S.ui.backTo) history.back();
     else location.hash = el.dataset.fallback || '#/today';
   },
@@ -7014,7 +7024,10 @@ const COMMANDS = {
   },
   next: () => (boardOn() ? stepBoard(1) : stepList(1)),
   prev: () => (boardOn() ? stepBoard(-1) : stepList(-1)),
-  back: () => history.back(),
+  back: () => {
+    S.ui.goingBack = true;
+    history.back();
+  },
   export: () => exportJSON(),
   import: () => importJSON(),
   shortcuts: () => shortcutsSheet(),
