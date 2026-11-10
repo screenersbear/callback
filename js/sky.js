@@ -4,7 +4,8 @@
 // up on the left in the morning, highest at midday, down on the right. In
 // golden hour it turns orange and the page warms a touch. After dark the
 // page grays a little and outline stars come out in the sky over the
-// buddy's head (clear of any hair), some behind the clouds.
+// buddy's head and one either side (clear of any hair), some behind the
+// clouds, each drifting a little.
 //
 // Sunrise and sunset are worked out for today from the phone's time zone
 // (a city for the common ones, else the zone's own longitude), so no
@@ -178,8 +179,21 @@ const STARS = [
 // the high ponytail at 1.74 with the head turned and tipped as far as it
 // goes (every style measured 11-10), plus a little room.
 const HAIR_TOP = 1.85;
+// And one a little lower each side of the head, in toward it, as [across,
+// up] in head radii from its middle (11-10). Each side has a few spots, best
+// first, and its star takes the first one no cloud is sitting on and that
+// fits on the screen. Measured over every hairstyle, turn and tilt the same
+// way: the nearest hair is 0.55 radii or more off the left ones, 0.3 or
+// more off the right ones (the high ponytail's tail), so they stay clear
+// as they drift.
+const SIDE_STARS = [
+  [[-1.15, 1.65], [-1.45, 1.35], [-1.6, 1.1]],
+  [[1.2, 1.78], [1.45, 1.55], [1.6, 1.4]],
+];
+const SIDE_SIZE = 8;
 
-export function skyLines({ W, hy, R, t, calm }) {
+// clouds: where the thought clouds sit, as { cx, cy, rx, ry } in pixels.
+export function skyLines({ W, hx, hy, R, t, calm, clouds = [] }) {
   const s = skyNow();
   const dark = isDark();
   const out = [];
@@ -212,12 +226,24 @@ export function skyLines({ W, hy, R, t, calm }) {
     // The lowest a star's middle goes: its points stay clear of the hair.
     const bottom = Math.max(top, hy - R * HAIR_TOP - 12);
     const color = dark ? '#e9c548' : '#dca800';
-    STARS.forEach(([ax, dy, size], i) => {
-      const x = W * ax;
-      const y = top + (bottom - top) * dy;
+    const m = SIDE_SIZE + 6;
+    const free = ([x, y]) => x > m && x < W - m && clouds.every((c) => Math.hypot((x - c.cx) / (c.rx + m), (y - c.cy) / (c.ry + m)) > 1);
+    const spots = [
+      ...STARS.map(([ax, dy, size]) => [W * ax, top + (bottom - top) * dy, size]),
+      // A side one with every spot under a cloud or off the screen is left out.
+      ...SIDE_STARS.map((list) => list.map(([ax, up]) => [hx + ax * R, hy - up * R, SIDE_SIZE]).find(free) || null),
+    ];
+    spots.forEach((spot, i) => {
+      if (!spot) return;
+      const [x0, y0, size] = spot;
+      // Each drifts in a small slow loop of its own and rocks a little,
+      // besides twinkling.
+      const x = x0 + (calm ? 0 : 2.2 * Math.sin(t * (0.28 + hash(i + 9) * 0.2) + i * 1.7));
+      const y = y0 + (calm ? 0 : 1.8 * Math.cos(t * (0.24 + hash(i + 3) * 0.2) + i * 2.3));
+      const spin = hash(i + 4) * 0.4 - 0.2 + (calm ? 0 : 0.14 * Math.sin(t * (0.35 + hash(i + 6) * 0.25) + i));
       const tw = calm ? 1 : 0.82 + 0.18 * Math.sin(t * (0.7 + hash(i) * 0.6) + i * 2.1);
       const sz = size * (calm ? 1 : 0.94 + 0.08 * Math.sin(t * 0.5 + i));
-      out.push({ d: star(x, y, sz, i * 3.7, hash(i + 4) * 0.4 - 0.2), stroke: color, w: 1.9, fill: null, op: Math.round(s.night * tw * 100) / 100 });
+      out.push({ d: star(x, y, sz, i * 3.7, spin), stroke: color, w: 1.9, fill: null, op: Math.round(s.night * tw * 100) / 100 });
     });
   }
   return out;

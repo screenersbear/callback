@@ -2686,3 +2686,8 @@ html.is-sideways .turn-back {
 .reply-flag svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .reply-flag path { fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; }
 .reply-flag circle { fill: currentColor; stroke: none; }
+
+/* The Dream list link's star, in the night sky's yellow (11-10). */
+.dream-sky-star { color: #dca800; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .dream-sky-star { color: #e9c548; } }
+:root[data-theme="dark"] .dream-sky-star { color: #e9c548; }

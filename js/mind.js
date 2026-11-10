@@ -1336,7 +1336,13 @@ function draw() {
 // The sky behind it all (sky.js): the sun by day, stars at night. Clouds
 // are filled, so whatever is behind one is hidden.
 function drawSky({ R, hx, hy }) {
-  const lines = skyLines({ W: st.w, hx, hy, R, t: st.t, calm: reduced.matches });
+  // Where the clouds are going (not where they bob), so the stars beside
+  // the head can keep out from under them; one being carried doesn't count
+  // until it's put down.
+  const clouds = [...st.bubbles.values()]
+    .filter((b) => b.state !== 'pop' && b.tx != null && !(st.carry && st.carry.b === b))
+    .map((b) => bubPx(b.tx, b.ty, b.ts || b.s || 1));
+  const lines = skyLines({ W: st.w, hx, hy, R, t: st.t, calm: reduced.matches, clouds });
   lines.forEach((l, i) => {
     let p = st.skyPool[i];
     if (!p) {

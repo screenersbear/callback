@@ -171,7 +171,26 @@ const orgOf = (p) => (p && p.organizationId ? S.orgById.get(p.organizationId) : 
 const circlesOf = (p) => S.circles.filter((c) => (p.circleIds || []).includes(c.id));
 const membersOf = (id) => S.people.filter((p) => (p.circleIds || []).includes(id));
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
-const firstName = (p) => (p.name || '').trim().split(/\s+/)[0] || 'them';
+// The first word of someone's name.
+const firstWord = (p) => (p.name || '').trim().split(/\s+/)[0] || 'them';
+// How someone is called in a sentence or under their drawing: the first
+// name, with the first letter of the last name and a period ("Ava T.")
+// when anyone else has the same first name (11-10).
+let firstCounts = { list: null, map: null };
+function firstName(p) {
+  const first = firstWord(p);
+  if (firstCounts.list !== S.people) {
+    const map = new Map();
+    for (const x of S.people) {
+      const k = firstWord(x).toLowerCase();
+      map.set(k, (map.get(k) || 0) + 1);
+    }
+    firstCounts = { list: S.people, map };
+  }
+  if ((firstCounts.map.get(first.toLowerCase()) || 0) < 2) return first;
+  const words = (p.name || '').trim().split(/\s+/);
+  return words.length > 1 ? `${first} ${words[words.length - 1].charAt(0).toUpperCase()}.` : first;
+}
 
 
 // ---------------------------------------------------------------------------
@@ -260,6 +279,9 @@ function interestLabel(k, { prefix = false } = {}) {
   return `<span class="rel interest interest-${esc(info.key)}">${interestIcon(info.key)}<span>${prefix ? 'Interest: ' : ''}${esc(info.label)}</span></span>`;
 }
 
+// The Dream list link on People: a star drawn like the night sky's on
+// Today (sky.js star(8, 8.6, 7, 7.4, -0.12)), in its yellow (11-10).
+const DREAM_SKY_STAR = '<svg class="warmth-icon dream-sky-star" viewBox="0 0 16 16" aria-hidden="true"><path d="M7.5 1.3L9.8 5.7L14.7 5.8L11.3 9.1L12.8 13.7L8.3 11.5L4.7 14.8L5 10L1.2 7.1L5.6 6.3L7.5 1.3L7.9 2.1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const DREAM_STAR = '<svg class="warmth-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.4l2 4.3 4.6.6-3.4 3.2.9 4.6L8 11.8 3.9 14.1l.9-4.6L1.4 6.3 6 5.7z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>';
 
 function dreamBadge() {
@@ -992,7 +1014,7 @@ function midSentence(text) {
   const m = t.match(/^([A-Z])([a-z]+)(?:'s)?\b/);
   if (!m) return t;
   const word = (m[1] + m[2]).toLowerCase();
-  if (S.people.some((p) => firstName(p).toLowerCase() === word)) return t;
+  if (S.people.some((p) => firstWord(p).toLowerCase() === word)) return t;
   return t[0].toLowerCase() + t.slice(1);
 }
 
@@ -1479,7 +1501,7 @@ function renderPeopleHand(f, n) {
   return `
     <header class="topbar"><h1>People</h1>
       <span class="topbar-actions">
-        <a class="dream-link" href="#/dreams">${DREAM_STAR}Dream list</a>
+        <a class="dream-link" href="#/dreams">${DREAM_SKY_STAR}Dream list</a>
       </span></header>
     <div class="people-hand">
       <div class="hand-row">
@@ -1508,7 +1530,7 @@ function renderPeople() {
   return `
     <header class="topbar"><h1>People</h1>
       <span class="topbar-actions">
-        <a class="dream-link" href="#/dreams">${DREAM_STAR}Dream list</a>
+        <a class="dream-link" href="#/dreams">${DREAM_SKY_STAR}Dream list</a>
       </span></header>
     <div class="quick-row">
       <button type="button" class="primary small-btn" data-action="add-person">+ Add person</button>
