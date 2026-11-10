@@ -67,8 +67,9 @@ function keepInView(el) {
     top = Math.max(top, b.top + GAP / 2);
     bottom = Math.min(bottom, b.bottom - GAP / 2);
   }
-  // A sheet's sticky footer (its Save or Done button) covers fields too.
-  const footer = el.closest('.sheet') && el.closest('.sheet').querySelector('.sheet-footer');
+  // A sheet's sticky footer (its Save or Done button, or the Add person
+  // wizard's Next bar) covers fields too.
+  const footer = el.closest('.sheet') && el.closest('.sheet').querySelector('.sheet-footer, .wiz-nav');
   if (footer && !footer.contains(el)) bottom = Math.min(bottom, footer.getBoundingClientRect().top - GAP / 2);
   const r = el.getBoundingClientRect();
   if (!r.height) return;

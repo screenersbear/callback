@@ -556,7 +556,9 @@ function headLines(ex, style = BUDDIES[0]) {
       loops(-1.2, 1.2, 0.7, 0.1, 4, 0.22, 0.16, 0.21, { w: 1.6, op: 0.9 });
       loops(-0.75, 0.75, 1.0, 0.04, 2, 0.24, 0.14, 0.23, { w: 1.5, op: 0.85 });
       column(onHead(-1.08, 0.5, 0.17).p, onHead(-1.16, 0.32, 0.2).p, onHead(-1.2, 0.14, 0.2).p, onHead(-1.18, 0.0, 0.18).p, 1, 2, 0.11, 0.1);
-      column(onHead(0.95, 0.9, 0.22).p, onHead(1.32, 0.72, 0.24).p, onHead(1.5, 0.4, 0.24).p, onHead(1.5, 0.08, 0.2).p, 1, 3, 0.13, 0.12);
+      // His left side, tucked in close to the head (11-10: it fanned out
+      // toward the edge of the screen).
+      column(onHead(0.95, 0.9, 0.22).p, onHead(1.2, 0.72, 0.16).p, onHead(1.32, 0.4, 0.12).p, onHead(1.3, 0.08, 0.1).p, 1, 3, 0.13, 0.08);
     }
     if (big) {
       // Down each side to the shoulders: a column of curls by the face and

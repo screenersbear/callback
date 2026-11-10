@@ -1072,14 +1072,13 @@ details.loop-done[open] summary { margin-bottom: 8px; }
 .person-head { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-bottom: 18px; }
 /* Their drawing in the top right corner: tap it to change how they're drawn. */
 /* Since 11-10 the drawing heads a column on the right, with their warmth
-   under it (and Wrap project under that while they're on a project); the
-   name and the rest run down beside it. */
+   under it (On a project stays in the row of badges, with Wrap project);
+   the name and the rest run down beside it. */
 .person-head.has-fig { display: flow-root; }
 .person-head.has-fig > * + * { margin-top: 6px; }
 .person-head.has-fig > .person-side + * { margin-top: 0; }
 .person-side { float: right; display: flex; flex-direction: column; align-items: center; gap: 6px; margin: -2px -6px 4px 12px; }
 .person-side .warmth-btn { padding: 0; }
-.person-side .wrap-badge { font-size: 13px; padding: 5px 8px 5px 7px; letter-spacing: 0.6px; }
 .person-fig { width: 68px; height: 112px; padding: 4px 6px; margin: 0; background: none; border: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .person-fig:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .person-fig-pic, .fig-choice-pic { display: block; overflow: visible; }
@@ -1116,6 +1115,10 @@ details.loop-done[open] summary { margin-bottom: 8px; }
 @media (prefers-reduced-motion: reduce) { .dream-star.is-filling .dream-star-fill { animation: none; } }
 .person-sub { margin: 0; font-size: 16px; font-weight: 700; color: var(--text-dim); }
 .person-sub a { color: var(--text); }
+/* Where you met them: the last line of the top block, over the next touchpoint. */
+.person-met { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+.person-met-label { font-weight: 700; color: var(--text-dim); }
+.person-met-label::after { content: ':'; }
 
 .warmth-btn {
   display: inline-flex;
@@ -1761,7 +1764,7 @@ details.paste-box summary::before {
   line-height: 1;
 }
 details.paste-box[open] summary::before { content: '\2212'; }
-details.paste-box .field-hint { margin: 0 0 10px; }
+details.paste-box .field-hint { margin: 10px 0 0; }
 details.paste-box .small-btn { margin-top: 10px; }
 .paste-result { margin: 8px 0 0; font-size: 14px; font-weight: 700; }
 .paste-result:empty { display: none; }
@@ -1943,6 +1946,7 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
    fields can move above it, and no tab bar floating over the keyboard. */
 .kb-up #app { padding-bottom: calc(var(--kb) + 96px + env(safe-area-inset-bottom)); }
 .kb-up .tabbar { visibility: hidden; }
+.kb-up .wiz-all-btn { display: none; }
 
 .tab {
   flex: 1;

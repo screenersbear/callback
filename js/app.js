@@ -1744,22 +1744,24 @@ function renderPerson(id, { panel = false } = {}) {
   // A light touch is never late: a missed one carries on from today.
   const light = p.lightTouch && p.warmth !== 'parked';
   const shownNext = light && next < today ? today : next;
-  // Warmth sits under their drawing, with Wrap project under it while
-  // they're on a project (11-10).
+  // Warmth sits under their drawing (11-10), except On a project: that and
+  // Wrap project stay side by side in the row of badges.
   const onProject = p.warmth === 'client';
+  const warmthBtn = `<button type="button" class="warmth-btn" data-action="change-warmth" data-id="${pid}" aria-label="Change warmth, now ${esc(WARMTH_INFO[p.warmth].label)}">
+          ${warmthBadge(p.warmth)}</button>`;
   const overdue = p.warmth !== 'parked' && !light && (stage === 'justMet' ? deadline < today : next < today);
   const sub = subLine(p, { link: true });
   const left = `
     <header class="person-head has-fig">
       <div class="person-side">
         <button type="button" class="person-fig" data-action="change-figure" data-id="${pid}" style="color: var(--w-${esc(p.warmth)})" aria-label="How they're drawn: ${esc(figureWords(figureOf(p)).toLowerCase())}. Change it">${figureSVG(figureOf(p), 'person-fig-pic', 170)}</button>
-        <button type="button" class="warmth-btn" data-action="change-warmth" data-id="${pid}" aria-label="Change warmth, now ${esc(WARMTH_INFO[p.warmth].label)}">
-          ${warmthBadge(p.warmth)}</button>${onProject ? `<button type="button" class="warmth-btn" data-action="wrap-project" data-id="${pid}">
-          <span class="dream-badge wrap-badge">${WRAP_ICON}<span>Wrap project</span></span></button>` : ''}
+        ${onProject ? '' : warmthBtn}
       </div>
       <div class="person-name-line"><h1 class="person-name">${esc(p.name)}</h1>${dreamStar(p)}</div>
       ${sub ? `<p class="person-sub">${sub}</p>` : ''}
       <div class="person-badges">
+        ${onProject ? `<span class="warmth-pair">${warmthBtn}<button type="button" class="warmth-btn" data-action="wrap-project" data-id="${pid}">
+          <span class="dream-badge wrap-badge">${WRAP_ICON}<span>Wrap project</span></span></button></span>` : ''}
         <button type="button" class="warmth-btn" data-action="change-rel" data-id="${pid}" aria-label="Change relationship, now ${esc(relWords(p))}">
           <span class="rel-set">${relLabels(p)}</span></button>
         <button type="button" class="warmth-btn light-toggle${p.lightTouch ? ' is-on' : ''}" data-action="toggle-light" data-id="${pid}" aria-pressed="${p.lightTouch ? 'true' : 'false'}" aria-label="Light touch">
@@ -1767,6 +1769,7 @@ function renderPerson(id, { panel = false } = {}) {
       </div>
       <div class="person-circles">${circleChips(p, { link: true })}
         <button type="button" class="circle-change" data-action="change-circles" data-id="${pid}">${circlesOf(p).length ? 'Change circles' : '+ Add to a circle'}</button></div>
+      ${metLine(p)}
     </header>
     ${dreamOnly(p) ? `<section class="next-panel">
       <p class="next-label">On your dream list</p>
@@ -1941,7 +1944,6 @@ function detailsHTML(p) {
   }
   // How often, in plain words, changed in its own small sheet (11-10).
   rows.push(`<div class="detail-row contact-row"><dt>Rhythm</dt><dd><span class="contact-value">${esc(rhythmWords(p, S.settings))}</span><button type="button" class="text-btn inline contact-edit" data-action="edit-rhythm" data-id="${esc(p.id)}">Change</button></dd></div>`);
-  if (p.howWeMet) row('How we met', `<span class="pre">${esc(p.howWeMet)}</span>`);
   if (p.notes) row('Notes', `<span class="pre">${esc(p.notes)}</span>`);
   if (p.pastOrganizations && p.pastOrganizations.length) {
     row('Previously', p.pastOrganizations
@@ -1955,8 +1957,8 @@ function detailsHTML(p) {
       .join('<br>'));
   }
   row('Added', esc(fmtTimestamp(p.createdAt)));
-  const hint = !p.howWeMet && !p.notes
-    ? `<p class="hint">Add how you met and notes with <button type="button" class="text-btn inline" data-action="edit-person" data-id="${esc(p.id)}">Edit</button>.</p>`
+  const hint = !p.notes
+    ? `<p class="hint">Add notes with <button type="button" class="text-btn inline" data-action="edit-person" data-id="${esc(p.id)}">Edit</button>.</p>`
     : '';
   return `<dl class="details">${rows.join('')}</dl>${hint}`;
 }
@@ -2097,6 +2099,39 @@ function renderDreams() {
       ? `<div class="card-list">${dreams.map(card).join('')}</div>`
       : `<div class="empty"><p class="empty-title">Nobody here yet.</p><p>Add the actors, performers and cultural figures you'd love to photograph. A name is enough to start.</p>
           <button type="button" class="hero-cta" data-action="add-person" data-dream="1">Add to dream list</button></div>`}`;
+}
+
+// Where you met them, at the top of their page above the next touchpoint
+// (11-10), changed in its own small sheet. Someone on the dream list you
+// haven't met yet doesn't get the line until there's something to show.
+function metLine(p) {
+  const met = (p.howWeMet || '').trim();
+  if (!met && dreamOnly(p)) return '';
+  const btn = `<button type="button" class="circle-change" data-action="edit-met" data-id="${esc(p.id)}">${met ? 'Change' : '+ Add where you met'}</button>`;
+  return met
+    ? `<p class="person-met"><span class="person-met-label">Where you met</span> <span class="pre">${esc(met)}</span> ${btn}</p>`
+    : `<p class="person-met">${btn}</p>`;
+}
+
+function metSheet(p) {
+  if (!p) return;
+  const s = openSheet({
+    title: `${(p.howWeMet || '').trim() ? 'Change' : 'Add'} where you met`,
+    className: 'sheet-small',
+    body: `<p class="sheet-person">${esc(p.name)}</p>
+    <form class="form" novalidate>
+      <label class="field"><span class="field-label">Where you met</span>
+        <textarea name="value" rows="2" placeholder="Introduced by Sam at the Rialto screening">${esc(p.howWeMet || '')}</textarea></label>
+      <button type="submit" class="modal-cta primary">Save</button>
+    </form>`,
+  });
+  const form = s.body.querySelector('form');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await db.savePerson({ ...p, howWeMet: String(new FormData(form).get('value') || '').trim() });
+    s.close();
+    await refresh();
+  });
 }
 
 function contactSheet(p, key) {
@@ -4492,6 +4527,14 @@ function wirePasteBox(form) {
   };
   const fillSoon = debounce(fill, 250);
   box.addEventListener('input', () => fillSoon(box.value));
+  // Opened, it moves to the top of the sheet, so the box is already clear
+  // of where the keyboard comes up. Left low, iOS scrolls the whole screen
+  // to reach it and the box ends up hidden (11-10).
+  const paste = box.closest('details');
+  paste.addEventListener('toggle', () => {
+    const body = paste.closest('.sheet-body');
+    if (paste.open && body) body.scrollTop += paste.getBoundingClientRect().top - body.getBoundingClientRect().top - 8;
+  });
   form.addEventListener('input', (e) => {
     if (e.target !== box && e.target.dataset) delete e.target.dataset.pasted;
   });
@@ -4848,10 +4891,10 @@ function personForm(p, preset = {}) {
       <section class="wiz-page" data-key="who" data-title="Who is it?" data-hint="A name is enough to start. Pasting a signature or contact fills in what Callback finds.">
       ${isNew ? `<details class="paste-box">
         <summary>Paste details from a signature or contact</summary>
-        <p class="field-hint">Paste an email signature, a copied contact, or text from a website or DM. Callback fills in what it finds, and you check it before saving.</p>
         <div class="field"><textarea data-paste rows="5" aria-label="Pasted details" placeholder="Rosa Lind&#10;Booker | Ford Models&#10;M: +1 212 555 0101&#10;rosa@fordmodels.com"></textarea></div>
         ${navigator.clipboard && navigator.clipboard.readText ? '<button type="button" class="secondary small-btn" data-clip>Paste what I copied</button>' : ''}
         <p class="paste-result" data-paste-result aria-live="polite"></p>
+        <p class="field-hint">Paste an email signature, a copied contact, or text from a website or DM. Callback fills in what it finds, and you check it before saving.</p>
       </details>` : ''}
       ${field('name', 'Name', v.name, 'autocomplete="off" placeholder="Who is it?" required')}
       <p class="field-error" data-error="name" hidden>Add a name first.</p>
@@ -6450,6 +6493,7 @@ const ACTIONS = {
   },
   'edit-birthday': (el) => birthdaySheet(person(el)),
   'edit-rhythm': (el) => rhythmSheet(person(el)),
+  'edit-met': (el) => metSheet(person(el)),
   'wrap-project': (el) => wrapSheet(person(el)),
   'add-detail': (el) => detailSheet(person(el)),
   'remove-detail': async (el) => {
