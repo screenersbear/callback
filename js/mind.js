@@ -131,7 +131,7 @@ function hairHull(hair) {
   if (HAIR_HULL.has(hair)) return HAIR_HULL.get(hair);
   const pts = [];
   if (hair && hair !== 'tuft') {
-    const vol = { shoulder: 0.1, ponytail: 0.045, short: 0.075, bob: 0.15, highpony: 0.06, long: 0.14, curly: 0.14, curls: 0.22 }[hair] ?? 0.075;
+    const vol = { shoulder: 0.1, ponytail: 0.045, short: 0.075, bob: 0.15, highpony: 0.06, long: 0.14, curly: 0.21, curls: 0.22 }[hair] ?? 0.075;
     for (let j = 0; j <= 14; j++) {
       const ph = mix(0.05, Math.PI / 2, j / 14);
       for (let i = 0; i < 40; i++) {
@@ -433,6 +433,22 @@ function headLines(ex, style = BUDDIES[0]) {
       const u = th / Math.max(Math.abs(th0), Math.abs(th1));
       return [th, ph0 + rise * (1 - u * u) + b * (1 - Math.cos(w))];
     }), lift), { w: 1.8, waves: 1, ...o });
+    // Curls down a side: the pen loops along a curve, bulging toward `side`.
+    const column = (a, b, c, d, side, n, A, B, o = {}) => {
+      const base = range(n * 12 + 1, (t) => bez(a, b, c, d, t));
+      free(base.map((q, i) => {
+        const t = i / (base.length - 1);
+        const w = t * n * TAU;
+        const p0 = base[Math.max(0, i - 1)];
+        const p1 = base[Math.min(base.length - 1, i + 1)];
+        const dx = p1[0] - p0[0];
+        const dy = p1[1] - p0[1];
+        const l = Math.hypot(dx, dy) || 1;
+        const along = -A * Math.sin(w);
+        const out = B * (1 - Math.cos(w));
+        return [q[0] + (dx / l) * along + side * Math.abs(dy / l) * out, q[1] + (dy / l) * along, q[2]];
+      }), { w: 1.8, waves: 1, ...o });
+    };
     // The hairline over the forehead, the curls hanging onto it, then a
     // row over the crown and a few on top.
     if (big) {
@@ -440,28 +456,17 @@ function headLines(ex, style = BUDDIES[0]) {
       loops(-1.25, 1.25, 0.66, 0.1, 5, 0.18, 0.13, 0.23, { w: 1.6, op: 0.9 });
       loops(-1.0, 1.0, 0.92, 0.06, 3, 0.2, 0.13, 0.25, { w: 1.5, op: 0.85 });
     } else {
-      loops(-1.3, 1.3, 0.44, 0.12, 6, 0.15, 0.12, 0.1);
-      loops(-1.12, 1.12, 0.66, 0.1, 5, 0.14, 0.11, 0.13, { w: 1.6, op: 0.9 });
-      loops(-0.8, 0.8, 0.9, 0.05, 3, 0.15, 0.1, 0.15, { w: 1.5, op: 0.85 });
+      // Short curls (looser since 11-09): fewer, rounder loops standing out
+      // from the head, and a few down each side to the temple.
+      loops(-1.42, 1.42, 0.4, 0.13, 5, 0.21, 0.17, 0.17);
+      loops(-1.2, 1.2, 0.7, 0.1, 4, 0.22, 0.16, 0.21, { w: 1.6, op: 0.9 });
+      loops(-0.75, 0.75, 1.0, 0.04, 2, 0.24, 0.14, 0.23, { w: 1.5, op: 0.85 });
+      column(onHead(-1.08, 0.5, 0.17).p, onHead(-1.16, 0.32, 0.2).p, onHead(-1.2, 0.14, 0.2).p, onHead(-1.18, 0.0, 0.18).p, 1, 2, 0.11, 0.1);
+      column(onHead(0.95, 0.9, 0.22).p, onHead(1.32, 0.72, 0.24).p, onHead(1.5, 0.4, 0.24).p, onHead(1.5, 0.08, 0.2).p, 1, 3, 0.13, 0.12);
     }
     if (big) {
       // Down each side to the shoulders: a column of curls by the face and
       // one further out, bulging outward as they fall.
-      const column = (a, b, c, d, side, n, A, B, o = {}) => {
-        const base = range(n * 12 + 1, (t) => bez(a, b, c, d, t));
-        free(base.map((q, i) => {
-          const t = i / (base.length - 1);
-          const w = t * n * TAU;
-          const p0 = base[Math.max(0, i - 1)];
-          const p1 = base[Math.min(base.length - 1, i + 1)];
-          const dx = p1[0] - p0[0];
-          const dy = p1[1] - p0[1];
-          const l = Math.hypot(dx, dy) || 1;
-          const along = -A * Math.sin(w);
-          const out = B * (1 - Math.cos(w));
-          return [q[0] + (dx / l) * along + side * Math.abs(dy / l) * out, q[1] + (dy / l) * along, q[2]];
-        }), { w: 1.8, waves: 1, ...o });
-      };
       // The near side (left, where the outline runs) curls in toward the
       // cheek, in front of the outline. The far side, where the outline
       // stops at the temple, starts up by the crown and is that side of the
