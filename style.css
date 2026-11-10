@@ -324,9 +324,13 @@ html:has(.dash.is-mind), body:has(.dash.is-mind) { overflow: hidden; overscroll-
   user-select: none;
   -webkit-tap-highlight-color: transparent;
 }
-.mind-sky, .mind-ink { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.mind-sky, .mind-ink, .mind-top { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .mind-sky path { stroke-linecap: round; stroke-linejoin: round; }
-.mind-ink path { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+.mind-ink path, .mind-top path { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+/* A bubble being carried (or just put down) is drawn over the others: its
+   cloud on .mind-top, its words over that (11-10). */
+.mind-top { z-index: 2; }
+button.thought.is-lifted { z-index: 3; }
 .mind-head { position: absolute; border-radius: 50%; touch-action: none; cursor: grab; }
 .mind-head:active { cursor: grabbing; }
 button.thought {
@@ -1518,6 +1522,46 @@ details.loop-done[open] summary { margin-bottom: 8px; }
   background: var(--hero);
   padding: 14px 16px 14px 20px;
 }
+/* ---------- Add person wizard (11-10) ----------
+   One page at a time inside a sheet of a steady height, so Back and Next
+   stay put while the pages change; a long page scrolls under them. */
+.sheet.sheet-wizard { height: min(680px, calc(var(--vv-height, 100svh) * 0.92)); }
+.sheet-wizard .sheet-body { display: flex; flex-direction: column; padding-bottom: 0; }
+.form.wiz { flex: 1 0 auto; display: flex; flex-direction: column; }
+.wiz-page { display: flex; flex-direction: column; gap: 16px; }
+.wiz-page[hidden] { display: none; }
+.wiz-head { margin-bottom: 2px; }
+.wiz-step { margin: 0 0 4px; font-size: 13px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--text-dim); }
+.wiz-title { margin: 0; font-family: var(--font-title); font-size: 24px; line-height: 1.1; color: var(--text); text-transform: uppercase; }
+.wiz-hint { margin: 6px 0 0; font-size: 15px; line-height: 1.4; color: var(--text); }
+.wiz-nav {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  padding: 14px 0 calc(env(safe-area-inset-bottom) + 14px);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.wiz-buttons { display: flex; gap: 10px; width: 100%; }
+.wiz-buttons .btn { flex: 1; padding: 14px; font-size: 17px; }
+.wiz-buttons [hidden] { display: none; }
+.wiz-all-btn { font-size: 14px; color: var(--text-dim); padding: 4px 0; }
+.wiz-all-btn[hidden] { display: none; }
+/* Every question on one page: the steps' heads and buttons step aside. */
+.form.wiz.wiz-all .wiz-head, .form.wiz.wiz-all .wiz-all-btn,
+.form.wiz.wiz-all [data-wiz-back], .form.wiz.wiz-all [data-wiz-next] { display: none; }
+.form.wiz.wiz-all .wiz-page + .wiz-page { border-top: 1px solid var(--line); padding-top: 16px; }
+
+/* Their accounts: ticks, then a box with an @ for each one ticked (11-10). */
+.account-checks { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.account-box[hidden] { display: none; }
+.accounts-field .account-box { margin-top: 10px; }
+.account-list { display: flex; flex-direction: column; gap: 2px; }
+.account-name { color: var(--text-dim); font-weight: 700; }
+
 .sheet-body {
   flex: 1 1 auto;
   min-height: 0;

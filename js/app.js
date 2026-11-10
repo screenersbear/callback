@@ -1702,9 +1702,7 @@ function renderPerson(id, { panel = false } = {}) {
     ${prompt}
     <button type="button" class="hero-cta log-cta" data-action="log" data-id="${pid}">Log touchpoint</button>
     ${p.warmth === 'parked' ? '' : ideaHTML(p)}
-    ${sectionBlock(k('news'), 'Their news', newsOf(id).length, newsListHTML(p), 'yellow')}
-    ${sectionBlock(k('loops'), 'Open loops', openLoopsOf(id).length, loopsHTML(p), 'navy')}
-    ${sectionBlock(k('timeline'), 'Touchpoints', tps.length, timelineHTML(p, tps), 'yellow')}`;
+    ${personSections(p, tps, k)}`;
 
   // After Log touchpoint: news, loops and touchpoints, then who they are.
   // Two columns put those beside the rest; one column stacks them in order.
@@ -1730,12 +1728,91 @@ function renderPerson(id, { panel = false } = {}) {
 const CONTACT_FIELDS = [
   { key: 'email', label: 'Email', word: 'email', type: 'email', mode: 'email', placeholder: 'name@example.com' },
   { key: 'phone', label: 'Phone', word: 'phone number', type: 'tel', mode: 'tel', placeholder: '+1 212 555 0101' },
-  { key: 'instagram', label: 'Instagram', word: 'Instagram', type: 'text', mode: 'text', placeholder: '@handle' },
   { key: 'website', label: 'Website', word: 'website', type: 'text', mode: 'url', placeholder: 'example.com' },
 ];
 
-// Instagram fields put the @ in front for you (a pasted link stays a link).
-const looksLikeLink = (s) => /[/:]|instagram\.com|^www\./i.test(s);
+// Their accounts (11-10): tick the ones they have and a box with an @
+// opens for each handle. Saved on the person as instagram, facebook,
+// linkedin and x ('' or missing when they have none).
+const ACCOUNTS = [
+  { key: 'instagram', label: 'Instagram', base: 'https://instagram.com/' },
+  { key: 'facebook', label: 'Facebook', base: 'https://facebook.com/' },
+  { key: 'linkedin', label: 'LinkedIn', base: 'https://linkedin.com/in/' },
+  { key: 'x', label: 'X', base: 'https://x.com/' },
+];
+function accountUrl(a, v) {
+  const s = String(v || '').trim();
+  return looksLikeLink(s) ? normalizeUrl(s) : `${a.base}${s.replace(/^@/, '')}`;
+}
+function accountsFieldHTML(v) {
+  const has = (a) => !!String(v[a.key] || '').trim();
+  return `<fieldset class="field accounts-field"><legend class="field-label">Accounts</legend>
+      <div class="account-checks">${ACCOUNTS.map((a) => `<label class="check"><input type="checkbox" data-account="${a.key}"${has(a) ? ' checked' : ''}> ${esc(a.label)}</label>`).join('')}</div>
+      ${ACCOUNTS.map((a) => `<label class="field account-box" data-account-box="${a.key}"${has(a) ? '' : ' hidden'}><span class="field-label">${esc(a.label)}</span>
+        <input name="${a.key}" value="${esc(atHandle(v[a.key]))}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="@handle" data-handle></label>`).join('')}
+    </fieldset>`;
+}
+// Ticking an account opens its box with the @ in place, ready to type.
+function wireAccounts(form) {
+  form.addEventListener('change', (e) => {
+    const key = e.target.dataset && e.target.dataset.account;
+    if (!key) return;
+    const box = form.querySelector(`[data-account-box="${key}"]`);
+    box.hidden = !e.target.checked;
+    if (!e.target.checked) return;
+    const input = box.querySelector('input');
+    if (!input.value.trim()) input.value = '@';
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  });
+}
+// A box filled in by code (a paste) ticks its account.
+function showFilledAccounts(form) {
+  for (const a of ACCOUNTS) {
+    const input = form.querySelector(`[name="${a.key}"]`);
+    if (!input || !handleValue(input.value)) continue;
+    form.querySelector(`[data-account="${a.key}"]`).checked = true;
+    form.querySelector(`[data-account-box="${a.key}"]`).hidden = false;
+  }
+}
+// What the form saves for each account: nothing when it's unticked.
+function readAccounts(form) {
+  const out = {};
+  for (const a of ACCOUNTS) {
+    const tick = form.querySelector(`[data-account="${a.key}"]`);
+    const input = form.querySelector(`[name="${a.key}"]`);
+    out[a.key] = tick && tick.checked && input ? handleValue(input.value) : '';
+  }
+  return out;
+}
+
+function accountsSheet(p) {
+  if (!p) return;
+  const s = openSheet({
+    title: 'Accounts',
+    className: 'sheet-small',
+    body: `<p class="sheet-person">${esc(p.name)}</p>
+    <form class="form" novalidate>
+      ${accountsFieldHTML(p)}
+      <button type="submit" class="modal-cta primary">Save</button>
+    </form>`,
+  });
+  const form = s.body.querySelector('form');
+  wireAccounts(form);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const acc = readAccounts(form);
+    const changed = ACCOUNTS.some((a) => (acc[a.key] || '') !== (p[a.key] || ''));
+    s.close();
+    if (!changed) return;
+    await db.savePerson({ ...p, ...acc });
+    await refresh();
+    toast('Accounts saved');
+  });
+}
+
+// Account fields put the @ in front for you (a pasted link stays a link).
+const looksLikeLink = (s) => /[/:]|instagram\.com|facebook\.com|linkedin\.com|^www\./i.test(s);
 function atHandle(v) {
   const s = String(v || '').trim().replace(/^@+/, '@');
   return s && !s.startsWith('@') && !looksLikeLink(s) ? `@${s}` : s;
@@ -1759,6 +1836,14 @@ function detailsHTML(p) {
     rows.push(`<div class="detail-row contact-row"><dt>${esc(f.label)}</dt><dd>${(p[f.key] || '').trim()
       ? `<span class="contact-value">${contactLink(p, f.key)}</span>${btn('Edit')}`
       : btn(`+ Add ${esc(f.word)}`)}</dd></div>`);
+    // Their accounts sit after the phone, all changed in one small sheet.
+    if (f.key === 'phone') {
+      const had = ACCOUNTS.filter((a) => String(p[a.key] || '').trim());
+      const abtn = (text) => `<button type="button" class="text-btn inline contact-edit" data-action="edit-accounts" data-id="${esc(p.id)}">${text}</button>`;
+      rows.push(`<div class="detail-row contact-row"><dt>Accounts</dt><dd>${had.length
+        ? `<span class="contact-value account-list">${had.map((a) => `<span class="account-line"><span class="account-name">${esc(a.label)}</span> <a href="${esc(accountUrl(a, p[a.key]))}" target="_blank" rel="noopener">${esc(looksLikeLink(p[a.key]) ? p[a.key] : atHandle(p[a.key]))}</a></span>`).join('')}</span>${abtn('Edit')}`
+        : abtn('+ Add an account')}</dd></div>`);
+    }
   }
   // Birthday sits with the contact details, changed in its own small sheet.
   const bday = (text) => `<button type="button" class="text-btn inline contact-edit" data-action="edit-birthday" data-id="${esc(p.id)}">${text}</button>`;
@@ -2258,6 +2343,20 @@ function loopRow(l, today) {
 
 // Open loops on the person page: on your side and on their side, with the
 // closed ones folded away under Done.
+// Open loops, their news and touchpoints on someone's page (11-10): the
+// ones with something in them come first, in this order, then the empty
+// ones, in the same order. The heading colours keep alternating down the
+// page.
+function personSections(p, tps, k) {
+  const list = [
+    { key: 'loops', title: 'Open loops', n: openLoopsOf(p.id).length, html: () => loopsHTML(p) },
+    { key: 'news', title: 'Their news', n: newsOf(p.id).length, html: () => newsListHTML(p) },
+    { key: 'timeline', title: 'Touchpoints', n: tps.length, html: () => timelineHTML(p, tps) },
+  ];
+  const ordered = [...list.filter((x) => x.n), ...list.filter((x) => !x.n)];
+  return ordered.map((x, i) => sectionBlock(k(x.key), x.title, x.n, x.html(), i % 2 ? 'navy' : 'yellow')).join('\n');
+}
+
 function loopsHTML(p) {
   const today = todayStr();
   const all = loopsOf(p.id);
@@ -3493,7 +3592,7 @@ function conflictBannerHTML() {
 
 const FIELD_NAMES = {
   people: {
-    name: 'Name', organizationId: 'Organization', role: 'Role', email: 'Email', phone: 'Phone', instagram: 'Instagram',
+    name: 'Name', organizationId: 'Organization', role: 'Role', email: 'Email', phone: 'Phone', instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', x: 'X',
     website: 'Website', howWeMet: 'How you met', tags: 'Tags', notes: 'Notes', cadenceOverrideDays: 'Own rhythm',
     dreamList: 'Dream list', circleIds: 'Circles', lightTouch: 'Light touch', nextTouchpointDate: 'Next touchpoint', figure: 'Drawing',
     warmth: 'Warmth', relationshipTypes: 'Relationship', interest: 'Interest', birthday: 'Birthday', details: 'Details',
@@ -4059,10 +4158,12 @@ function wirePasteBox(form) {
       input.dataset.pasted = '1';
       filled.push(word);
     }
-    if (filled.some((w) => ['email', 'phone', 'Instagram', 'website'].includes(w))) form.querySelector('details.more').open = true;
+    showFilledAccounts(form);
+    const more = form.querySelector('details.more');
+    if (more && filled.some((w) => ['email', 'phone', 'Instagram', 'website'].includes(w))) more.open = true;
     if (values.name) form.querySelector('[data-error="name"]').hidden = true;
     result.textContent = filled.length
-      ? `Filled in ${joinWords(filled)}. Check them below before saving.`
+      ? `Filled in ${joinWords(filled)}. Check them as you go.`
       : "Couldn't find any details in that. A signature or contact card works best.";
   };
   const fillSoon = debounce(fill, 250);
@@ -4336,6 +4437,73 @@ function figurePickHTML(value) {
     <span class="field-hint">For the drawing of everyone on People, on a phone.</span></fieldset>`;
 }
 
+// The Add person wizard: one page at a time, Back and Next, the last page's
+// button adds them. Each page checks its own must-haves (a name, at least
+// one relationship, a first date when picking one, a sensible custom
+// rhythm) before moving on. "See every question on one page" shows the
+// whole form instead. Everything is one form, so the save is the same.
+function wireWizard(sheet, form) {
+  const pages = [...form.querySelectorAll('.wiz-page')];
+  const q = (sel) => form.querySelector(sel);
+  const back = q('[data-wiz-back]');
+  const next = q('[data-wiz-next]');
+  const save = q('.wiz-save');
+  let at = 0;
+  const show = (n) => {
+    at = Math.max(0, Math.min(pages.length - 1, n));
+    pages.forEach((pg, i) => { pg.hidden = i !== at; });
+    const pg = pages[at];
+    q('.wiz-step').textContent = `Step ${at + 1} of ${pages.length}`;
+    q('.wiz-title').textContent = pg.dataset.title;
+    q('.wiz-hint').textContent = pg.dataset.hint || '';
+    const last = at === pages.length - 1;
+    back.hidden = at === 0;
+    next.hidden = last;
+    save.hidden = !last;
+    q('[data-wiz-all]').hidden = last;
+    sheet.body.scrollTop = 0;
+  };
+  const pageOk = () => {
+    const pg = pages[at];
+    const name = q('[name="name"]');
+    if (pg.contains(name) && !name.value.trim()) {
+      q('[data-error="name"]').hidden = false;
+      name.focus();
+      return false;
+    }
+    if (pg.contains(q('[name="relationshipTypes"]')) && !q('[name="relationshipTypes"]:checked')) {
+      q('[data-error="rel"]').hidden = false;
+      return false;
+    }
+    const first = q('[name="firstContact"]:checked');
+    if (pg.contains(q('[name="firstDate"]')) && first && first.value === 'pickDate' && !q('[name="firstDate"]').value) {
+      q('[data-error="firstDate"]').hidden = false;
+      return false;
+    }
+    if (pg.contains(q('[data-rhythm]')) && readRhythm(form) === undefined) return false;
+    return true;
+  };
+  const forward = () => { if (pageOk()) show(at + 1); };
+  next.addEventListener('click', forward);
+  back.addEventListener('click', () => show(at - 1));
+  q('[name="name"]').addEventListener('input', () => { q('[data-error="name"]').hidden = true; });
+  form.addEventListener('change', (e) => { if (e.target.name === 'relationshipTypes') q('[data-error="rel"]').hidden = true; });
+  // Return in a box moves on instead of adding them early.
+  form.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || form.classList.contains('wiz-all') || at === pages.length - 1) return;
+    if (!e.target.matches('input:not([type="checkbox"]):not([type="radio"])')) return;
+    e.preventDefault();
+    forward();
+  });
+  q('[data-wiz-all]').addEventListener('click', () => {
+    form.classList.add('wiz-all');
+    pages.forEach((pg) => { pg.hidden = false; });
+    save.hidden = false;
+    sheet.body.scrollTop = 0;
+  });
+  show(0);
+}
+
 function personForm(p, preset = {}) {
   const isNew = !p;
   const v = p || { warmth: 'cold', nextTouchpointDate: todayStr(), ...preset };
@@ -4347,7 +4515,13 @@ function personForm(p, preset = {}) {
     `<label class="field"><span class="field-label">${label}</span><input name="${name}" value="${esc(value || '')}" ${attrs}></label>`;
   const s = openSheet({
     title: isNew ? 'Add person' : 'Edit person',
-    body: `<form class="form" novalidate>
+    className: isNew ? 'sheet-wizard' : '',
+    // Adding someone goes one step at a time, a related chunk per page
+    // (11-10, like the shoot wizard in Documenting Fictions); editing keeps
+    // the whole form.
+    body: isNew ? `<form class="form wiz" novalidate>
+      <div class="wiz-head" aria-live="polite"><p class="wiz-step"></p><h3 class="wiz-title"></h3><p class="wiz-hint"></p></div>
+      <section class="wiz-page" data-key="who" data-title="Who is it?" data-hint="A name is enough to start. Pasting a signature or contact fills in what Callback finds.">
       ${isNew ? `<details class="paste-box">
         <summary>Paste details from a signature or contact</summary>
         <p class="field-hint">Paste an email signature, a copied contact, or text from a website or DM. Callback fills in what it finds, and you check it before saving.</p>
@@ -4355,6 +4529,79 @@ function personForm(p, preset = {}) {
         ${navigator.clipboard && navigator.clipboard.readText ? '<button type="button" class="secondary small-btn" data-clip>Paste what I copied</button>' : ''}
         <p class="paste-result" data-paste-result aria-live="polite"></p>
       </details>` : ''}
+      ${field('name', 'Name', v.name, 'autocomplete="off" placeholder="Who is it?" required')}
+      <p class="field-error" data-error="name" hidden>Add a name first.</p>
+      ${figurePickHTML(figureOf(v))}
+      ${field('role', 'Role', v.role, 'list="roleList" autocomplete="off" placeholder="Casting director, editor, client"')}
+      <datalist id="roleList">${ROLE_SUGGESTIONS.map((r) => `<option value="${esc(r)}">`).join('')}</datalist>
+      <div class="field"><label class="field-label" for="orgField">Organization</label>
+        <input id="orgField" name="org" value="${esc(org ? org.name : '')}" autocomplete="off" placeholder="Agency, brand, publication"${S.orgs.length ? ' class="has-suggest" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="orgSuggest"' : ''}>
+        <div class="suggest" id="orgSuggest" role="listbox" aria-label="Your organizations" hidden></div>
+        <span class="field-hint">Pick one you've added, or type a new name to add it.${org && !isNew ? ' Changing it keeps a note of where they were before.' : ''}</span></div>
+      </section>
+      <section class="wiz-page" data-key="know" data-title="How you know them" data-hint="Tick any that fit, and add them to your circles if you like.">
+      <fieldset class="field"><legend class="field-label">Relationship (tick any that fit)</legend>
+        <div class="warmth-options">${RELATIONSHIP_TYPES.map((r) => `<label class="warmth-option">
+          <input type="checkbox" name="relationshipTypes" value="${r.key}"${relTypesOf(v).includes(r.key) ? ' checked' : ''}>
+          <span class="warmth-option-body">${relLabel(r.key)}<span class="warmth-option-blurb">${esc(r.blurb)}</span></span>
+        </label>`).join('')}</div>
+        <p class="field-error" data-error="rel" hidden>Tick at least one.</p></fieldset>
+      <div class="picker-row"><span class="field-label">Circles</span>
+        <button type="button" class="picker-btn" data-pick="circles"></button>
+        <span class="field-hint">Your own groups, like Actors or Models. Someone can be in more than one.</span></div>
+      </section>
+      <section class="wiz-page" data-key="warm" data-title="How warm" data-hint="Where things stand with them right now. It sets how often Callback brings them up.">
+      <fieldset class="field"><legend class="field-label">Warmth</legend>
+        <div class="warmth-options">${WARMTH.map((w) => `<label class="warmth-option">
+          <input type="radio" name="warmth" value="${w}"${v.warmth === w ? ' checked' : ''}>
+          <span class="warmth-option-body">${warmthBadge(w)}<span class="warmth-option-blurb">${esc(WARMTH_INFO[w].blurb)}</span></span>
+        </label>`).join('')}</div></fieldset>
+      <div class="field">
+        <label class="check"><input type="checkbox" name="lightTouch"${v.lightTouch ? ' checked' : ''}> ${LIGHT_ICON} Light touch</label>
+        <span class="field-hint">For weak ties: every ${span(c.lightTouch)}, small gestures only, in a quiet spot at the bottom of Today.</span>
+      </div>
+      </section>
+      <section class="wiz-page" data-key="touch" data-title="Touchpoints" data-hint="When to first reach out, then how often after that.">
+      ${isNew ? `<fieldset class="field"><legend class="field-label">When should you first reach out?</legend>
+        <div class="warmth-options first-options">${FIRST_CONTACT_OPTIONS.map((o) => `<label class="warmth-option">
+          <input type="radio" name="firstContact" value="${o.key}"${firstDefault === o.key ? ' checked' : ''}>
+          <span class="warmth-option-body"><span class="option-name">${esc(o.label)}</span><span class="warmth-option-blurb">${esc(o.blurb)}</span></span>
+        </label>`).join('')}</div>
+        <label class="field first-date"${firstDefault === 'pickDate' ? '' : ' hidden'}><span class="field-label">Date of the first touchpoint</span>
+          <input type="date" name="firstDate" min="${todayStr()}"></label>
+        <p class="field-error" data-error="firstDate" hidden>Pick a date for the first touchpoint.</p>
+      </fieldset>` : `<label class="field"><span class="field-label">Next touchpoint</span>
+        <input type="date" name="next" value="${esc(v.nextTouchpointDate || '')}">
+        <span class="field-hint">Logging a touchpoint sets this for you.</span></label>`}
+      ${rhythmPickerHTML(v, 'Touchpoints')}
+      </section>
+      <section class="wiz-page" data-key="contact" data-title="Contact details" data-hint="Whatever you have. The rest can go in later, from their page.">
+      ${field('email', 'Email', v.email, 'type="email" autocomplete="off" inputmode="email"')}
+      ${field('phone', 'Phone', v.phone, 'type="tel" autocomplete="off"')}
+      ${accountsFieldHTML(v)}
+      ${field('website', 'Website', v.website, 'autocomplete="off" inputmode="url" placeholder="example.com"')}
+      </section>
+      <section class="wiz-page" data-key="met" data-title="How you met" data-hint="Who introduced you, who they could introduce you to, and anything worth remembering.">
+      <label class="field"><span class="field-label">How we met</span><textarea name="howWeMet" rows="2" placeholder="Introduced by Sam at the Rialto screening">${esc(v.howWeMet || '')}</textarea></label>
+      <fieldset class="field connections-field"><legend class="field-label">Dream list and introductions</legend>
+        <label class="check"><input type="checkbox" name="dreamList"${v.dreamList ? ' checked' : ''}> ${DREAM_STAR} On my dream list</label>
+        <span class="field-hint">Someone you'd love to work with someday. No reminders until you first reach out, and a name is enough.</span>
+        <div class="picker-row"><span class="field-label">Introduced by</span>
+          <button type="button" class="picker-btn" data-pick="by"></button></div>
+        <div class="picker-row"><span class="field-label">Could introduce me to</span>
+          <button type="button" class="picker-btn" data-pick="could"></button></div>
+      </fieldset>
+      <label class="field"><span class="field-label">Notes</span><textarea name="notes" rows="3">${esc(v.notes || '')}</textarea></label>
+      </section>
+      <div class="wiz-nav">
+        <div class="wiz-buttons">
+          <button type="button" class="btn secondary" data-wiz-back>Back</button>
+          <button type="button" class="btn primary" data-wiz-next>Next</button>
+          <button type="submit" class="btn primary wiz-save">Add person</button>
+        </div>
+        <button type="button" class="text-btn wiz-all-btn" data-wiz-all>See every question on one page</button>
+      </div>
+    </form>` : `<form class="form" novalidate>
       ${field('name', 'Name', v.name, 'autocomplete="off" placeholder="Who is it?" required')}
       <p class="field-error" data-error="name" hidden>Add a name first.</p>
       ${figurePickHTML(figureOf(v))}
@@ -4401,23 +4648,25 @@ function personForm(p, preset = {}) {
         <div class="picker-row"><span class="field-label">Could introduce me to</span>
           <button type="button" class="picker-btn" data-pick="could"></button></div>
       </fieldset>
-      <details class="more"${isNew ? '' : ' open'}>
+      <details class="more" open>
         <summary>Contact details and notes</summary>
         ${field('email', 'Email', v.email, 'type="email" autocomplete="off" inputmode="email"')}
         ${field('phone', 'Phone', v.phone, 'type="tel" autocomplete="off"')}
-        ${field('instagram', 'Instagram', atHandle(v.instagram), 'autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="@handle" data-handle')}
+        ${accountsFieldHTML(v)}
         ${field('website', 'Website', v.website, 'autocomplete="off" inputmode="url" placeholder="example.com"')}
         <label class="field"><span class="field-label">How we met</span><textarea name="howWeMet" rows="2" placeholder="Introduced by Sam at the Rialto screening">${esc(v.howWeMet || '')}</textarea></label>
         <label class="field"><span class="field-label">Notes</span><textarea name="notes" rows="3">${esc(v.notes || '')}</textarea></label>
         ${rhythmPickerHTML(v, 'Touchpoints')}
       </details>
-      <button type="submit" class="modal-cta primary">${isNew ? 'Add person' : 'Save changes'}</button>
-      ${isNew ? '' : '<button type="button" class="btn danger wide" data-delete>Delete person</button>'}
+      <button type="submit" class="modal-cta primary">Save changes</button>
+      <button type="button" class="btn danger wide" data-delete>Delete person</button>
     </form>`,
   });
   const form = s.body.querySelector('form');
   wireRhythm(form);
+  wireAccounts(form);
   if (isNew) wirePasteBox(form);
+  if (isNew) wireWizard(s, form);
   wireOrgSuggest(form);
   // Introductions are picked in their own sheet and kept here until save.
   let introducedById = v.introducedById || null;
@@ -4533,7 +4782,7 @@ function personForm(p, preset = {}) {
       organizationId,
       email: get('email'),
       phone: get('phone'),
-      instagram: handleValue(get('instagram')),
+      ...readAccounts(form),
       website: get('website'),
       howWeMet: get('howWeMet'),
       notes: get('notes'),
@@ -5771,6 +6020,7 @@ const ACTIONS = {
   }),
   'dream-notes': (el) => notesSheet(person(el)),
   'edit-contact': (el) => contactSheet(person(el), el.dataset.field),
+  'edit-accounts': (el) => accountsSheet(person(el)),
   'edit-person': (el) => personForm(person(el)),
   'quick-add': () => quickAddSheet(),
   'light-off': (el) => endLightTouch(person(el)),

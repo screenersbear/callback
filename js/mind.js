@@ -772,7 +772,13 @@ const st = {
   hit: null,
   spots: readSpots(),
   carry: null, // a bubble being moved by hand
+  // The bubble drawn over all the others (11-10): one being carried, and
+  // for a moment after it's put down, while any it landed on move off.
+  lifted: null,
+  liftUntil: 0,
   pool: [],
+  topPool: [],
+  topUsed: 0,
   skyPool: [],
   used: 0,
   w: 0,
@@ -827,10 +833,11 @@ const SLOTS = {
 function build() {
   const el = document.createElement('div');
   el.className = 'mind';
-  el.innerHTML = '<svg class="mind-sky" aria-hidden="true"></svg><svg class="mind-ink" aria-hidden="true"></svg><div class="mind-head" role="button" tabindex="0"></div>';
+  el.innerHTML = '<svg class="mind-sky" aria-hidden="true"></svg><svg class="mind-ink" aria-hidden="true"></svg><svg class="mind-top" aria-hidden="true"></svg><div class="mind-head" role="button" tabindex="0"></div>';
   st.el = el;
   st.sky = el.querySelector('.mind-sky');
   st.svg = el.querySelector('.mind-ink');
+  st.top = el.querySelector('.mind-top');
   st.hit = el.querySelector('.mind-head');
   wireHead(st.hit);
   // A phone sends its click a moment after the finger lifts, and by then
@@ -881,6 +888,7 @@ function resize() {
   st.h = h;
   st.el.style.height = `${h}px`;
   st.svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  st.top.setAttribute('viewBox', `0 0 ${w} ${h}`);
   st.sky.setAttribute('viewBox', `0 0 ${w} ${h}`);
   layout();
   const { R, hx, hy } = geom();
@@ -960,6 +968,7 @@ function newBubble(d, i) {
     if (!c.moved) {
       if (Math.hypot(dx, dy) < 8) return;
       c.moved = true;
+      st.lifted = b;
       try { btn.setPointerCapture(e.pointerId); } catch { /* fine without */ }
     }
     const [x, y] = fitSpot(c.from[0] + dx / st.w, c.from[1] + (dy / geom().sky) * SKY, b.ts);
@@ -976,6 +985,7 @@ function newBubble(d, i) {
       b.moved = performance.now();
       settle(b, c.from);
       st.glance = { key: b.key, until: st.t + 0.5 };
+      st.liftUntil = st.t + 1;
     }
     kick();
   };
@@ -1043,37 +1053,35 @@ function fitSpot(x, y, s) {
   return [cx / st.w, (cy / g.sky) * SKY];
 }
 
-// Let go: dropped on another bubble, the two swap places; else it's
-// nudged off any it's partly on. Where it ends up is kept.
+// Let go: it stays where it was put down (11-10), and any bubble it's on
+// moves off to the nearest spot where it's clear of every other one, so
+// each can be read on its own. Where they end up is kept.
 function settle(b, from) {
+  const CLEAR = 1.25; // a little air between them, not just touching
   const others = [...st.bubbles.values()].filter((o) => o !== b && o.state !== 'pop' && o.x != null);
   const at = (o) => bubPx(o.tx, o.ty, o.ts);
-  const me = at(b);
-  const under = others.find((o) => {
+  const clearOf = (o, spot) => {
+    const a = bubPx(spot[0], spot[1], o.ts);
+    return [b, ...others].every((q) => q === o || overlap(a, at(q)) >= CLEAR);
+  };
+  for (const o of others) {
+    if (overlap(at(b), at(o)) >= CLEAR) continue;
+    const me = at(b);
     const q = at(o);
-    return Math.hypot((me.cx - q.cx) / q.rx, (me.cy - q.cy) / q.ry) < 0.8;
-  });
-  if (under) {
-    [b.tx, b.ty] = [under.tx, under.ty];
-    [under.tx, under.ty] = from;
-    st.spots[under.key] = [under.tx, under.ty];
-  } else {
-    for (let k = 0; k < 12; k++) {
-      let moved = false;
-      for (const o of others) {
-        const a = at(b);
-        const q = at(o);
-        const qn = overlap(a, q);
-        if (qn >= 1) continue;
-        const sx = a.rx + q.rx;
-        const sy = a.ry + q.ry;
-        const ux = qn > 0.01 ? (a.cx - q.cx) / sx / qn : 0;
-        const uy = qn > 0.01 ? (a.cy - q.cy) / sy / qn : -1;
-        [b.tx, b.ty] = fitSpot((q.cx + ux * sx * 1.03) / st.w, ((q.cy + uy * sy * 1.03) / geom().sky) * SKY, b.ts);
-        moved = true;
+    // Out from under it, trying the way away from it first.
+    const away = Math.atan2(q.cy - me.cy || -1, q.cx - me.cx);
+    let spot = null;
+    const far = Math.max(st.w, st.h);
+    for (let d = 6; d < far && !spot; d += 6) {
+      for (let i = 0; i < 24 && !spot; i++) {
+        const a = away + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * (Math.PI / 12);
+        const s2 = fitSpot((q.cx + Math.cos(a) * d) / st.w, ((q.cy + Math.sin(a) * d) / geom().sky) * SKY, o.ts);
+        if (clearOf(o, s2)) spot = s2;
       }
-      if (!moved) break;
     }
+    // Nowhere clear at all: it takes the spot the moved one came from.
+    [o.tx, o.ty] = spot || from;
+    st.spots[o.key] = [o.tx, o.ty];
   }
   st.spots[b.key] = [b.tx, b.ty];
   saveSpots();
@@ -1171,7 +1179,7 @@ function frame(now) {
   st.last = now;
   step(dt);
   // Moving things get every frame; a head just idling gets about 25.
-  const busy = st.drag || (st.carry && st.carry.moved) || Math.abs(st.spinV) > 0.05 || Math.abs(st.spin) > 0.002 || Math.abs(st.tilt) > 0.002 || [...st.bubbles.values()].some((b) => b.state !== 'on' || b.wob > 0.01);
+  const busy = st.drag || (st.carry && st.carry.moved) || st.lifted || [...st.bubbles.values()].some((b) => b.x != null && (Math.abs(b.x - b.tx) > 0.0005 || Math.abs(b.y - b.ty) > 0.0005)) || Math.abs(st.spinV) > 0.05 || Math.abs(st.spin) > 0.002 || Math.abs(st.tilt) > 0.002 || [...st.bubbles.values()].some((b) => b.state !== 'on' || b.wob > 0.01);
   if (busy || now - st.lastDraw > 40) {
     st.lastDraw = now;
     draw();
@@ -1240,6 +1248,7 @@ function step(dt) {
     st.blinkAt = t + 2.4 + hash1(t * 1.7) * 3.2;
   }
 
+  if (st.lifted && !(st.carry && st.carry.b === st.lifted) && st.t > st.liftUntil) st.lifted = null;
   for (const b of [...st.bubbles.values()]) {
     if (b.x != null) {
       b.x = approach(b.x, b.tx, 7, dt);
@@ -1264,15 +1273,17 @@ function step(dt) {
 // ---------------------------------------------------------------------------
 // Drawing
 
-function put(d, { w = 2, op = 1, fill = null } = {}) {
-  let p = st.pool[st.used];
+// top: on the layer over every bubble's words (the lifted bubble's cloud).
+function put(d, { w = 2, op = 1, fill = null } = {}, top = false) {
+  const pool = top ? st.topPool : st.pool;
+  const i = top ? st.topUsed++ : st.used++;
+  let p = pool[i];
   if (!p) {
     p = document.createElementNS(NS, 'path');
-    st.svg.appendChild(p);
-    st.pool[st.used] = p;
+    (top ? st.top : st.svg).appendChild(p);
+    pool[i] = p;
     p._ = {};
   }
-  st.used += 1;
   const c = p._;
   if (c.d !== d) { p.setAttribute('d', d); c.d = d; }
   if (c.w !== w) { p.setAttribute('stroke-width', w); c.w = w; }
@@ -1284,6 +1295,7 @@ function draw() {
   resize();
   if (!st.w) return;
   st.used = 0;
+  st.topUsed = 0;
   const w = st.w;
   const t = st.t;
   const calm = reduced.matches;
@@ -1329,6 +1341,10 @@ function draw() {
 
   for (let i = st.used; i < st.pool.length; i++) {
     const p = st.pool[i];
+    if (p._.d !== '') { p.setAttribute('d', ''); p._.d = ''; }
+  }
+  for (let i = st.topUsed; i < st.topPool.length; i++) {
+    const p = st.topPool[i];
     if (p._.d !== '') { p.setAttribute('d', ''); p._.d = ''; }
   }
 }
@@ -1625,11 +1641,15 @@ function drawBubble(b, { w, R, hx, hy, sky }, pass) {
     return;
   }
 
+  // A lifted bubble (being carried, or just put down) is drawn over all the
+  // others, words and all, and its cloud hides whatever is under it.
+  const lifted = st.lifted === b;
   if (cloudPart > 0 && scale > 0.02) {
     const pts = cloud(cx, cy, rx, ry, b.seed);
     const k = Math.ceil(cloudPart * (pts.length - 1)) + 1;
-    put(inkPath(pts.slice(0, k), b.seed * 1.3, 4, 0.5), { w: 2, fill: cloudPart >= 1 ? 'var(--bg)' : null });
+    put(inkPath(pts.slice(0, k), b.seed * 1.3, 4, 0.5), { w: 2, fill: cloudPart >= 1 ? 'var(--bg)' : null }, lifted);
   }
+  if (b.btn._lift !== lifted) { b.btn.classList.toggle('is-lifted', lifted); b.btn._lift = lifted; }
   if (burst >= 0) {
     const e = 1 - (1 - burst) ** 2;
     let d = '';
