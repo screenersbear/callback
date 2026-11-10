@@ -2716,12 +2716,13 @@ html.is-sideways .turn-back {
   --hero: var(--navy);
   --overlay: color-mix(in srgb, var(--navy) 90%, transparent);
   --accent: color-mix(in srgb, #ffd103, #cbc6a8 calc(var(--night, 0) * 55%));
-  --sky: color-mix(in srgb, var(--bg), #2f4270 calc(var(--late, 0) * 100%));
+  --sky: color-mix(in srgb, color-mix(in srgb, var(--bg), #2f4270 calc(var(--late, 0) * 100%)), #1c2a4f calc(var(--deep, 0) * 100%));
 }
-/* Late at night Today's sky goes navy (11-10). Only the page behind the
-   buddy: its clouds (filled with --bg), pop-ups and the other pages keep the
-   night gray. sky.js sets --late (0 to 1), and .sky-late-text once the navy
-   is dark enough that light words read better than dark ones. */
+/* Late at night Today's sky goes navy, then a deeper navy (11-10). Only the
+   page behind the buddy: its clouds (filled with --bg), pop-ups and the other
+   pages keep the night gray. sky.js sets --late and --deep (0 to 1), and
+   .sky-late-text once the navy is dark enough that light words read better
+   than dark ones. */
 :root.sky-tint:has(#app .dash.is-mind:not(.is-welcome)),
 :root.sky-tint:has(#app .dash.is-mind:not(.is-welcome)) #app { background: var(--sky); }
 :root.sky-tint:has(#app .dash.is-mind:not(.is-welcome)) body { background: linear-gradient(var(--sky), var(--sky)); }
