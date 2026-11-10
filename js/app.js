@@ -1661,9 +1661,9 @@ function renderPerson(id, { panel = false } = {}) {
   // A light touch is never late: a missed one carries on from today.
   const light = p.lightTouch && p.warmth !== 'parked';
   const shownNext = light && next < today ? today : next;
-  // Wrap project sits under Log touchpoint while they're on a project (or
-  // talking about one); otherwise it waits by Edit, for any warmth.
-  const onProject = p.warmth === 'client' || p.warmth === 'active';
+  // Wrap project sits right next to the On a project badge, and only while
+  // they're on a project (11-10).
+  const onProject = p.warmth === 'client';
   const overdue = p.warmth !== 'parked' && !light && (stage === 'justMet' ? deadline < today : next < today);
   const sub = subLine(p, { link: true });
   const left = `
@@ -1672,8 +1672,9 @@ function renderPerson(id, { panel = false } = {}) {
       <div class="person-name-line"><h1 class="person-name">${esc(p.name)}</h1>${dreamStar(p)}</div>
       ${sub ? `<p class="person-sub">${sub}</p>` : ''}
       <div class="person-badges">
-        <button type="button" class="warmth-btn" data-action="change-warmth" data-id="${pid}" aria-label="Change warmth, now ${esc(WARMTH_INFO[p.warmth].label)}">
-          ${warmthBadge(p.warmth)}</button>
+        <span class="warmth-pair"><button type="button" class="warmth-btn" data-action="change-warmth" data-id="${pid}" aria-label="Change warmth, now ${esc(WARMTH_INFO[p.warmth].label)}">
+          ${warmthBadge(p.warmth)}</button>${onProject ? `<button type="button" class="warmth-btn" data-action="wrap-project" data-id="${pid}">
+          <span class="dream-badge wrap-badge">${WRAP_ICON}<span>Wrap project</span></span></button>` : ''}</span>
         <button type="button" class="warmth-btn" data-action="change-rel" data-id="${pid}" aria-label="Change relationship, now ${esc(relWords(p))}">
           <span class="rel-set">${relLabels(p)}</span></button>
         <button type="button" class="warmth-btn light-toggle${p.lightTouch ? ' is-on' : ''}" data-action="toggle-light" data-id="${pid}" aria-pressed="${p.lightTouch ? 'true' : 'false'}" aria-label="Light touch">
@@ -1700,7 +1701,6 @@ function renderPerson(id, { panel = false } = {}) {
     </section>`}
     ${prompt}
     <button type="button" class="hero-cta log-cta" data-action="log" data-id="${pid}">Log touchpoint</button>
-    ${onProject ? `<button type="button" class="btn secondary wide wrap-cta" data-action="wrap-project" data-id="${pid}">${WRAP_ICON}Wrap project</button>` : ''}
     ${p.warmth === 'parked' ? '' : ideaHTML(p)}
     ${sectionBlock(k('news'), 'Their news', newsOf(id).length, newsListHTML(p), 'yellow')}
     ${sectionBlock(k('loops'), 'Open loops', openLoopsOf(id).length, loopsHTML(p), 'navy')}
@@ -1717,11 +1717,9 @@ function renderPerson(id, { panel = false } = {}) {
   const top = panel
     ? `<div class="detail-top"><button type="button" class="back-btn pick-close" data-action="close-pick">${X_ICON_SMALL}Close</button>
       <span class="pick-links"><a class="text-btn" href="#/person/${pid}">Full page</a>
-      ${onProject ? '' : `<button type="button" class="text-btn" data-action="wrap-project" data-id="${pid}">Wrap project</button>`}
       <button type="button" class="text-btn" data-action="edit-person" data-id="${pid}">Edit</button></span></div>`
     : `<div class="detail-top">${backButton('#/people', 'Back')}
-      <span class="pick-links">${onProject ? '' : `<button type="button" class="text-btn" data-action="wrap-project" data-id="${pid}">Wrap project</button>`}
-      <button type="button" class="text-btn" data-action="edit-person" data-id="${pid}">Edit</button></span></div>`;
+      <span class="pick-links"><button type="button" class="text-btn" data-action="edit-person" data-id="${pid}">Edit</button></span></div>`;
   return `
     ${top}
     <div class="detail-cols"><div class="detail-col">${left}</div><div class="detail-col">${right}</div></div>`;
