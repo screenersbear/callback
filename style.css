@@ -2628,3 +2628,19 @@ html.is-sideways .turn-back {
   --overlay: color-mix(in srgb, var(--navy) 90%, transparent);
   --accent: color-mix(in srgb, #ffd103, #cbc6a8 calc(var(--night, 0) * 55%));
 }
+
+/* ---------- Wrap project (11-10) ---------- */
+.wrap-cta { display: flex; align-items: center; justify-content: center; gap: 8px; margin: -4px 0 14px; }
+.wrap-icon { width: 16px; height: 16px; flex-shrink: 0; }
+.wrap-form .wrap-opt { gap: 2px; }
+.wrap-form .wrap-opt .check { min-height: 36px; }
+.wrap-form .field-hint { margin-left: 0; }
+.wrap-date { display: flex; align-items: center; gap: 10px; padding-left: 28px; }
+.wrap-date .field-hint { flex-shrink: 0; min-width: 28px; }
+.wrap-date.is-off { opacity: 0.45; }
+/* A wrapped project in someone's history: a flag in place of the square. */
+.tl-node.tl-wrap { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; left: -3px; top: 0; background: var(--bg); border: 0; color: var(--hero); }
+.tl-node.tl-wrap .wrap-icon { width: 18px; height: 18px; }
+.is-wrap .tl-type { color: var(--hero); }
+.week-wrapped { display: flex; align-items: center; gap: 6px; }
+.week-wrapped .wrap-icon { color: var(--hero); }

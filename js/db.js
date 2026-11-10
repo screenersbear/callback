@@ -40,6 +40,11 @@ export function withPersonDefaults(p) {
   // Light touch (weak ties) came later: everyone before it is a full contact.
   if (typeof p.lightTouch !== 'boolean') fill.lightTouch = false;
   if (p.engagePromptDismissed === undefined) fill.engagePromptDismissed = null;
+  // The check-in after a wrapped project (11-10): { date, projectName } or
+  // null. Older copies and exports have none; anything malformed is dropped.
+  const pc = p.postProjectCheckIn;
+  if (pc === undefined || (pc !== null && !(pc && typeof pc === 'object' && /^\d{4}-\d{2}-\d{2}$/.test(pc.date)))) fill.postProjectCheckIn = null;
+  else if (pc && typeof pc.projectName !== 'string') fill.postProjectCheckIn = { date: pc.date, projectName: '' };
   return Object.keys(fill).length ? { ...p, ...fill } : p;
 }
 

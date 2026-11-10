@@ -9,6 +9,7 @@ import {
   WARMTH, WARMTH_INFO, COLD_STEPS, computeNextDate, warmthChangeFields, cadenceLabel, needsParkPrompt,
   needsWarmPrompt, SNOOZE_OPTIONS, snoozeDate, buildToday, coldState, sortTouchpoints, nextYearly, isDreamOnly,
   firstContactStage, JUST_MET_DAYS, leavesLightTouch, lightOffFields, isEngaging, ideaStage, replyDay, lastContactDay,
+  checkInDate, rhythmWords, RHYTHM_PRESETS, every,
 } from './cadence.js';
 import { pickIdea, yearlyIdea, setIdeaLibrary, isOwnIdea } from './ideas.js';
 import { upcomingEvents, buildCalendar } from './ics.js';
@@ -265,6 +266,8 @@ function dreamBadge() {
 
 // Light touch: a feather, for weak ties kept faintly familiar.
 const LIGHT_ICON = '<svg class="warmth-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M14.2 1.8c-5.2.3-9 3.5-9.8 9.6l.6.6c6-.8 9-4.8 9.2-10.2z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M1.8 14.2l8-8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+// A finished project: a little flag (Wrap project, 11-10).
+const WRAP_ICON = '<svg class="warmth-icon wrap-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.6 14.6V1.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M3.8 2.4c2.4-1 4.2 1 6.6.1.9-.3 1.6-.6 2.3-.9-.4 1.6-.4 3.1 0 4.7-.7.3-1.4.6-2.3.9-2.4.9-4.2-1.1-6.6-.1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>';
 const QUICK_ICON = '<svg class="warmth-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M9.6 1.2L3.2 9.1h4.3l-1.1 5.7 6.4-7.9H8.5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>';
 
 function lightBadge() {
@@ -357,15 +360,18 @@ function shownIdea(p) {
   const own = (p.customIdea || '').trim();
   const turn = S.ui.ideaTurn.get(p.id) || 0;
   const firstContact = ideaStage(p, tpsOf(p.id));
-  const yearly = own || turn || firstContact ? null : yearlyIdea(newsOf(p.id), tpsOf(p.id), todayStr(), { light: p.lightTouch });
-  return { own, yearly, text: own || yearly || pickIdea(p, todayStr(), turn, { firstContact }) };
+  // The check-in after a wrapped project, from a week before it's due.
+  const check = checkInDate(p);
+  const after = !own && !turn && check && todayStr() >= addDays(check, -7) ? afterProjectIdea(p) : null;
+  const yearly = own || turn || firstContact || after ? null : yearlyIdea(newsOf(p.id), tpsOf(p.id), todayStr(), { light: p.lightTouch });
+  return { own, yearly, after, text: own || after || yearly || pickIdea(p, todayStr(), turn, { firstContact }) };
 }
 
 // The rotating suggestion, or the idea the person typed themselves.
 function ideaHTML(p) {
   const id = esc(p.id);
-  const { own, yearly, text } = shownIdea(p);
-  const removable = own || !yearly;
+  const { own, yearly, after, text } = shownIdea(p);
+  const removable = own || (!yearly && !after);
   return `<div class="idea${own ? ' is-own' : ''}">
     ${removable ? `<button type="button" class="idea-remove" data-action="hide-idea" data-id="${id}"${own ? ' data-typed="1"' : ''} aria-label="Remove this suggestion for good">${X_ICON_SMALL}</button>` : ''}
     <span class="idea-label">${own ? 'Your idea' : 'Idea'}</span>
@@ -1541,6 +1547,9 @@ function renderPerson(id, { panel = false } = {}) {
   // A light touch is never late: a missed one carries on from today.
   const light = p.lightTouch && p.warmth !== 'parked';
   const shownNext = light && next < today ? today : next;
+  // Wrap project sits under Log touchpoint while they're on a project (or
+  // talking about one); otherwise it waits by Edit, for any warmth.
+  const onProject = p.warmth === 'client' || p.warmth === 'active';
   const overdue = p.warmth !== 'parked' && !light && (stage === 'justMet' ? deadline < today : next < today);
   const sub = subLine(p, { link: true });
   const left = `
@@ -1580,6 +1589,7 @@ function renderPerson(id, { panel = false } = {}) {
     </section>`}
     ${prompt}
     <button type="button" class="hero-cta log-cta" data-action="log" data-id="${pid}">Log touchpoint</button>
+    ${onProject ? `<button type="button" class="btn secondary wide wrap-cta" data-action="wrap-project" data-id="${pid}">${WRAP_ICON}Wrap project</button>` : ''}
     ${p.warmth === 'parked' ? '' : ideaHTML(p)}
     ${sectionBlock(k('news'), 'Their news', newsOf(id).length, newsListHTML(p), 'yellow')}
     ${sectionBlock(k('loops'), 'Open loops', openLoopsOf(id).length, loopsHTML(p), 'navy')}
@@ -1596,9 +1606,11 @@ function renderPerson(id, { panel = false } = {}) {
   const top = panel
     ? `<div class="detail-top"><button type="button" class="back-btn pick-close" data-action="close-pick">${X_ICON_SMALL}Close</button>
       <span class="pick-links"><a class="text-btn" href="#/person/${pid}">Full page</a>
+      ${onProject ? '' : `<button type="button" class="text-btn" data-action="wrap-project" data-id="${pid}">Wrap project</button>`}
       <button type="button" class="text-btn" data-action="edit-person" data-id="${pid}">Edit</button></span></div>`
     : `<div class="detail-top">${backButton('#/people', 'Back')}
-      <button type="button" class="text-btn" data-action="edit-person" data-id="${pid}">Edit</button></div>`;
+      <span class="pick-links">${onProject ? '' : `<button type="button" class="text-btn" data-action="wrap-project" data-id="${pid}">Wrap project</button>`}
+      <button type="button" class="text-btn" data-action="edit-person" data-id="${pid}">Edit</button></span></div>`;
   return `
     ${top}
     <div class="detail-cols"><div class="detail-col">${left}</div><div class="detail-col">${right}</div></div>`;
@@ -1648,9 +1660,10 @@ function detailsHTML(p) {
   } else {
     rows.push(`<div class="detail-row contact-row"><dt>Birthday</dt><dd>${bday('+ Add birthday')}</dd></div>`);
   }
+  // How often, in plain words, changed in its own small sheet (11-10).
+  rows.push(`<div class="detail-row contact-row"><dt>Rhythm</dt><dd><span class="contact-value">${esc(rhythmWords(p, S.settings))}</span><button type="button" class="text-btn inline contact-edit" data-action="edit-rhythm" data-id="${esc(p.id)}">Change</button></dd></div>`);
   if (p.howWeMet) row('How we met', `<span class="pre">${esc(p.howWeMet)}</span>`);
   if (p.notes) row('Notes', `<span class="pre">${esc(p.notes)}</span>`);
-  if (p.cadenceOverrideDays) row('Rhythm', `Every ${esc(span(p.cadenceOverrideDays))}, set by you`);
   if (p.pastOrganizations && p.pastOrganizations.length) {
     row('Previously', p.pastOrganizations
       .slice()
@@ -1931,6 +1944,77 @@ async function syncBirthdayNews(p) {
   await db.saveNews({ ...(existing || {}), personId: p.id, source: 'birthday', description: 'Birthday', date, repeatsYearly: true });
 }
 
+// The person's own rhythm (11-10): a preset, a number of days, or the
+// default for their warmth or light touch. Stored as cadenceOverrideDays.
+function rhythmPickerHTML(p) {
+  const n = p && Number(p.cadenceOverrideDays) > 0 ? Math.round(Number(p.cadenceOverrideDays)) : 0;
+  const pick = !n ? 'default' : RHYTHM_PRESETS.some((r) => r.days === n) ? String(n) : 'custom';
+  const c = S.settings.cadence;
+  return `<label class="field"><span class="field-label">Rhythm</span>
+      <select name="rhythm" data-rhythm>
+        ${RHYTHM_PRESETS.map((r) => `<option value="${r.days}"${pick === String(r.days) ? ' selected' : ''}>${esc(r.label)} (${r.days} days)</option>`).join('')}
+        <option value="custom"${pick === 'custom' ? ' selected' : ''}>Custom</option>
+        <option value="default"${pick === 'default' ? ' selected' : ''}>Use default</option>
+      </select>
+      <span class="field-hint">The defaults: warm ${every(c.warm).toLowerCase()}, active ${every(c.active).toLowerCase()}, on a project ${every(c.client).toLowerCase()}, light touch ${every(c.lightTouch).toLowerCase()}.</span></label>
+    <label class="field rhythm-days"${pick === 'custom' ? '' : ' hidden'}><span class="field-label">Days</span>
+      <input name="override" type="number" min="1" max="3650" inputmode="numeric" value="${pick === 'custom' ? n : ''}" placeholder="45"></label>
+    <p class="field-error" data-error="rhythm" hidden>Type how many days, from 1 to 3650.</p>`;
+}
+
+function wireRhythm(form) {
+  const sel = form.querySelector('[data-rhythm]');
+  const days = form.querySelector('.rhythm-days');
+  if (!sel || !days) return;
+  sel.addEventListener('change', () => {
+    days.hidden = sel.value !== 'custom';
+    form.querySelector('[data-error="rhythm"]').hidden = true;
+    if (!days.hidden) days.querySelector('input').focus();
+  });
+}
+
+// The days picked: a number, null for the default, or undefined (with the
+// error showing) when Custom has no sensible number.
+function readRhythm(form) {
+  const sel = form.querySelector('[data-rhythm]');
+  if (!sel || sel.value === 'default') return null;
+  if (sel.value !== 'custom') return Number(sel.value);
+  const input = form.querySelector('[name="override"]');
+  const n = parseInt(input.value, 10);
+  if (n >= 1 && n <= 3650) return n;
+  const more = form.querySelector('details');
+  if (more && more.contains(sel)) more.open = true;
+  form.querySelector('[data-error="rhythm"]').hidden = false;
+  input.focus();
+  return undefined;
+}
+
+function rhythmSheet(p) {
+  if (!p) return;
+  const s = openSheet({
+    title: `How often for ${firstName(p)}?`,
+    className: 'sheet-small',
+    body: `<p class="sheet-person">${esc(p.name)}</p>
+    <form class="form" novalidate>
+      ${rhythmPickerHTML(p)}
+      <button type="submit" class="modal-cta primary">Save</button>
+    </form>`,
+  });
+  const form = s.body.querySelector('form');
+  wireRhythm(form);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const n = readRhythm(form);
+    if (n === undefined) return;
+    const rec = { ...p, cadenceOverrideDays: n };
+    if ((n || null) !== (p.cadenceOverrideDays || null)) rec.nextTouchpointDate = computeNextDate(rec, tpsOf(p.id), S.settings, todayStr());
+    await db.savePerson(rec);
+    s.close();
+    await refresh();
+    toast(`Rhythm: ${rhythmWords(rec, S.settings)}`);
+  });
+}
+
 function birthdaySheet(p) {
   if (!p) return;
   const b = p.birthday || { month: 1, day: 1, year: null };
@@ -2166,6 +2250,138 @@ async function closeLoop(l) {
   toast('Loop closed', { action: { label: 'Undo', run: () => reopenLoop(S.loops.find((x) => x.id === l.id), { quiet: true }) } });
 }
 
+// ---------------------------------------------------------------------------
+// Wrap project (11-10)
+//
+// The end of a project is one of the best times to follow up, and plain
+// Warm would wait six weeks. Wrapping logs a Project wrapped touchpoint,
+// moves them to Warm, can add Past client, promises the selects or a
+// thank-you, and holds a check-in date in place of the rhythm until the
+// next touchpoint (postProjectCheckIn).
+const WRAP_THANKS_DAYS = 3;
+const WRAP_CHECK_IN_DAYS = 21;
+
+const wrapThanksText = (name) => `Send selects or a thank-you for ${name || 'the project'}`;
+
+// The check-in's idea. Lukewarm contacts only get the check-in, never the ask.
+function afterProjectIdea(p) {
+  const base = 'Check in on how the images landed.';
+  return p.interest === 'lukewarm' ? base : `${base} If it went well, it's a good moment to ask for a testimonial or referral.`;
+}
+
+// The most recent Project wrapped touchpoint for someone, if any.
+const lastWrap = (tps) => tps.find((t) => t.type === 'project_wrapped') || null;
+
+function wrapSheet(p) {
+  if (!p) return;
+  const today = todayStr();
+  const paidAlready = relTypesOf(p).includes('pastClient');
+  const s = openSheet({
+    title: 'Wrap the project',
+    className: 'sheet-small',
+    body: `<p class="sheet-person">${esc(p.name)}</p>
+    <form class="form wrap-form" novalidate>
+      <label class="field"><span class="field-label">Project name (optional)</span>
+        <input name="project" maxlength="80" autocomplete="off" placeholder="Smile Swim brand shoot"></label>
+      <label class="field"><span class="field-label">Wrap date</span>
+        <input type="date" name="wrapDate" value="${today}" required></label>
+      <div class="field wrap-opt">
+        <label class="check"><input type="checkbox" name="paid" checked> They paid you for this</label>
+        <span class="field-hint">${paidAlready ? `${esc(firstName(p))} is already down as a past client.` : `Adds Past client to how you know ${esc(firstName(p))}.`}</span>
+      </div>
+      <div class="field wrap-opt">
+        <label class="check"><input type="checkbox" name="thanks" checked data-opt="thanksDate"> Send selects or a thank-you</label>
+        <label class="wrap-date"><span class="field-hint">Due</span><input type="date" name="thanksDate" value="${addDays(today, WRAP_THANKS_DAYS)}"></label>
+      </div>
+      <div class="field wrap-opt">
+        <label class="check"><input type="checkbox" name="checkIn" checked data-opt="checkInDate"> Check in afterward</label>
+        <label class="wrap-date"><span class="field-hint">On</span><input type="date" name="checkInDate" value="${addDays(today, WRAP_CHECK_IN_DAYS)}"></label>
+      </div>
+      <p class="field-hint">${esc(firstName(p))} goes back to Warm${p.lightTouch ? ' and off light touch' : ''}. After the check-in, the usual rhythm takes over.</p>
+      <button type="submit" class="modal-cta primary">Wrap it up</button>
+    </form>`,
+  });
+  const form = s.body.querySelector('form');
+  const field = (n) => form.querySelector(`[name="${n}"]`);
+  // The two dates follow the wrap date until you change one yourself.
+  const touched = new Set();
+  ['thanksDate', 'checkInDate'].forEach((n) => field(n).addEventListener('input', () => touched.add(n)));
+  field('wrapDate').addEventListener('change', () => {
+    const d = field('wrapDate').value;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+    if (!touched.has('thanksDate')) field('thanksDate').value = addDays(d, WRAP_THANKS_DAYS);
+    if (!touched.has('checkInDate')) field('checkInDate').value = addDays(d, WRAP_CHECK_IN_DAYS);
+  });
+  // A switched-off option's date goes quiet.
+  form.querySelectorAll('[data-opt]').forEach((box) => {
+    const sync = () => {
+      const row = field(box.dataset.opt).closest('.wrap-date');
+      row.classList.toggle('is-off', !box.checked);
+      field(box.dataset.opt).disabled = !box.checked;
+    };
+    box.addEventListener('change', sync);
+    sync();
+  });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const day = (n, fallback) => (/^\d{4}-\d{2}-\d{2}$/.test(field(n).value) ? field(n).value : fallback);
+    const wrapDate = day('wrapDate', today);
+    const name = field('project').value.replace(/\s+/g, ' ').trim();
+    const opts = {
+      name,
+      wrapDate,
+      paid: field('paid').checked,
+      thanks: field('thanks').checked ? day('thanksDate', addDays(wrapDate, WRAP_THANKS_DAYS)) : null,
+      checkIn: field('checkIn').checked ? day('checkInDate', addDays(wrapDate, WRAP_CHECK_IN_DAYS)) : null,
+    };
+    s.close();
+    await wrapProject(p, opts);
+  });
+}
+
+async function wrapProject(p, { name, wrapDate, paid, thanks, checkIn }) {
+  const today = todayStr();
+  const before = { ...p };
+  // 1. The touchpoint: Project wrapped, on the wrap date, the name as its note.
+  //    A wrap is contact both ways, so it isn't waiting on a reply.
+  const tp = await db.saveTouchpoint({
+    personId: p.id,
+    type: 'project_wrapped',
+    date: wrapDate,
+    note: name,
+    responded: 'yes',
+    respondedAt: replyISO(wrapDate, today),
+    interest: null,
+    lightTouch: false,
+  });
+  // 2-5. Warm, Past client if paid, the check-in, light touch off.
+  const rec = { ...p, ...(p.warmth === 'warm' ? {} : warmthChangeFields(p, 'warm', nowISO(), today)), lightTouch: false };
+  if (paid && !relTypesOf(p).includes('pastClient')) Object.assign(rec, relFields([...relTypesOf(p), 'pastClient']));
+  rec.postProjectCheckIn = checkIn ? { date: checkIn, projectName: name } : null;
+  const all = sortTouchpoints([...tpsOf(p.id), tp]);
+  rec.nextTouchpointDate = computeNextDate(rec, all, S.settings, today);
+  await db.savePerson(rec);
+  // 3. The selects or thank-you, as a promise on your side.
+  const loop = thanks
+    ? await db.saveOpenLoop({ personId: p.id, touchpointId: tp.id, direction: 'iOwe', description: wrapThanksText(name), dueDate: thanks, status: 'open', closedAt: null })
+    : null;
+  db.askToPersist();
+  await refresh();
+  const first = firstName(p);
+  toast(checkIn ? `Project wrapped. Check in with ${first} on ${fmtDate(checkIn)}.` : `Project wrapped. ${first} is back to Warm.`, {
+    ms: 5000,
+    action: {
+      label: 'Undo',
+      run: async () => {
+        await db.deleteTouchpoint(tp.id);
+        if (loop) await db.deleteOpenLoop(loop.id);
+        await db.savePerson({ ...S.personById.get(p.id), ...before });
+        await refresh();
+      },
+    },
+  });
+}
+
 async function letGoLoop(l) {
   if (!l || l.status === 'closed') return;
   await db.saveOpenLoop({ ...l, status: 'closed', closedAt: nowISO(), outcome: 'letGo', keptBy: null });
@@ -2247,13 +2463,13 @@ function timelineHTML(p, tps) {
   }
   return `<ol class="timeline">${tps
     .map(
-      (t) => `<li class="tl-item" data-id="${esc(t.id)}">
-        <span class="tl-node" aria-hidden="true"></span>
+      (t) => `<li class="tl-item${t.type === 'project_wrapped' ? ' is-wrap' : ''}" data-id="${esc(t.id)}">
+        ${t.type === 'project_wrapped' ? `<span class="tl-node tl-wrap" aria-hidden="true">${WRAP_ICON}</span>` : '<span class="tl-node" aria-hidden="true"></span>'}
         <div class="tl-body">
           <p class="tl-head"><span class="tl-date">${esc(fmtDate(t.date))}</span><span class="tl-type">${esc(touchTypeLabel(t.type))}</span>${t.interest ? interestLabel(t.interest) : ''}</p>
           ${tlPromise(t)}
           <div class="tl-foot">
-            <button type="button" class="resp resp-${esc(t.responded || 'pending')}" data-action="set-response" data-id="${esc(t.id)}" aria-label="Reply status: ${esc(respondedLabel(t.responded))}. Change">${esc(respondedLabel(t.responded))}</button>
+            ${t.type === 'project_wrapped' ? '' : `<button type="button" class="resp resp-${esc(t.responded || 'pending')}" data-action="set-response" data-id="${esc(t.id)}" aria-label="Reply status: ${esc(respondedLabel(t.responded))}. Change">${esc(respondedLabel(t.responded))}</button>`}
             <button type="button" class="text-btn" data-action="edit-tp" data-id="${esc(t.id)}">Edit</button>
           </div>
         </div>
@@ -2577,7 +2793,8 @@ function weekStats(ws) {
     // Light touches count on their own, apart from the touchpoints goal.
     regular: S.tps.filter((t) => inWeek(t.date) && !t.lightTouch),
     light: S.tps.filter((t) => inWeek(t.date) && t.lightTouch),
-    replies: S.tps.filter((t) => t.responded === 'yes' && inWeek(t.respondedAt ? localDay(t.respondedAt) : t.date)),
+    replies: S.tps.filter((t) => t.responded === 'yes' && t.type !== 'project_wrapped' && inWeek(t.respondedAt ? localDay(t.respondedAt) : t.date)),
+    wrapped: S.tps.filter((t) => inWeek(t.date) && t.type === 'project_wrapped'),
     added: S.people.filter((p) => p.createdAt && inWeek(localDay(p.createdAt))),
   };
 }
@@ -2609,7 +2826,7 @@ function logRow(t) {
   return `<div class="log-row">
     <a class="log-row-main" href="#/person/${esc(t.personId)}/${esc(t.id)}"><span class="log-row-date">${esc(fmtDate(t.date))}</span>
       <b>${esc(p ? p.name : 'Someone')}</b> <span class="dot">·</span> ${esc(touchTypeLabel(t.type))}${t.lightTouch ? ' <span class="dot">·</span> Light touch' : ''}${tpNote(t) ? `<span class="log-row-note">${esc(tpNote(t))}</span>` : ''}</a>
-    <span class="log-row-side"><button type="button" class="resp resp-${esc(t.responded || 'pending')}" data-action="set-response" data-id="${esc(t.id)}" aria-label="Reply status: ${esc(respondedLabel(t.responded))}. Change">${esc(respondedLabel(t.responded))}</button>
+    <span class="log-row-side">${t.type === 'project_wrapped' ? '' : `<button type="button" class="resp resp-${esc(t.responded || 'pending')}" data-action="set-response" data-id="${esc(t.id)}" aria-label="Reply status: ${esc(respondedLabel(t.responded))}. Change">${esc(respondedLabel(t.responded))}</button>`}
       <button type="button" class="text-btn" data-action="edit-tp" data-id="${esc(t.id)}">Edit</button></span>
   </div>`;
 }
@@ -2725,7 +2942,7 @@ function renderWeek() {
           const met = s.regular.length >= g.touchpoints;
           return `<article class="week-card">
             <p class="week-card-head"><span class="week-card-range">${esc(weekRange(pw))}</span>${met ? '<span class="week-card-met">Goal met</span>' : ''}</p>
-            <p class="week-card-stats">${plural(s.regular.length, 'touchpoint')}${s.light.length ? ` <span class="dot">·</span> ${plural(s.light.length, 'light touch', 'light touches')}` : ''} <span class="dot">·</span> ${plural(s.replies.length, 'reply', 'replies')} <span class="dot">·</span> ${s.added.length} new</p>
+            <p class="week-card-stats">${plural(s.regular.length, 'touchpoint')}${s.light.length ? ` <span class="dot">·</span> ${plural(s.light.length, 'light touch', 'light touches')}` : ''} <span class="dot">·</span> ${plural(s.replies.length, 'reply', 'replies')} <span class="dot">·</span> ${s.added.length} new${s.wrapped.length ? ` <span class="dot">·</span> ${plural(s.wrapped.length, 'project')} wrapped` : ''}</p>
             ${r && r.points.length ? `<div class="points week-card-points" data-week="${pw}"><ul class="point-list">${pointItems(r.points)}</ul></div>` : ''}
             <button type="button" class="text-btn" data-action="edit-reflection" data-week="${pw}">${r && r.points.length ? '+ Add a point' : 'Add a reflection'}</button>
           </article>`;
@@ -2744,6 +2961,7 @@ function renderWeek() {
     </div>
     <div class="dash-main">${weekCols([`
     ${w.light.length ? `<p class="week-split">${plural(w.regular.length, 'touchpoint')}, ${plural(w.light.length, 'light touch', 'light touches')}</p>` : ''}
+    ${w.wrapped.length ? `<p class="week-split week-wrapped">${WRAP_ICON}${plural(w.wrapped.length, 'project')} wrapped this week</p>` : ''}
     <div class="goals">
       ${goalBar('Touchpoints', w.regular.length, g.touchpoints)}
       ${goalBar('New people', w.added.length, g.newPeople)}
@@ -3106,7 +3324,8 @@ const FIELD_NAMES = {
     warmth: 'Warmth', relationshipTypes: 'Relationship', interest: 'Interest', birthday: 'Birthday', details: 'Details',
     introducedById: 'Introduced by', introducedByName: 'Introduced by', canIntroduceToIds: 'Can introduce you to',
     customIdea: 'Your idea for them', firstContact: 'First contact', firstContactDeadline: 'First contact by',
-    pastOrganizations: 'Previously',
+    pastOrganizations: 'Previously', postProjectCheckIn: 'Check-in after a project',
+    'postProjectCheckIn.date': 'Check-in after a project', 'postProjectCheckIn.projectName': 'Project',
   },
   touchpoints: { date: 'Date', type: 'Type', note: 'Note', direction: 'Who reached out', responded: 'Reply', lightTouch: 'Light touch' },
   organizations: { name: 'Name', type: 'Type', website: 'Website', notes: 'Notes' },
@@ -3136,6 +3355,7 @@ function fieldValue(store, path, v) {
   if (typeof v === 'boolean') return v ? 'Yes' : 'No';
   if (store === 'settings' && typeof v === 'number') return path.startsWith('cadence.') ? span(v) : String(v);
   if (key === 'cadenceOverrideDays') return span(v);
+  if (key === 'postProjectCheckIn' && typeof v === 'object') return `${fmtDate(v.date)}${v.projectName ? `, ${v.projectName}` : ''}`;
   if (key === 'warmth') return WARMTH_INFO[v] ? WARMTH_INFO[v].label : String(v);
   if (key === 'interest') return interestInfo(v).label;
   if (key === 'figure') return figureWords(v);
@@ -3981,15 +4201,14 @@ function personForm(p, preset = {}) {
         ${field('website', 'Website', v.website, 'autocomplete="off" inputmode="url" placeholder="example.com"')}
         <label class="field"><span class="field-label">How we met</span><textarea name="howWeMet" rows="2" placeholder="Introduced by Sam at the Rialto screening">${esc(v.howWeMet || '')}</textarea></label>
         <label class="field"><span class="field-label">Notes</span><textarea name="notes" rows="3">${esc(v.notes || '')}</textarea></label>
-        <label class="field"><span class="field-label">Custom rhythm in days (optional)</span>
-          <input name="override" type="number" min="1" max="3650" inputmode="numeric" value="${esc(v.cadenceOverrideDays || '')}" placeholder="Leave empty to follow their warmth">
-          <span class="field-hint">Defaults: warm every ${span(c.warm)}, active ${span(c.active)}, on a project ${span(c.client)}.</span></label>
+        ${rhythmPickerHTML(v)}
       </details>
       <button type="submit" class="modal-cta primary">${isNew ? 'Add person' : 'Save changes'}</button>
       ${isNew ? '' : '<button type="button" class="btn danger wide" data-delete>Delete person</button>'}
     </form>`,
   });
   const form = s.body.querySelector('form');
+  wireRhythm(form);
   if (isNew) wirePasteBox(form);
   wireOrgSuggest(form);
   // Introductions are picked in their own sheet and kept here until save.
@@ -4081,6 +4300,8 @@ function personForm(p, preset = {}) {
       form.querySelector('[name="relationshipTypes"]').focus();
       return;
     }
+    const override = readRhythm(form);
+    if (override === undefined) return;
     const today = todayStr();
     const now = nowISO();
 
@@ -4090,7 +4311,6 @@ function personForm(p, preset = {}) {
       const match = S.orgs.find((o) => o.name.trim().toLowerCase() === orgName.toLowerCase());
       organizationId = match ? match.id : (await db.saveOrganization({ name: orgName, type: 'other', website: '', notes: '' })).id;
     }
-    const override = parseInt(get('override'), 10);
     const fields = {
       name,
       role: get('role'),
@@ -4101,7 +4321,7 @@ function personForm(p, preset = {}) {
       website: get('website'),
       howWeMet: get('howWeMet'),
       notes: get('notes'),
-      cadenceOverrideDays: override > 0 ? override : null,
+      cadenceOverrideDays: override,
       ...relFields(fd.getAll('relationshipTypes').map(String)),
       dreamList: !!fd.get('dreamList'),
       introducedById,
@@ -4195,6 +4415,7 @@ function whyText(p, tps, next) {
   const c = S.settings.cadence;
   const first = esc(firstName(p));
   if (p.warmth === 'parked') return `${first} is parked, so they come back in ${span(c.parked)}.`;
+  if (checkInDate(p)) return `That's the check-in after the project. After it, ${first} goes back to the usual rhythm.`;
   const custom = Number(p.cadenceOverrideDays);
   if (custom > 0) return `That's your custom rhythm for ${first}: every ${span(custom)}.`;
   // The rhythm counts from their reply when it came after your touchpoint.
@@ -4225,7 +4446,7 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose, k
   const idea = editing || keep ? null : shownIdea(p);
   const preset = note || (newsItem ? `Their news: ${newsItem.description}` : '');
   const v = touchpoint || {
-    type: S.meta.lastLogType || 'email',
+    type: S.meta.lastLogType && S.meta.lastLogType !== 'project_wrapped' ? S.meta.lastLogType : 'email',
     date: today,
     note: keep ? '' : preset || (idea.own ? idea.own : ''),
     responded: 'pending',
@@ -4247,7 +4468,7 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose, k
     ${kept ? `<p class="keep-quote">${editing ? '<b>Kept the promise:</b> ' : ''}${esc(kept.description)}</p>` : ''}
     <form class="form" novalidate>
       <fieldset class="field"><legend class="field-label">${kept ? `How did it get to ${esc(firstName(p))}?` : 'How did you reach out?'}</legend>
-        <div class="chip-choices">${TOUCH_TYPES.map((t) => `<label class="chip-choice"><input type="radio" name="type" value="${t.key}"${v.type === t.key ? ' checked' : ''}><span>${esc(t.label)}</span></label>`).join('')}</div>
+        <div class="chip-choices">${TOUCH_TYPES.filter((t) => t.key !== 'project_wrapped' || v.type === 'project_wrapped').map((t) => `<label class="chip-choice"><input type="radio" name="type" value="${t.key}"${v.type === t.key ? ' checked' : ''}><span>${esc(t.label)}</span></label>`).join('')}</div>
       </fieldset>
       <label class="field"><span class="field-label">When</span><input type="date" name="date" value="${esc(v.date)}" required></label>
       <div class="field">
@@ -4362,12 +4583,20 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose, k
     // Otherwise a reply marked on an older touchpoint can still move a date
     // that came from the rhythm (followRhythm).
     const touchesLatest = !editing || all[0].id === tp.id || (before[0] && before[0].id === tp.id);
-    const next = touchesLatest ? computeNextDate(p, all, S.settings, today) : followRhythm(p, before, all);
+    // After Wrap project, the next touchpoint is the check-in: it ends the
+    // wait and the usual rhythm takes over. Sending the wrap's own selects
+    // or thank-you (keeping that promise) doesn't count, nor does one dated
+    // before the wrap.
+    const wrap = lastWrap(before);
+    const keepsWrap = !!keep && !!wrap && keep.touchpointId === wrap.id;
+    const endsCheckIn = !editing && !!checkInDate(p) && type !== 'project_wrapped' && !keepsWrap && (!wrap || date >= wrap.date);
+    const forNext = endsCheckIn ? { ...p, postProjectCheckIn: null } : p;
+    const next = touchesLatest ? computeNextDate(forNext, all, S.settings, today) : followRhythm(forNext, before, all);
     // Logging a new touchpoint uses up a typed idea; fixing an old one doesn't.
     const clearedIdea = !editing && !!(p.customIdea || '').trim();
     // How they seemed at their latest touchpoint becomes their current interest.
     const interest = tp.interest && (!editing || all[0].id === tp.id) ? { interest: tp.interest } : {};
-    let person = await db.savePerson({ ...p, nextTouchpointDate: next, ...(clearedIdea ? { customIdea: '' } : {}), ...interest });
+    let person = await db.savePerson({ ...p, nextTouchpointDate: next, ...(clearedIdea ? { customIdea: '' } : {}), ...interest, ...(endsCheckIn ? { postProjectCheckIn: null } : {}) });
     if (newsItem) await db.saveNews({ ...newsItem, dismissedAt: nowISO() });
     if (keep) {
       const cur = S.loops.find((x) => x.id === keep.id) || keep;
@@ -4459,8 +4688,11 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose, k
       await db.deleteTouchpoint(touchpoint.id);
       await reopenKept([touchpoint.id]);
       const rest = before.filter((t) => t.id !== touchpoint.id);
-      if (before[0] && before[0].id === touchpoint.id) {
-        await db.savePerson({ ...p, nextTouchpointDate: computeNextDate(p, rest, S.settings, today) });
+      // Taking away the wrap takes away the check-in it set up.
+      const unwraps = touchpoint.type === 'project_wrapped' && !!checkInDate(p) && !lastWrap(rest);
+      const forNext = unwraps ? { ...p, postProjectCheckIn: null } : p;
+      if (unwraps || (before[0] && before[0].id === touchpoint.id)) {
+        await db.savePerson({ ...forNext, nextTouchpointDate: computeNextDate(forNext, rest, S.settings, today) });
       }
       await refresh();
       s.close();
@@ -4707,9 +4939,14 @@ async function warmthSheet(p) {
   const key = await choiceSheet({
     title: `How well do you know ${firstName(p)}?`,
     message: 'Callback works out the next touchpoint from their latest one.',
-    options: WARMTH.map((w) => ({ key: w, label: WARMTH_INFO[w].label, detail: WARMTH_INFO[w].blurb, icon: warmthIcon(w), current: p.warmth === w })),
+    options: [
+      ...WARMTH.map((w) => ({ key: w, label: WARMTH_INFO[w].label, detail: WARMTH_INFO[w].blurb, icon: warmthIcon(w), current: p.warmth === w })),
+      // A project just finished: wrap it instead (back to Warm, with a follow-up).
+      { key: 'wrap', label: 'Wrap a project', detail: 'A project just finished. Back to Warm, with a thank-you and a check-in.', icon: WRAP_ICON },
+    ],
   });
-  if (key) await setWarmth(p, key);
+  if (key === 'wrap') wrapSheet(S.personById.get(p.id) || p);
+  else if (key) await setWarmth(p, key);
 }
 
 async function unpark(p) {
@@ -5371,6 +5608,8 @@ const ACTIONS = {
     toast(`${plural(hidden.length, 'suggestion')} back`);
   },
   'edit-birthday': (el) => birthdaySheet(person(el)),
+  'edit-rhythm': (el) => rhythmSheet(person(el)),
+  'wrap-project': (el) => wrapSheet(person(el)),
   'add-detail': (el) => detailSheet(person(el)),
   'remove-detail': async (el) => {
     const p = S.personById.get(el.dataset.person);

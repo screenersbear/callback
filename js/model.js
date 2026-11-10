@@ -11,6 +11,8 @@ export const TOUCH_TYPES = [
   { key: 'followed', label: 'Followed' },
   { key: 'gift', label: 'Gift or card' },
   { key: 'event', label: 'Event' },
+  // Logged by Wrap project (11-10): the end of a project, a good time to follow up.
+  { key: 'project_wrapped', label: 'Project wrapped' },
   { key: 'other', label: 'Other' },
 ];
 

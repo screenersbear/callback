@@ -72,6 +72,32 @@ export function coldState(person, tps) {
   };
 }
 
+// The person's own rhythm: the picker's presets, in plain words (11-10).
+export const RHYTHM_PRESETS = [
+  { days: 14, label: 'Every 2 weeks' },
+  { days: 30, label: 'Every month' },
+  { days: 42, label: 'Every 6 weeks' },
+  { days: 60, label: 'Every 2 months' },
+  { days: 90, label: 'Every 3 months' },
+  { days: 180, label: 'Every 6 months' },
+];
+
+// "Every 6 weeks", "Every month", "Every 10 days".
+export function every(days) {
+  const n = Math.round(Number(days));
+  const preset = RHYTHM_PRESETS.find((r) => r.days === n);
+  if (preset) return preset.label;
+  if (n === 7) return 'Every week';
+  return `Every ${span(n)}`;
+}
+
+// After Wrap project, the check-in date waits in place of the usual rhythm
+// until the next touchpoint (11-10).
+export function checkInDate(person) {
+  const c = person && person.postProjectCheckIn;
+  return c && /^\d{4}-\d{2}-\d{2}$/.test(c.date) ? c.date : null;
+}
+
 function overrideDays(person) {
   const n = Number(person.cadenceOverrideDays);
   return n > 0 ? Math.round(n) : 0;
@@ -91,9 +117,10 @@ export function lastContactDay(tps, last = lastTouchpoint(tps)) {
 
 // The next touchpoint date for a person, counted from the last contact
 // (lastContactDay), their reply included.
-// Order of rules: parked first (they rest, whatever else is set), then the
-// person's own cadence override, then light touch, then their warmth
-// default, then for cold people the step they're on in the sequence.
+// Order of rules: parked first (they rest, whatever else is set), then a
+// check-in after a wrapped project, then the person's own cadence override,
+// then light touch, then their warmth default, then for cold people the
+// step they're on in the sequence.
 export function computeNextDate(person, tps, settings, today = todayStr()) {
   const c = withDefaults(settings).cadence;
   const last = lastTouchpoint(tps);
@@ -103,6 +130,9 @@ export function computeNextDate(person, tps, settings, today = todayStr()) {
     // they were parked, so parking someone always buys the full rest.
     return addDays(maxDate(last && last.date, person.parkedOn || today), c.parked);
   }
+
+  const check = checkInDate(person);
+  if (check) return check;
 
   if (!last) return person.nextTouchpointDate || today;
 
@@ -138,8 +168,9 @@ export function cadenceLabel(person, tps, settings) {
   const c = withDefaults(settings).cadence;
   const custom = overrideDays(person);
   if (person.warmth === 'parked') return `Parked. Comes back after ${span(c.parked)}`;
-  if (custom) return `Every ${span(custom)} (your custom rhythm)`;
-  if (person.lightTouch) return `Every ${span(c.lightTouch)} (light touch)`;
+  if (checkInDate(person)) return 'Check-in after the project';
+  if (custom) return `${every(custom)} (custom)`;
+  if (person.lightTouch) return `${every(c.lightTouch)} (light touch default)`;
   if (person.warmth === 'cold') {
     const { sent, replied } = coldState(person, tps);
     if (replied) return 'Cold, but they replied';
@@ -148,7 +179,20 @@ export function cadenceLabel(person, tps, settings) {
     if (sent === 2) return `Cold. Last try ${span(c.coldLastTry)} after the follow-up`;
     return 'Cold. The sequence is finished';
   }
-  return `Every ${span(c[person.warmth])} (${WARMTH_INFO[person.warmth].label})`;
+  return `${every(c[person.warmth])} (${WARMTH_INFO[person.warmth].label} default)`;
+}
+
+// The person's rhythm in plain words, for their page: "Every 2 months
+// (custom)" or "Every 6 weeks (Warm default)".
+export function rhythmWords(person, settings) {
+  const c = withDefaults(settings).cadence;
+  const custom = overrideDays(person);
+  if (custom) return `${every(custom)} (custom)`;
+  if (person.warmth === 'parked') return `Back after ${span(c.parked)} (Parked default)`;
+  if (person.lightTouch) return `${every(c.lightTouch)} (Light touch default)`;
+  if (person.warmth === 'cold') return 'The cold sequence (Cold default)';
+  const w = WARMTH_INFO[person.warmth] ? person.warmth : 'warm';
+  return `${every(c[w] || c.warm)} (${WARMTH_INFO[w].label} default)`;
 }
 
 // A cold person who got all three notes and never replied.
