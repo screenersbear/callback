@@ -35,16 +35,19 @@ const rawTilt = (v) => (v > 0 ? TILT_UP * Math.atanh(clamp(v / TILT_UP, 0, 0.999
 // One list, no groups: a plain face with the one hair it started with,
 // short hair, a ponytail or shoulder length hair, or a softer face (bigger
 // lashed eyes, arched brows, a smaller nose, full lips) with its own fuller
-// hair: a bob, a high ponytail or long hair. The keys are what's saved, so
-// they stay as they were.
+// hair: a bob, a high ponytail or long hair. Each face has curls too (11-09):
+// short curls on the plain face, big curls to the shoulders on the softer
+// one. The keys are what's saved, so they stay as they were.
 export const BUDDIES = [
   { key: 'tuft', face: 'plain', hair: 'tuft', label: 'One hair' },
   { key: 'man-short', face: 'plain', hair: 'short', label: 'Short' },
   { key: 'man-pony', face: 'plain', hair: 'ponytail', label: 'Ponytail' },
   { key: 'man-long', face: 'plain', hair: 'shoulder', label: 'Shoulder length' },
+  { key: 'man-curly', face: 'plain', hair: 'curly', label: 'Short curls' },
   { key: 'woman-short', face: 'soft', hair: 'bob', label: 'Bob' },
   { key: 'woman-pony', face: 'soft', hair: 'highpony', label: 'High ponytail' },
   { key: 'woman-long', face: 'soft', hair: 'long', label: 'Long hair' },
+  { key: 'woman-curly', face: 'soft', hair: 'curls', label: 'Big curls' },
 ];
 const BUDDY_KEY = 'callback.buddy';
 function readBuddy() {
@@ -128,7 +131,7 @@ function hairHull(hair) {
   if (HAIR_HULL.has(hair)) return HAIR_HULL.get(hair);
   const pts = [];
   if (hair && hair !== 'tuft') {
-    const vol = { shoulder: 0.1, ponytail: 0.045, short: 0.075, bob: 0.15, highpony: 0.06, long: 0.14 }[hair] ?? 0.075;
+    const vol = { shoulder: 0.1, ponytail: 0.045, short: 0.075, bob: 0.15, highpony: 0.06, long: 0.14, curly: 0.14, curls: 0.22 }[hair] ?? 0.075;
     for (let j = 0; j <= 14; j++) {
       const ph = mix(0.05, Math.PI / 2, j / 14);
       for (let i = 0; i < 40; i++) {
@@ -160,6 +163,18 @@ function hairHull(hair) {
         const rr = 1.18 + 0.16 * f;
         for (let i = 0; i <= 22; i++) {
           const th = mix(0.95, TAU - 0.95, i / 22);
+          pts.push([Math.sin(th) * rr, y, Math.cos(th) * rr * 0.95]);
+        }
+      }
+    }
+    // Big curls: a full cloud round the head, down to the shoulders.
+    if (hair === 'curls') {
+      for (let j = 0; j <= 12; j++) {
+        const f = j / 12;
+        const y = mix(0.15, -1.05, f);
+        const rr = 1.3 + 0.1 * Math.sin(Math.PI * Math.min(1, f * 1.3));
+        for (let i = 0; i <= 22; i++) {
+          const th = mix(0.9, TAU - 0.9, i / 22);
           pts.push([Math.sin(th) * rr, y, Math.cos(th) * rr * 0.95]);
         }
       }
@@ -405,6 +420,57 @@ function headLines(ex, style = BUDDIES[0]) {
         const d = [side * 1.16, -1.3, 0.34];
         free([...range(16, (t) => bez(a, b, c, d, t)), [d[0] + side * 0.06, d[1] + 0.06, d[2]]], { w: 1.9, waves: 2 });
       }
+    }
+  }
+
+  // Curls: the pen runs along in small loops, like a phone cord. On the
+  // head each row follows a line across it, `rise` lifting the middle.
+  if (style.hair === 'curly' || style.hair === 'curls') {
+    const big = style.hair === 'curls';
+    const loops = (th0, th1, ph0, rise, n, a, b, lift, o = {}) => stroke(off(range(n * 12 + 1, (t) => {
+      const w = t * n * TAU;
+      const th = mix(th0, th1, t) - a * Math.sin(w);
+      const u = th / Math.max(Math.abs(th0), Math.abs(th1));
+      return [th, ph0 + rise * (1 - u * u) + b * (1 - Math.cos(w))];
+    }), lift), { w: 1.8, waves: 1, ...o });
+    // The hairline over the forehead, the curls hanging onto it, then a
+    // row over the crown and a few on top.
+    if (big) {
+      loops(-1.42, 1.42, 0.4, 0.14, 5, 0.2, 0.16, 0.2);
+      loops(-1.25, 1.25, 0.66, 0.1, 5, 0.18, 0.13, 0.23, { w: 1.6, op: 0.9 });
+      loops(-1.0, 1.0, 0.92, 0.06, 3, 0.2, 0.13, 0.25, { w: 1.5, op: 0.85 });
+    } else {
+      loops(-1.3, 1.3, 0.44, 0.12, 6, 0.15, 0.12, 0.1);
+      loops(-1.12, 1.12, 0.66, 0.1, 5, 0.14, 0.11, 0.13, { w: 1.6, op: 0.9 });
+      loops(-0.8, 0.8, 0.9, 0.05, 3, 0.15, 0.1, 0.15, { w: 1.5, op: 0.85 });
+    }
+    if (big) {
+      // Down each side to the shoulders: a column of curls by the face and
+      // one further out, bulging outward as they fall.
+      const column = (a, b, c, d, side, n, A, B, o = {}) => {
+        const base = range(n * 12 + 1, (t) => bez(a, b, c, d, t));
+        free(base.map((q, i) => {
+          const t = i / (base.length - 1);
+          const w = t * n * TAU;
+          const p0 = base[Math.max(0, i - 1)];
+          const p1 = base[Math.min(base.length - 1, i + 1)];
+          const dx = p1[0] - p0[0];
+          const dy = p1[1] - p0[1];
+          const l = Math.hypot(dx, dy) || 1;
+          const along = -A * Math.sin(w);
+          const out = B * (1 - Math.cos(w));
+          return [q[0] + (dx / l) * along + side * Math.abs(dy / l) * out, q[1] + (dy / l) * along, q[2]];
+        }), { w: 1.8, waves: 1, ...o });
+      };
+      // The near side (left, where the outline runs) curls in toward the
+      // cheek, in front of the outline. The far side, where the outline
+      // stops at the temple, starts up by the crown and is that side of the
+      // hair, a second column outside it.
+      column(onHead(-1.12, 0.45, 0.2).p, onHead(-1.22, -0.2, 0.3).p, [-1.08, -0.72, 0.5], [-1.12, -1.06, 0.46], 1, 5, 0.12, 0.11);
+      const top = onHead(0.9, 0.95, 0.24).p;
+      column(top, onHead(1.42, 0.1, 0.3).p, [1.3, -0.7, 0.38], [1.26, -1.06, 0.36], 1, 6, 0.13, 0.12);
+      const a2 = onHead(1.5, 0.2, 0.3).p;
+      column(a2, [a2[0] + 0.08, -0.35, a2[2]], [1.46, -0.78, 0.28], [1.4, -1.02, 0.28], 1, 4, 0.13, 0.11, { w: 1.5, op: 0.85 });
     }
   }
 

@@ -2415,7 +2415,9 @@ html:has(.ring-wrap) { background: var(--bg); }
 .fig-pic path { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 /* Tapping the buddy on Today: how it looks. */
-.buddy-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 4px 0 16px; }
+/* Five across: the plain face's hair on the first row, the softer face's
+   on the second. */
+.buddy-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 4px 0 16px; }
 .buddy-option {
   display: flex;
   flex-direction: column;
