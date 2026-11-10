@@ -9,7 +9,7 @@ import {
   WARMTH, WARMTH_INFO, COLD_STEPS, computeNextDate, warmthChangeFields, cadenceLabel, needsParkPrompt,
   needsWarmPrompt, SNOOZE_OPTIONS, snoozeDate, buildToday, coldState, sortTouchpoints, nextYearly, isDreamOnly,
   firstContactStage, JUST_MET_DAYS, leavesLightTouch, lightOffFields, isEngaging, ideaStage, replyDay, lastContactDay,
-  checkInDate, rhythmWords, RHYTHM_PRESETS, every,
+  checkInDate, rhythmWords, RHYTHM_PRESETS, every, replyCheckDue,
 } from './cadence.js';
 import { pickIdea, yearlyIdea, setIdeaLibrary, isOwnIdea } from './ideas.js';
 import { upcomingEvents, buildCalendar } from './ics.js';
@@ -57,6 +57,8 @@ const S = {
     ideaTurn: new Map(),
     // Light touches start folded away at the bottom of Today.
     collapsed: new Set(['today-light']),
+    // Month and year groups (foldHTML): open or shut, as last tapped.
+    folds: new Map(),
     scroll: new Map(),
     backTo: null,
     people: { q: '', sort: 'contact', reverse: false, sortOpen: false, warmth: new Set(), rel: new Set(), interest: new Set(), circles: new Set(), loops: false, dream: false, light: false, role: '', org: '', showParked: false, filtersOpen: false, view: readPeopleView() },
@@ -605,7 +607,9 @@ let todayMind = { bubbles: [], pending: 0 };
 
 function mindSlotHTML(list) {
   const byKey = new Map(list.map((b) => [b.key, b]));
-  const bubbles = THOUGHTS.filter(([k]) => byKey.has(k)).map(([key, label]) => ({ key, label, title: byKey.get(key).title, n: byKey.get(key).n, weight: WEIGHT[key] ?? 1 }));
+  // With just one, these read in the singular ("1 open loop").
+  const one = { loops: 'open loop', 'today-light': 'light touch' };
+  const bubbles = THOUGHTS.filter(([k]) => byKey.has(k)).map(([key, label]) => ({ key, label: byKey.get(key).n === 1 && one[key] ? one[key] : label, title: byKey.get(key).title, n: byKey.get(key).n, weight: WEIGHT[key] ?? 1 }));
   todayMind = { bubbles, pending: bubbles.reduce((a, b) => a + b.n * b.weight, 0) };
   return '<div class="mind-slot" data-mind-slot></div>';
 }
@@ -1018,8 +1022,8 @@ function loopCard(l, { coming = false } = {}) {
   if (l.direction === 'theyOwe') {
     return `<article class="item-card loop-card is-theyowe" data-pick="${pid}">
       <p class="loop-kicker">${loopIcon('theyOwe')}<span>On their side</span></p>
-      <p class="loop-desc">Still waiting on ${esc(midSentence(l.description))} from ${who}.</p>
-      <p class="item-facts"><b>Expected ${esc(fmtDate(l.dueDate))}</b> <span class="dot">·</span> ${esc(relDay(l.dueDate, today))}</p>
+      <p class="loop-desc">${n === 0 ? 'Waiting' : 'Still waiting'} on ${esc(midSentence(l.description))} from ${who}.</p>
+      <p class="item-facts">${n === 0 ? '<b>Expected today</b>' : `<b>Expected ${esc(fmtDate(l.dueDate))}</b> <span class="dot">·</span> ${esc(relDay(l.dueDate, today))}`}</p>
       <div class="item-actions">
         <button type="button" class="btn primary" data-action="close-loop" data-id="${lid}">Got it</button>
         <button type="button" class="btn secondary" data-action="loop-not-yet" data-id="${lid}">Not yet</button>
@@ -1071,7 +1075,7 @@ function sortPanelHTML(ui, scope = '') {
 const WARMTH_ORDER = { client: 0, active: 1, warm: 2, cold: 3, parked: 4 };
 
 // `added`: also say when they were added (when that's the sort).
-function personRow(p, { added = false } = {}) {
+function personRow(p, { added = false, flag = false } = {}) {
   const today = todayStr();
   const next = p.nextTouchpointDate || today;
   const sub = subLine(p);
@@ -1083,14 +1087,67 @@ function personRow(p, { added = false } = {}) {
   else if (next < today) nextText = `<b>${esc(nextRelText(next, today))}</b>`;
   else if (next === today) nextText = '<b>Due today</b>';
   else nextText = `Next ${esc(fmtDate(next, { weekday: false }))}`;
-  return `<a class="row-card${p.warmth === 'parked' ? ' is-parked' : ''}" href="#/person/${esc(p.id)}">
+  const waiting = flag && waitingTps(p).length > 0;
+  return `<a class="row-card${p.warmth === 'parked' ? ' is-parked' : ''}${waiting ? ' is-waiting' : ''}" href="#/person/${esc(p.id)}"${flag && replyToAsk(p) ? ` data-ask-reply="${esc(p.id)}"` : ''}>
     <span class="row-main">
-      <span class="row-name">${esc(p.name)}</span>
+      <span class="row-name">${esc(p.name)}${waiting ? REPLY_FLAG : ''}</span>
       ${sub ? `<span class="row-sub">${sub}</span>` : ''}
       <span class="row-meta">${added && p.createdAt ? `<span class="nowrap">Added ${esc(fmtDate(toDateStr(new Date(p.createdAt)), { weekday: false }))}</span> <span class="dot">·</span> ` : ''}${dreamOnly(p) ? `<span class="nowrap">${nextText}</span>` : `<span class="nowrap">${esc(sinceText(p, today))}</span> <span class="dot">·</span> <span class="nowrap">${nextText}</span>`}</span>
     </span>
     <span class="row-badges">${warmthBadge(p.warmth)}${p.lightTouch ? `<span class="dream-mark" title="Light touch">${LIGHT_ICON}<span class="visually-hidden">Light touch</span></span>` : ''}${p.dreamList ? `<span class="dream-mark" title="Dream list">${DREAM_STAR}<span class="visually-hidden">Dream list</span></span>` : ''}${loopCountBadge(openLoopsOf(p.id).length)}</span>
   </a>`;
+}
+
+// Still waiting on a reply: touchpoints marked Waiting that Callback asks
+// about (the ones "Did they reply?" on Today asks about, at any age). On
+// People they put a little drawn "!" over the person; tapping someone whose
+// reply has waited two days or more asks about it over their page (11-10).
+function waitingTps(p) {
+  if (p.lightTouch || p.warmth === 'parked') return [];
+  return tpsOf(p.id).filter((t) => t.responded === 'pending' && !t.lightTouch && t.type !== 'project_wrapped');
+}
+// The one to ask about: waiting longest, and due a check (two days on, or
+// two days after the last "Not yet").
+function replyToAsk(p) {
+  return waitingTps(p).filter((t) => replyCheckDue(p, t)).sort((a, b) => a.date.localeCompare(b.date))[0] || null;
+}
+const REPLY_FLAG = ' <span class="reply-flag" title="Waiting on a reply"><svg viewBox="0 0 12 24" aria-hidden="true"><path d="M7.4 2.4c-.4 4.3-.9 8.5-1.5 12.6"/><circle cx="5.3" cy="20.3" r="1.7"/></svg><span class="visually-hidden">Waiting on a reply.</span></span>';
+
+function openFromPeople(id) {
+  const p = S.personById.get(id);
+  const to = `#/person/${id}`;
+  if (p && replyToAsk(p)) {
+    if (location.hash === to) {
+      askWaitingReply(p);
+      return;
+    }
+    S.ui.askReplyFor = id;
+  }
+  location.hash = to;
+}
+
+async function askWaitingReply(p) {
+  const t = replyToAsk(p);
+  if (!t) return;
+  const note = tpNote(t);
+  const short = note.length > 80 ? `${note.slice(0, 78).trimEnd()}...` : note;
+  const key = await choiceSheet({
+    title: 'Did they reply?',
+    message: `You reached out to ${esc(firstName(p))} on ${esc(fmtDate(t.date))} (${esc(touchTypeLabel(t.type).toLowerCase())}${short ? `: ${esc(short)}` : ''}). Did ${esc(firstName(p))} get back to you?`,
+    options: [
+      { key: 'yes', label: 'Replied' },
+      { key: 'no', label: 'No reply' },
+      { key: 'later', label: 'Not yet', detail: 'Callback asks again in two days.' },
+    ],
+  });
+  if (!key) return;
+  if (key === 'later') {
+    await db.saveTouchpoint({ ...t, replyCheckAt: nowISO() });
+    await refresh();
+    toast('Callback will ask again in two days.');
+    return;
+  }
+  await markResponse(t, key);
 }
 
 function filteredPeople() {
@@ -1165,7 +1222,7 @@ function peopleListHTML() {
       <button type="button" class="btn secondary" data-action="clear-filters">Clear search and filters</button></div>`;
   }
   const added = S.ui.people.sort === 'added';
-  return count + list.map((p) => personRow(p, { added })).join('');
+  return count + list.map((p) => personRow(p, { added, flag: true })).join('');
 }
 
 function uniqueSorted(values) {
@@ -1234,8 +1291,8 @@ function ringSize(p) {
 const FIGURES = [['man', 'With a tie'], ['woman', 'In a dress'], ['person', 'Plain']];
 const figureWords = (k) => (FIGURES.find(([x]) => x === k) || FIGURES[2])[1];
 const figureOf = (p) => (FIGURES.some(([k]) => k === p.figure) ? p.figure : 'person');
-const ringData = (list) => ({
-  people: list.map((p) => ({ id: p.id, name: firstName(p), figure: figureOf(p), size: ringSize(p), warmth: p.warmth })),
+const ringData = (list, { flags = false } = {}) => ({
+  people: list.map((p) => ({ id: p.id, name: firstName(p), figure: figureOf(p), size: ringSize(p), warmth: p.warmth, flag: flags && waitingTps(p).length > 0 })),
   key: list.map((p) => p.id).join(','),
 });
 const RING_OPTS = { onOpen: (id) => { location.hash = `#/person/${id}`; } };
@@ -1243,7 +1300,7 @@ const RING_OPTS = { onOpen: (id) => { location.hash = `#/person/${id}`; } };
 // people stand there: five or fewer in a line, more in a small ring.
 const RING_INSIDE = { ...RING_OPTS, backdrop: 'windows', ghosts: false };
 // People: the page holds still under the ring.
-const RING_PEOPLE = { ...RING_OPTS, hold: true };
+const RING_PEOPLE = { ...RING_OPTS, hold: true, onOpen: (id) => openFromPeople(id) };
 let ringOpts = RING_OPTS;
 
 function ringHTML(list) {
@@ -1261,7 +1318,7 @@ function ringHTML(list) {
 
 function mountRingIn(root) {
   const slot = root.querySelector('[data-ring-slot]');
-  if (slot) mountRing(slot, ringData(ringPeople), ringOpts);
+  if (slot) mountRing(slot, ringData(ringPeople, { flags: ringOpts === RING_PEOPLE }), ringOpts);
 }
 
 // A loose line drawn under the search, and the hand-drawn icons.
@@ -2510,7 +2567,7 @@ function renderOrgs(id) {
   }
   if (hand) {
     return `
-    <header class="topbar"><h1>Organizations</h1></header>
+    ${peopleBack()}<header class="topbar"><h1>Organizations</h1></header>
     <div class="people-hand">
       <div class="hand-row">
         <button type="button" class="hand-btn" data-action="add-org"><span class="hand-btn-text">+ Add organization</span>${statScrib('Add organization')}</button>
@@ -2523,7 +2580,7 @@ function renderOrgs(id) {
     ${map && list.length ? mapHTML('orgs', list) : `<div class="card-list" id="orgList">${body}</div>`}`;
   }
   return `
-    <header class="topbar"><h1>Organizations</h1>
+    ${peopleBack()}<header class="topbar"><h1>Organizations</h1>
       <button type="button" class="icon-btn" data-action="add-org" aria-label="Add organization">+</button></header>
     ${S.orgs.length ? `<input type="search" class="search" id="orgSearch" placeholder="Search organizations" value="${esc(S.ui.orgsQ)}" autocomplete="off" aria-label="Search organizations">` : ''}
     <div class="card-list" id="orgList">${body}</div>`;
@@ -2560,6 +2617,11 @@ function isOverdue(p, today = todayStr()) {
   return !dreamOnly(p) && (p.nextTouchpointDate || today) < today;
 }
 
+// On a phone Circles and Organizations sit under People (their icons are
+// either side of People's in the bottom bar), so each starts with a way
+// back to People. A wide window has them in the rail instead (11-10).
+const peopleBack = () => `<div class="detail-top phone-back">${backButton('#/people', 'Back')}</div>`;
+
 function renderCircles(id) {
   const hand = S.circles.length > 0;
   const map = hand && S.ui.circlesView !== 'list';
@@ -2593,7 +2655,7 @@ function renderCircles(id) {
   }
   if (hand) {
     return `
-    <header class="topbar"><h1>Circles</h1>
+    ${peopleBack()}<header class="topbar"><h1>Circles</h1>
       ${!map && S.circles.length > 1 ? `<span class="topbar-actions"><button type="button" class="text-btn" data-action="toggle-reorder" aria-pressed="${reorder}">${reorder ? 'Done' : 'Reorder'}</button></span>` : ''}</header>
     <div class="people-hand"><div class="hand-row">
       <button type="button" class="hand-btn" data-action="add-circle"><span class="hand-btn-text">+ New circle</span>${statScrib('New circle')}</button>
@@ -2602,7 +2664,7 @@ function renderCircles(id) {
     ${map ? mapHTML('circles') : `<div class="card-list">${body}</div>`}`;
   }
   return `
-    <header class="topbar"><h1>Circles</h1>
+    ${peopleBack()}<header class="topbar"><h1>Circles</h1>
       <span class="topbar-actions">
         ${S.circles.length > 1 ? `<button type="button" class="text-btn" data-action="toggle-reorder" aria-pressed="${reorder}">${reorder ? 'Done' : 'Reorder'}</button>` : ''}
         <button type="button" class="icon-btn" data-action="add-circle" aria-label="New circle">+</button>
@@ -2934,31 +2996,27 @@ function renderWeek() {
   if (firsts.length) {
     for (let d = addDays(ws, -7); d >= weekStartStr(firsts[0]) && pastWeeks.length < 104; d = addDays(d, -7)) pastWeeks.push(d);
   }
+  const pastCard = (pw) => {
+    const s = weekStats(pw);
+    const r = weekRecord(pw);
+    const met = s.regular.length >= g.touchpoints;
+    return `<article class="week-card">
+      <p class="week-card-head"><span class="week-card-range">${esc(weekRange(pw))}</span>${met ? '<span class="week-card-met">Goal met</span>' : ''}</p>
+      <p class="week-card-stats">${plural(s.regular.length, 'touchpoint')}${s.light.length ? ` <span class="dot">·</span> ${plural(s.light.length, 'light touch', 'light touches')}` : ''} <span class="dot">·</span> ${plural(s.replies.length, 'reply', 'replies')} <span class="dot">·</span> ${s.added.length} new${s.wrapped.length ? ` <span class="dot">·</span> ${plural(s.wrapped.length, 'project')} wrapped` : ''}</p>
+      ${r && r.points.length ? `<div class="points week-card-points" data-week="${pw}"><ul class="point-list">${pointItems(r.points)}</ul></div>` : ''}
+      <button type="button" class="text-btn" data-action="edit-reflection" data-week="${pw}">${r && r.points.length ? '+ Add a point' : 'Add a reflection'}</button>
+    </article>`;
+  };
+  // In folds by month (a week goes in the month it starts in), and by year
+  // once there's more than one. The latest month starts open.
   const pastHTML = pastWeeks.length
-    ? pastWeeks
-        .map((pw) => {
-          const s = weekStats(pw);
-          const r = weekRecord(pw);
-          const met = s.regular.length >= g.touchpoints;
-          return `<article class="week-card">
-            <p class="week-card-head"><span class="week-card-range">${esc(weekRange(pw))}</span>${met ? '<span class="week-card-met">Goal met</span>' : ''}</p>
-            <p class="week-card-stats">${plural(s.regular.length, 'touchpoint')}${s.light.length ? ` <span class="dot">·</span> ${plural(s.light.length, 'light touch', 'light touches')}` : ''} <span class="dot">·</span> ${plural(s.replies.length, 'reply', 'replies')} <span class="dot">·</span> ${s.added.length} new${s.wrapped.length ? ` <span class="dot">·</span> ${plural(s.wrapped.length, 'project')} wrapped` : ''}</p>
-            ${r && r.points.length ? `<div class="points week-card-points" data-week="${pw}"><ul class="point-list">${pointItems(r.points)}</ul></div>` : ''}
-            <button type="button" class="text-btn" data-action="edit-reflection" data-week="${pw}">${r && r.points.length ? '+ Add a point' : 'Add a reflection'}</button>
-          </article>`;
-        })
-        .join('')
+    ? monthFolds('past', pastWeeks.map((pw) => ({ date: pw, html: pastCard(pw) })), { open: 'first' })
     : '<p class="hint">Your past weeks will collect here, with what you logged and what you wrote about them.</p>';
 
   return `
     <header class="topbar"><h1>Weekly review</h1></header>
     <p class="week-range">This week <span class="dot">·</span> ${esc(weekRange(ws))}</p>
-    <div class="dash">
-    <div class="stats-row">
-      ${statBox(`${w.regular.length}<small>/${g.touchpoints}</small>`, 'Touchpoints logged', null, 'touchpoints')}
-      ${statBox(w.replies.length, 'Replies received', null, 'replies')}
-      ${statBox(`${w.added.length}<small>/${g.newPeople}</small>`, 'New people added', null, 'added')}
-    </div>
+    <div class="dash no-stats">
     <div class="dash-main">${weekCols([`
     ${w.light.length ? `<p class="week-split">${plural(w.regular.length, 'touchpoint')}, ${plural(w.light.length, 'light touch', 'light touches')}</p>` : ''}
     ${w.wrapped.length ? `<p class="week-split week-wrapped">${WRAP_ICON}${plural(w.wrapped.length, 'project')} wrapped this week</p>` : ''}
@@ -2975,6 +3033,70 @@ function renderWeek() {
     sectionBlock('week-past', 'Past weeks', pastWeeks.length || null, pastHTML, 'yellow')])}
     </div>
     </div>`;
+}
+
+// Their news, for everyone: every date still to come (a yearly one on its
+// next day), soonest first, in a fold for each month (11-10). A tap opens
+// the person.
+function renderNews() {
+  const today = todayStr();
+  const items = S.news
+    .filter((n) => S.personById.has(n.personId))
+    .map((n) => (n.repeatsYearly ? { ...n, date: nextYearly(n.date, today) } : n))
+    .filter((n) => n.date && n.date >= today)
+    .sort((a, b) => a.date.localeCompare(b.date) || S.personById.get(a.personId).name.localeCompare(S.personById.get(b.personId).name));
+  const row = (n) => {
+    const p = S.personById.get(n.personId);
+    return `<a class="news-item news-row" href="#/person/${esc(p.id)}">
+      <span class="news-item-date">${esc(fmtDate(n.date, { weekday: false }))}</span>
+      <span class="news-row-main"><span class="news-row-name">${esc(p.name)}</span>
+        <span class="news-item-text">${esc(n.description)}${n.repeatsYearly ? ' <span class="yearly-tag">Every year</span>' : ''}</span></span>
+      <span class="news-item-rel">${esc(n.date === today ? 'Today' : cap(relDay(n.date, today)))}</span>
+    </a>`;
+  };
+  return `
+    <header class="topbar"><h1>Their news</h1></header>
+    <p class="hint">Upcoming dates worth reaching out about, soonest first: premieres, launches, new agencies, birthdays. Tap one to open the person.</p>
+    <div class="card-list news-list">${items.length
+      ? monthFolds('news', items.map((n) => ({ date: n.date, html: row(n) })), { open: 'all' })
+      : '<p class="hint">Nothing coming up yet. Add a date on someone\'s page, under Their news.</p>'}</div>`;
+}
+
+// A group in a list (a year, a month) that folds away with a tap on its
+// heading. It starts open or shut as `open` says, then stays as you left it
+// until the app is closed (11-10).
+function foldHTML(key, title, count, inner, open, level = 'month') {
+  const on = S.ui.folds.has(key) ? S.ui.folds.get(key) : open;
+  return `<div class="fold fold-${level}">
+    <h3 class="fold-head${on ? '' : ' collapsed'}" data-action="toggle-fold" data-key="${esc(key)}" role="button" tabindex="0" aria-expanded="${on}"><span>${esc(title)} <span class="fold-n">[${count}]</span></span>${ARROW}</h3>
+    <div class="fold-body"${on ? '' : ' hidden'}>${inner}</div>
+  </div>`;
+}
+
+const monthName = (ym) => new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1).toLocaleDateString('en-US', { month: 'long' });
+
+// Dated things, already in order ({ date, html }), in a fold for each
+// month, and in a fold for each year too once there's more than one year.
+// `open`: 'first' opens only the first month (and its year), 'all' opens
+// every one.
+function monthFolds(prefix, items, { open = 'first' } = {}) {
+  const months = [];
+  for (const it of items) {
+    const ym = it.date.slice(0, 7);
+    let m = months[months.length - 1];
+    if (!m || m.ym !== ym) months.push((m = { ym, items: [] }));
+    m.items.push(it);
+  }
+  if (!months.length) return '';
+  const first = months[0].ym;
+  const opens = (ym) => open === 'all' || ym === first;
+  const monthHTML = (m) => foldHTML(`${prefix}:${m.ym}`, monthName(m.ym), m.items.length, m.items.map((i) => i.html).join(''), opens(m.ym));
+  const years = [...new Set(months.map((m) => m.ym.slice(0, 4)))];
+  if (years.length < 2) return months.map(monthHTML).join('');
+  return years.map((y) => {
+    const ms = months.filter((m) => m.ym.startsWith(y));
+    return foldHTML(`${prefix}:${y}`, y, ms.reduce((n, m) => n + m.items.length, 0), ms.map(monthHTML).join(''), open === 'all' || first.startsWith(y), 'year');
+  }).join('');
 }
 
 // In a big window the weekly review's three parts sit in columns, each
@@ -3552,12 +3674,13 @@ const ROUTES = {
   circle: (id) => renderCircle(id),
   orgs: (id) => renderOrgs(id),
   org: (id) => renderOrg(id),
+  news: () => renderNews(),
   week: () => renderWeek(),
   settings: () => renderSettings(),
   dreams: () => renderDreams(),
 };
 const TAB_FOR = { person: 'people', org: 'orgs', circle: 'circles', dreams: 'people' };
-const TITLES = { today: 'Today', people: 'People', person: 'Person', circles: 'Circles', circle: 'Circle', orgs: 'Organizations', org: 'Organization', week: 'Weekly review', settings: 'Settings', dreams: 'Dream list' };
+const TITLES = { today: 'Today', people: 'People', person: 'Person', circles: 'Circles', circle: 'Circle', orgs: 'Organizations', org: 'Organization', news: 'Their news', week: 'Weekly review', settings: 'Settings', dreams: 'Dream list' };
 
 // #/person/<id>/<touchpoint id> opens a person's page at that touchpoint.
 function parseRoute() {
@@ -3699,6 +3822,12 @@ function render() {
   }
   placeSearchClear();
   currentKey = key;
+  // Opened from People with a reply waiting two days or more: ask now.
+  if (S.ui.askReplyFor) {
+    const ask = r.name === 'person' && S.ui.askReplyFor === r.id ? S.personById.get(r.id) : null;
+    S.ui.askReplyFor = null;
+    if (ask) askWaitingReply(ask);
+  }
 }
 
 wideQuery.addEventListener('change', () => render());
@@ -3743,6 +3872,14 @@ view.addEventListener('click', (e) => {
     const [, , id, focus] = link.getAttribute('href').split('/');
     pickPerson(decodeURIComponent(id), focus ? decodeURIComponent(focus) : null);
   } else pickPerson(host.dataset.pick, host.dataset.focus || null);
+});
+
+// A row on People whose reply has waited two days: opening it asks.
+document.addEventListener('click', (e) => {
+  const a = e.target.closest && e.target.closest('a.row-card[data-ask-reply]');
+  if (!a || e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+  e.preventDefault();
+  openFromPeople(a.dataset.askReply);
 });
 
 window.addEventListener('hashchange', (e) => {
@@ -5730,6 +5867,13 @@ const ACTIONS = {
   back: (el) => {
     if (S.ui.backTo) history.back();
     else location.hash = el.dataset.fallback || '#/today';
+  },
+  'toggle-fold': (el) => {
+    const on = el.getAttribute('aria-expanded') !== 'true';
+    S.ui.folds.set(el.dataset.key, on);
+    el.classList.toggle('collapsed', !on);
+    el.setAttribute('aria-expanded', String(on));
+    el.nextElementSibling.hidden = !on;
   },
   'toggle-section': (el) => {
     const k = el.dataset.key;

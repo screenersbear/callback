@@ -386,12 +386,12 @@ export function buildToday({ people, touchpointsByPerson, news, loops = [], now 
   const dueNews = new Map();
   for (const n of newsToday) if (dueIds.has(n.personId) && !dueNews.has(n.personId)) dueNews.set(n.personId, n);
 
-  // Open loops: one on your side shows once it's due and stays until closed;
-  // one on their side shows once it's late, as a nudge. Before that, both
-  // show under Coming up for the week ahead (like birthdays). Undated loops
-  // never do.
+  // Open loops: either side shows on its day and stays until closed (one on
+  // their side used to wait until it was late, which left it under Coming
+  // up on the day; 11-10). Before that, both show under Coming up for the
+  // week ahead (like birthdays). Undated loops never do.
   const openDated = loops.filter((l) => ids.has(l.personId) && l.status !== 'closed' && l.dueDate);
-  const isLoopToday = (l) => (l.direction === 'theyOwe' ? l.dueDate < today : l.dueDate <= today);
+  const isLoopToday = (l) => l.dueDate <= today;
   const byDue = (a, b) => a.dueDate.localeCompare(b.dueDate) || (a.direction === 'iOwe' ? -1 : 1);
   const loopsToday = openDated.filter(isLoopToday).sort(byDue);
   const leadEnd = addDays(today, LOOP_LEAD_DAYS);

@@ -777,6 +777,27 @@ function draw() {
     if (it.warmth === 'parked' && !it.ghost) ctx.setLineDash([5 * p.s + 1, 4 * p.s + 1]);
     ctx.stroke(path);
     ctx.setLineDash([]);
+    // Waiting on a reply: a little drawn "!" over their head (11-10).
+    if (it.flag && !it.ghost) {
+      const len = Math.max(8, 0.15 * hp);
+      const [bx, by] = o.put([0.03, 1.0]);
+      const mw = Math.max(2, lw * 1.3);
+      const line = new Path2D();
+      line.moveTo(bx + len * 0.1, by - len * 1.5);
+      line.quadraticCurveTo(bx + len * 0.06, by - len * 0.98, bx, by - len * 0.5);
+      const dot = new Path2D();
+      dot.arc(bx - len * 0.03, by - len * 0.12, mw * 0.8, 0, Math.PI * 2);
+      ctx.globalAlpha = o.fade;
+      ctx.strokeStyle = paper;
+      ctx.lineWidth = mw + 4;
+      ctx.stroke(line);
+      ctx.stroke(dot);
+      ctx.strokeStyle = textInk;
+      ctx.fillStyle = textInk;
+      ctx.lineWidth = mw;
+      ctx.stroke(line);
+      ctx.fill(dot);
+    }
     if (!it.ghost && o.fade > 0.5) {
       const half2 = Math.max(18, 0.18 * hp);
       st.hits.push({ id: it.id, s: p.s, x0: p.x - half2, x1: p.x + half2, y0: p.y - hp * 1.02, y1: p.y + FEET * p.s });
