@@ -61,7 +61,7 @@ const S = {
     folds: new Map(),
     scroll: new Map(),
     backTo: null,
-    people: { q: '', sort: 'contact', reverse: false, sortOpen: false, warmth: new Set(), rel: new Set(), interest: new Set(), circles: new Set(), loops: false, dream: false, light: false, role: '', org: '', showParked: false, filtersOpen: false, view: readPeopleView() },
+    people: { q: '', sort: 'contact', reverse: false, sortOpen: false, warmth: new Set(), rel: new Set(), interest: new Set(), circles: new Set(), loops: false, pending: false, dream: false, light: false, role: '', org: '', showParked: false, filtersOpen: false, view: readPeopleView() },
     circle: { sort: 'contact', reverse: false, sortOpen: false, light: false },
     circlesReorder: false,
     orgsQ: '',
@@ -1164,6 +1164,8 @@ function waitingTps(p) {
 function replyToAsk(p) {
   return waitingTps(p).filter((t) => replyCheckDue(p, t)).sort((a, b) => a.date.localeCompare(b.date))[0] || null;
 }
+// The Pending responses filter's icon: the same drawn "!" (11-10).
+const PENDING_ICON = '<svg class="warmth-icon pending-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8.9 1.8c-.3 3.2-.6 6.2-1 9.2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><circle cx="7.5" cy="13.9" r="1.3" fill="currentColor"/></svg>';
 const REPLY_FLAG = ' <span class="reply-flag" title="Waiting on a reply"><svg viewBox="0 0 12 24" aria-hidden="true"><path d="M7.4 2.4c-.4 4.3-.9 8.5-1.5 12.6"/><circle cx="5.3" cy="20.3" r="1.7"/></svg><span class="visually-hidden">Waiting on a reply.</span></span>';
 
 function openFromPeople(id) {
@@ -1213,6 +1215,7 @@ function filteredPeople() {
   if (f.interest.size) list = list.filter((p) => f.interest.has(p.interest));
   if (f.circles.size) list = list.filter((p) => p.circleIds.some((id) => f.circles.has(id)));
   if (f.loops) list = list.filter((p) => openLoopsOf(p.id).length);
+  if (f.pending) list = list.filter((p) => waitingTps(p).length);
   if (f.dream) list = list.filter((p) => p.dreamList);
   if (f.light) list = list.filter((p) => p.lightTouch);
   if (f.role) list = list.filter((p) => (p.role || '').toLowerCase() === f.role.toLowerCase());
@@ -1255,7 +1258,7 @@ function sortPeople(list, sort, reverse = false) {
 
 function activeFilterCount() {
   const f = S.ui.people;
-  return f.warmth.size + f.rel.size + f.interest.size + f.circles.size + (f.loops ? 1 : 0) + (f.dream ? 1 : 0) + (f.light ? 1 : 0) + (f.role ? 1 : 0) + (f.org ? 1 : 0);
+  return f.warmth.size + f.rel.size + f.interest.size + f.circles.size + (f.loops ? 1 : 0) + (f.pending ? 1 : 0) + (f.dream ? 1 : 0) + (f.light ? 1 : 0) + (f.role ? 1 : 0) + (f.org ? 1 : 0);
 }
 
 function peopleListHTML() {
@@ -1289,6 +1292,13 @@ function filtersHTML() {
   const roles = uniqueSorted(S.people.map((p) => p.role));
   const opt = (v, label, sel) => `<option value="${esc(v)}"${sel ? ' selected' : ''}>${esc(label)}</option>`;
   return `
+    <p class="filter-label">Show only</p>
+    <div class="filters">
+      <button type="button" class="chip${f.pending ? ' active' : ''}" data-action="filter-pending" aria-pressed="${f.pending}">${PENDING_ICON}Pending responses</button>
+      <button type="button" class="chip${f.loops ? ' active' : ''}" data-action="filter-loops" aria-pressed="${f.loops}">${loopIcon('count')}Has open loops</button>
+      <button type="button" class="chip${f.dream ? ' active' : ''}" data-action="filter-dream" aria-pressed="${f.dream}">${DREAM_STAR}Dream list</button>
+      <button type="button" class="chip${f.light ? ' active' : ''}" data-action="filter-light" aria-pressed="${f.light}">${LIGHT_ICON}Light touch</button>
+    </div>
     <p class="filter-label">Warmth</p>
     <div class="filters">
       ${WARMTH.filter((w) => w !== 'parked' || f.showParked)
@@ -1307,12 +1317,6 @@ function filtersHTML() {
     <div class="filters">
       ${S.circles.map((c) => `<button type="button" class="chip${f.circles.has(c.id) ? ' active' : ''}" data-action="filter-circle" data-c="${esc(c.id)}" aria-pressed="${f.circles.has(c.id)}">${CIRCLE_ICON}${esc(c.name)}</button>`).join('')}
     </div>` : ''}
-    <p class="filter-label">Show only</p>
-    <div class="filters">
-      <button type="button" class="chip${f.loops ? ' active' : ''}" data-action="filter-loops" aria-pressed="${f.loops}">${loopIcon('count')}Has open loops</button>
-      <button type="button" class="chip${f.dream ? ' active' : ''}" data-action="filter-dream" aria-pressed="${f.dream}">${DREAM_STAR}Dream list</button>
-      <button type="button" class="chip${f.light ? ' active' : ''}" data-action="filter-light" aria-pressed="${f.light}">${LIGHT_ICON}Light touch</button>
-    </div>
     <div class="filter-grid">
       <label class="field"><span class="field-label">Role</span>
         <select data-filter="role">${opt('', 'Any role', !f.role)}${roles.map((r) => opt(r, r, f.role === r)).join('')}</select></label>
@@ -6035,6 +6039,10 @@ const ACTIONS = {
     S.ui.people.loops = !S.ui.people.loops;
     render();
   },
+  'filter-pending': () => {
+    S.ui.people.pending = !S.ui.people.pending;
+    render();
+  },
   'filter-rel': (el) => {
     const set = S.ui.people.rel;
     if (set.has(el.dataset.r)) set.delete(el.dataset.r);
@@ -6081,7 +6089,7 @@ const ACTIONS = {
     searchTyped(input);
   },
   'clear-filters': () => {
-    Object.assign(S.ui.people, { q: '', warmth: new Set(), rel: new Set(), interest: new Set(), circles: new Set(), loops: false, dream: false, light: false, role: '', org: '' });
+    Object.assign(S.ui.people, { q: '', warmth: new Set(), rel: new Set(), interest: new Set(), circles: new Set(), loops: false, pending: false, dream: false, light: false, role: '', org: '' });
     render();
   },
   'edit-reflection': (el) => reflectionSheet(el.dataset.week),
