@@ -87,6 +87,7 @@ export const RELATIONSHIP_TYPES = [
   { key: 'pastClient', label: 'Past client', blurb: "Someone who's hired you. Stay in touch for the next job." },
   { key: 'collaborator', label: 'Collaborator', blurb: 'Someone you make work with: models, actors, artists.' },
   { key: 'industry', label: 'Industry', blurb: 'Someone who connects you to work: agents, bookers, editors, casting.' },
+  { key: 'other', label: 'Other', blurb: 'Anyone else you want to keep in touch with.' },
 ];
 
 export const DEFAULT_RELATIONSHIP = 'prospect';

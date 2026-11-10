@@ -229,6 +229,7 @@ const REL_ICON = {
   prospect: '<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="8" cy="8" r="2.2" fill="currentColor"/>',
   collaborator: '<circle cx="5.7" cy="8" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="10.3" cy="8" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/>',
   industry: '<path d="M3 12.5L8 3.5L13 12.5H3" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="3" cy="12.5" r="2.1" fill="currentColor"/><circle cx="13" cy="12.5" r="2.1" fill="currentColor"/><circle cx="8" cy="3.5" r="2.1" fill="currentColor"/>',
+  other: '<circle cx="2.8" cy="8" r="1.9" fill="currentColor"/><circle cx="8" cy="8" r="1.9" fill="currentColor"/><circle cx="13.2" cy="8" r="1.9" fill="currentColor"/>',
 };
 
 function relIcon(t) {
@@ -1743,20 +1744,22 @@ function renderPerson(id, { panel = false } = {}) {
   // A light touch is never late: a missed one carries on from today.
   const light = p.lightTouch && p.warmth !== 'parked';
   const shownNext = light && next < today ? today : next;
-  // Wrap project sits right next to the On a project badge, and only while
+  // Warmth sits under their drawing, with Wrap project under it while
   // they're on a project (11-10).
   const onProject = p.warmth === 'client';
   const overdue = p.warmth !== 'parked' && !light && (stage === 'justMet' ? deadline < today : next < today);
   const sub = subLine(p, { link: true });
   const left = `
     <header class="person-head has-fig">
-      <button type="button" class="person-fig" data-action="change-figure" data-id="${pid}" style="color: var(--w-${esc(p.warmth)})" aria-label="How they're drawn: ${esc(figureWords(figureOf(p)).toLowerCase())}. Change it">${figureSVG(figureOf(p), 'person-fig-pic', 170)}</button>
+      <div class="person-side">
+        <button type="button" class="person-fig" data-action="change-figure" data-id="${pid}" style="color: var(--w-${esc(p.warmth)})" aria-label="How they're drawn: ${esc(figureWords(figureOf(p)).toLowerCase())}. Change it">${figureSVG(figureOf(p), 'person-fig-pic', 170)}</button>
+        <button type="button" class="warmth-btn" data-action="change-warmth" data-id="${pid}" aria-label="Change warmth, now ${esc(WARMTH_INFO[p.warmth].label)}">
+          ${warmthBadge(p.warmth)}</button>${onProject ? `<button type="button" class="warmth-btn" data-action="wrap-project" data-id="${pid}">
+          <span class="dream-badge wrap-badge">${WRAP_ICON}<span>Wrap project</span></span></button>` : ''}
+      </div>
       <div class="person-name-line"><h1 class="person-name">${esc(p.name)}</h1>${dreamStar(p)}</div>
       ${sub ? `<p class="person-sub">${sub}</p>` : ''}
       <div class="person-badges">
-        <span class="warmth-pair"><button type="button" class="warmth-btn" data-action="change-warmth" data-id="${pid}" aria-label="Change warmth, now ${esc(WARMTH_INFO[p.warmth].label)}">
-          ${warmthBadge(p.warmth)}</button>${onProject ? `<button type="button" class="warmth-btn" data-action="wrap-project" data-id="${pid}">
-          <span class="dream-badge wrap-badge">${WRAP_ICON}<span>Wrap project</span></span></button>` : ''}</span>
         <button type="button" class="warmth-btn" data-action="change-rel" data-id="${pid}" aria-label="Change relationship, now ${esc(relWords(p))}">
           <span class="rel-set">${relLabels(p)}</span></button>
         <button type="button" class="warmth-btn light-toggle${p.lightTouch ? ' is-on' : ''}" data-action="toggle-light" data-id="${pid}" aria-pressed="${p.lightTouch ? 'true' : 'false'}" aria-label="Light touch">

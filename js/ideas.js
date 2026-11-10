@@ -192,7 +192,7 @@ function builtInIdeasFor(person) {
   const list = [];
   if (types.includes('pastClient')) list.push(...PAST_CLIENT);
   if (types.includes('collaborator')) list.push(...COLLABORATOR);
-  if (types.includes('prospect') || types.includes('industry')) {
+  if (types.includes('prospect') || types.includes('industry') || types.includes('other')) {
     list.push(...BY_ROLE.filter((r) => r.match.test(role)).flatMap((r) => r.ideas), ...GENERAL);
   }
   return [...new Set(list)];
