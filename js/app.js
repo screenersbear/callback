@@ -1425,7 +1425,7 @@ function renderPeopleHand(f, n) {
       </div>
       <label class="hand-search"><span class="visually-hidden">Search people</span>
         <input type="search" id="peopleSearch" placeholder="Search name, org, notes" value="${esc(f.q)}" autocomplete="off" enterkeyhint="search">${HAND_RULE}
-        <button type="button" class="search-clear" data-action="clear-search" aria-label="Clear search, show everyone"${f.q ? '' : ' hidden'}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.2 2.4c2.6 2.4 5.2 5.2 7.8 8M10 2.1C7.6 4.8 4.9 7.5 2 10.4"/></svg></button></label>
+        <button type="button" class="search-clear" data-action="clear-search" data-for="peopleSearch" aria-label="Clear search, show everyone"${f.q ? '' : ' hidden'}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.2 2.4c2.6 2.4 5.2 5.2 7.8 8M10 2.1C7.6 4.8 4.9 7.5 2 10.4"/></svg></button></label>
       <div class="toolbar hand-tools">
         <button type="button" class="hand-tool" data-action="toggle-sort" aria-expanded="${f.sortOpen}">${esc(sortLabel(f))}</button>
         <button type="button" class="hand-tool${n ? ' is-on' : ''}" data-action="toggle-filters" aria-expanded="${f.filtersOpen}">Filter: ${n ? n : 'All'}</button>
@@ -1462,13 +1462,15 @@ function renderPeople() {
     <div class="card-list" id="peopleList">${peopleListHTML()}</div>`;
 }
 
-// The x after a name typed in the People search sits a space after the
-// last letter. Tapping it clears the search back to everyone.
+// The x after a name typed in the People (or Orgs) search sits a space
+// after the last letter. Tapping it clears the search back to everyone.
 let searchRuler = null;
 function placeSearchClear() {
-  const input = document.getElementById('peopleSearch');
-  const x = input && input.parentElement.querySelector('.search-clear');
-  if (!x) return;
+  view.querySelectorAll('.search-clear').forEach(placeClearX);
+}
+function placeClearX(x) {
+  const input = document.getElementById(x.dataset.for);
+  if (!input) return;
   x.hidden = !input.value;
   if (!input.value) return;
   const cs = getComputedStyle(input);
@@ -2298,7 +2300,8 @@ function renderOrgs(id) {
         ${listButton('orgs-view', !map)}
       </div>
       <label class="hand-search"><span class="visually-hidden">Search organizations</span>
-        <input type="search" id="orgSearch" placeholder="Search organizations" value="${esc(S.ui.orgsQ)}" autocomplete="off">${HAND_RULE}</label>
+        <input type="search" id="orgSearch" placeholder="Search organizations" value="${esc(S.ui.orgsQ)}" autocomplete="off" enterkeyhint="search">${HAND_RULE}
+        <button type="button" class="search-clear" data-action="clear-search" data-for="orgSearch" aria-label="Clear search, show every organization"${S.ui.orgsQ ? '' : ' hidden'}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.2 2.4c2.6 2.4 5.2 5.2 7.8 8M10 2.1C7.6 4.8 4.9 7.5 2 10.4"/></svg></button></label>
     </div>
     ${map && list.length ? mapHTML('orgs', list) : `<div class="card-list" id="orgList">${body}</div>`}`;
   }
@@ -5546,15 +5549,12 @@ const ACTIONS = {
     try { localStorage.setItem('callback.peopleView', S.ui.people.view); } catch { /* this device only */ }
     render();
   },
-  'clear-search': () => {
-    const input = document.getElementById('peopleSearch');
-    S.ui.people.q = '';
-    if (input) {
-      input.value = '';
-      input.blur();
-    }
-    updatePeopleList();
-    placeSearchClear();
+  'clear-search': (el) => {
+    const input = document.getElementById(el.dataset.for);
+    if (!input) return;
+    input.value = '';
+    input.blur();
+    searchTyped(input);
   },
   'clear-filters': () => {
     Object.assign(S.ui.people, { q: '', warmth: new Set(), rel: new Set(), interest: new Set(), circles: new Set(), loops: false, dream: false, light: false, role: '', org: '' });
@@ -5647,8 +5647,8 @@ document.addEventListener('click', (e) => {
 // Section headings act like buttons from the keyboard too, and Enter in an
 // in-place detail field saves it.
 document.addEventListener('keydown', (e) => {
-  // Enter in the People search puts the keyboard away so the results show.
-  if (e.key === 'Enter' && !e.isComposing && e.target.id === 'peopleSearch') {
+  // Enter in the People or Orgs search puts the keyboard away so the results show.
+  if (e.key === 'Enter' && !e.isComposing && (e.target.id === 'peopleSearch' || e.target.id === 'orgSearch')) {
     e.preventDefault();
     e.target.blur();
     return;
@@ -5679,10 +5679,14 @@ document.addEventListener('input', (e) => {
       t.setSelectionRange(caret, caret);
     }
   }
+  if (t.id === 'peopleSearch' || t.id === 'orgSearch') searchTyped(t);
+});
+
+// The People or Orgs search changed: show what matches.
+function searchTyped(t) {
   if (t.id === 'peopleSearch') {
     S.ui.people.q = t.value;
     updatePeopleList();
-    placeSearchClear();
   } else if (t.id === 'orgSearch') {
     S.ui.orgsQ = t.value;
     const list = document.getElementById('orgList');
@@ -5697,7 +5701,8 @@ document.addEventListener('input', (e) => {
     }
     markSelected();
   }
-});
+  placeSearchClear();
+}
 
 // What worked: Enter adds a point (or finishes an edit), a tap on a point
 // edits it, and leaving an edited point saves it. Works on Weekly review and
