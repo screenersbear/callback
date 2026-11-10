@@ -1424,7 +1424,8 @@ function renderPeopleHand(f, n) {
         <button type="button" class="hand-btn hand-list" data-action="people-view" aria-pressed="${!ring}"><span class="hand-btn-text">${HAND_LIST}List</span>${HAND_RING}${statScrib('List')}</button>
       </div>
       <label class="hand-search"><span class="visually-hidden">Search people</span>
-        <input type="search" id="peopleSearch" placeholder="Search name, org, notes" value="${esc(f.q)}" autocomplete="off">${HAND_RULE}</label>
+        <input type="search" id="peopleSearch" placeholder="Search name, org, notes" value="${esc(f.q)}" autocomplete="off" enterkeyhint="search">${HAND_RULE}
+        <button type="button" class="search-clear" data-action="clear-search" aria-label="Clear search, show everyone"${f.q ? '' : ' hidden'}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.2 2.4c2.6 2.4 5.2 5.2 7.8 8M10 2.1C7.6 4.8 4.9 7.5 2 10.4"/></svg></button></label>
       <div class="toolbar hand-tools">
         <button type="button" class="hand-tool" data-action="toggle-sort" aria-expanded="${f.sortOpen}">${esc(sortLabel(f))}</button>
         <button type="button" class="hand-tool${n ? ' is-on' : ''}" data-action="toggle-filters" aria-expanded="${f.filtersOpen}">Filter: ${n ? n : 'All'}</button>
@@ -1459,6 +1460,25 @@ function renderPeople() {
     ${sortPanelHTML(f)}
     <div class="filters-panel" id="filtersPanel"${f.filtersOpen ? '' : ' hidden'}>${filtersHTML()}</div>` : ''}
     <div class="card-list" id="peopleList">${peopleListHTML()}</div>`;
+}
+
+// The x after a name typed in the People search sits a space after the
+// last letter. Tapping it clears the search back to everyone.
+let searchRuler = null;
+function placeSearchClear() {
+  const input = document.getElementById('peopleSearch');
+  const x = input && input.parentElement.querySelector('.search-clear');
+  if (!x) return;
+  x.hidden = !input.value;
+  if (!input.value) return;
+  const cs = getComputedStyle(input);
+  searchRuler = searchRuler || document.createElement('canvas').getContext('2d');
+  searchRuler.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  const end = parseFloat(cs.paddingLeft) + searchRuler.measureText(input.value).width - input.scrollLeft;
+  const space = searchRuler.measureText(' ').width;
+  // The button is wider than its x so it's easy to tap; the x sits in its middle.
+  const pad = (x.offsetWidth - 12) / 2;
+  x.style.left = `${Math.min(end + space - pad, input.offsetWidth - x.offsetWidth)}px`;
 }
 
 function updatePeopleList() {
@@ -3453,6 +3473,7 @@ function render() {
     item.scrollIntoView({ block: 'center' });
     item.classList.add('is-focus');
   }
+  placeSearchClear();
   currentKey = key;
 }
 
@@ -3469,11 +3490,15 @@ window.addEventListener('resize', () => {
     const b = view.querySelector('.board[data-fit]');
     if (b && Number(b.dataset.fit) !== boardFit(!!view.querySelector('.pick-panel'))) render();
     else view.querySelectorAll('textarea.pd-value').forEach(fitHeight);
+    placeSearchClear();
   }, 120);
 });
 // The hand font arriving after the page drew can wrap a detail onto
 // another line, so they're measured again.
-if (document.fonts) document.fonts.addEventListener('loadingdone', () => view.querySelectorAll('textarea.pd-value').forEach(fitHeight));
+if (document.fonts) document.fonts.addEventListener('loadingdone', () => {
+  view.querySelectorAll('textarea.pd-value').forEach(fitHeight);
+  placeSearchClear();
+});
 
 // A click anywhere on someone's card on Today (but its buttons) opens
 // them: on the board, on the right; otherwise their page. Selecting text
@@ -5521,6 +5546,16 @@ const ACTIONS = {
     try { localStorage.setItem('callback.peopleView', S.ui.people.view); } catch { /* this device only */ }
     render();
   },
+  'clear-search': () => {
+    const input = document.getElementById('peopleSearch');
+    S.ui.people.q = '';
+    if (input) {
+      input.value = '';
+      input.blur();
+    }
+    updatePeopleList();
+    placeSearchClear();
+  },
   'clear-filters': () => {
     Object.assign(S.ui.people, { q: '', warmth: new Set(), rel: new Set(), interest: new Set(), circles: new Set(), loops: false, dream: false, light: false, role: '', org: '' });
     render();
@@ -5612,6 +5647,12 @@ document.addEventListener('click', (e) => {
 // Section headings act like buttons from the keyboard too, and Enter in an
 // in-place detail field saves it.
 document.addEventListener('keydown', (e) => {
+  // Enter in the People search puts the keyboard away so the results show.
+  if (e.key === 'Enter' && !e.isComposing && e.target.id === 'peopleSearch') {
+    e.preventDefault();
+    e.target.blur();
+    return;
+  }
   if (e.key === 'Enter' && e.target.matches && e.target.matches('[data-detail-field]')) {
     e.preventDefault();
     e.target.blur();
@@ -5641,6 +5682,7 @@ document.addEventListener('input', (e) => {
   if (t.id === 'peopleSearch') {
     S.ui.people.q = t.value;
     updatePeopleList();
+    placeSearchClear();
   } else if (t.id === 'orgSearch') {
     S.ui.orgsQ = t.value;
     const list = document.getElementById('orgList');
