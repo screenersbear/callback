@@ -75,21 +75,30 @@ function sunTimes(d) {
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const smooth = (a, b, v) => { const x = clamp((v - a) / (b - a), 0, 1); return x * x * (3 - 2 * x); };
 
+// How far past sunrise or sunset the sun can still be seen going down, as
+// a part of the day.
+const SUN_EDGE = 0.05;
+
 // Where the day is: the sun's way across (0 at sunrise, 1 at sunset), how
-// golden it is, and how much it's night (0 by day, 1 an hour after sunset).
+// golden it is, how much it's night (0 by day, 1 an hour after sunset), and
+// how much the stars are out (11-10: only once the sun is fully gone, and
+// gone again before it shows in the morning).
 export function skyNow() {
   const d = now();
   const m = d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
   const { rise, set } = sunTimes(d);
   const evening = smooth(set - 75, set - 20, m);
   const morning = 0.6 * smooth(rise - 20, rise, m) * (1 - smooth(rise + 15, rise + 55, m));
+  const night = Math.max(smooth(set + 5, set + 60, m), 1 - smooth(rise - 50, rise, m));
+  const edge = SUN_EDGE * (set - rise);
   return {
     f: (m - rise) / (set - rise),
     // The page warms in golden hour and lets go of it as the light goes.
     golden: Math.max(evening * (1 - smooth(set + 10, set + 35, m)), morning),
     // The sun itself stays orange all the way down.
     sunGold: Math.max(evening, morning),
-    night: Math.max(smooth(set + 5, set + 60, m), 1 - smooth(rise - 50, rise, m)),
+    night,
+    stars: night * Math.max(smooth(set + edge, set + edge + 20, m), 1 - smooth(rise - edge - 20, rise - edge, m)),
     rise,
     set,
   };
@@ -200,10 +209,10 @@ export function skyLines({ W, hx, hy, R, t, calm, clouds = [] }) {
   const top = 14;
   const low = hy - R * 0.55; // where the sun comes up and goes down
   // The sun, rising on the left and setting on the right.
-  if (s.f > -0.05 && s.f < 1.05) {
+  if (s.f > -SUN_EDGE && s.f < 1 + SUN_EDGE) {
     const f = clamp(s.f, 0, 1);
     const sink = s.f < 0 ? -s.f : s.f > 1 ? s.f - 1 : 0;
-    const fade = 1 - smooth(0.25, 1, sink / 0.05);
+    const fade = 1 - smooth(0.25, 1, sink / SUN_EDGE);
     const sr = clamp(W * 0.065, 18, 30);
     const x = W * (0.08 + 0.84 * f);
     const y = low - (low - (top + sr * 1.7)) * Math.sin(Math.PI * f) + sink * 900 + (calm ? 0 : Math.sin(t * 0.6) * 1.6);
@@ -222,7 +231,7 @@ export function skyLines({ W, hx, hy, R, t, calm, clouds = [] }) {
     out.push({ d: rays, stroke, w: 2.2, fill: null, op: fade });
   }
   // Night: outline stars, each twinkling on its own.
-  if (s.night > 0.01) {
+  if (s.stars > 0.01) {
     // The lowest a star's middle goes: its points stay clear of the hair.
     const bottom = Math.max(top, hy - R * HAIR_TOP - 12);
     const color = dark ? '#e9c548' : '#dca800';
@@ -243,7 +252,7 @@ export function skyLines({ W, hx, hy, R, t, calm, clouds = [] }) {
       const spin = hash(i + 4) * 0.4 - 0.2 + (calm ? 0 : 0.14 * Math.sin(t * (0.35 + hash(i + 6) * 0.25) + i));
       const tw = calm ? 1 : 0.82 + 0.18 * Math.sin(t * (0.7 + hash(i) * 0.6) + i * 2.1);
       const sz = size * (calm ? 1 : 0.94 + 0.08 * Math.sin(t * 0.5 + i));
-      out.push({ d: star(x, y, sz, i * 3.7, spin), stroke: color, w: 1.9, fill: null, op: Math.round(s.night * tw * 100) / 100 });
+      out.push({ d: star(x, y, sz, i * 3.7, spin), stroke: color, w: 1.9, fill: null, op: Math.round(s.stars * tw * 100) / 100 });
     });
   }
   return out;
