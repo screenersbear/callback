@@ -2540,6 +2540,14 @@ html:has(.map-wrap), html:has(.ring-wrap.is-inside) { background: var(--bg); }
   #app:has(> .view:not(.is-split) .people-hand) { max-width: 624px; }
   #app:has(> .view:not(.is-split) :is(.ring-wrap, [data-map-slot])) { padding-bottom: 0; }
 }
+/* A window wide enough for the cards beside the head (app.js thoughtQuery)
+   keeps their room on the right, open or not, so the head sits on the left
+   from the start and stays put when a bubble opens its cards (11-10). */
+@media (min-width: 1300px) {
+  .dash.is-mind, .dash.is-mind.has-thought { grid-template-columns: 172px minmax(0, 520px) minmax(340px, 1fr); }
+  .dash.is-mind .mind-slot { max-width: none; margin: 0 0 0 -16px; }
+  .thought-panel { max-width: 560px; }
+}
 @media (min-width: 1100px) {
   .split-list:has(.ring-wrap, [data-map-slot]) { padding-bottom: 0; }
   /* Inside a circle or organization, its page is already on the right. */
