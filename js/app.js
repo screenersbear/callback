@@ -1554,8 +1554,8 @@ function renderPerson(id, { panel = false } = {}) {
           <span class="rel-set">${relLabels(p)}</span></button>
         ${p.dreamList ? `<button type="button" class="warmth-btn" data-action="dream-off" data-id="${pid}" aria-label="On your dream list. Take them off it">
           ${dreamBadge()}<span class="warmth-btn-hint">Remove</span></button>` : ''}
-        ${p.lightTouch ? `<button type="button" class="warmth-btn" data-action="light-off" data-id="${pid}" aria-label="Light touch is on. Turn it off">
-          ${lightBadge()}<span class="warmth-btn-hint">Turn off</span></button>` : ''}
+        <button type="button" class="warmth-btn light-toggle${p.lightTouch ? ' is-on' : ''}" data-action="toggle-light" data-id="${pid}" aria-pressed="${p.lightTouch ? 'true' : 'false'}" aria-label="Light touch">
+          ${lightBadge()}</button>
       </div>
       <div class="person-circles">${circleChips(p, { link: true })}
         <button type="button" class="circle-change" data-action="change-circles" data-id="${pid}">${circlesOf(p).length ? 'Change circles' : '+ Add to a circle'}</button></div>
@@ -3698,12 +3698,34 @@ async function endDream(p) {
 
 // Off light touch by hand: their normal rhythm from the latest touchpoint,
 // never overdue because of it.
+// The Light touch box on someone's page turns it on; the note says what
+// that means.
+async function startLightTouch(p) {
+  if (!p || p.lightTouch) return;
+  const tps = tpsOf(p.id);
+  const rec = { ...p, lightTouch: true };
+  if (tps.length || p.nextTouchpointDate) rec.nextTouchpointDate = computeNextDate(rec, tps, S.settings, todayStr());
+  await db.savePerson(rec);
+  await refresh();
+  toast(`Light touch on. ${firstName(p)} gets a small gesture every ${span(S.settings.cadence.lightTouch)}, kept in a quiet spot at the bottom of Today.`, {
+    ms: 5000,
+    action: {
+      label: 'Undo',
+      run: async () => {
+        await db.savePerson({ ...S.personById.get(p.id), lightTouch: false, nextTouchpointDate: p.nextTouchpointDate });
+        await refresh();
+      },
+    },
+  });
+}
+
 async function endLightTouch(p) {
   if (!p || !p.lightTouch) return;
   const rec = { ...p, ...lightOffFields(p, tpsOf(p.id), S.settings, todayStr()) };
   await db.savePerson(rec);
   await refresh();
-  toast(`${firstName(p)} is off light touch.${rec.nextTouchpointDate ? ` Next touchpoint ${fmtDate(rec.nextTouchpointDate)}.` : ''}`, {
+  toast(`Light touch off. ${firstName(p)} is back on their usual rhythm${rec.nextTouchpointDate ? `, next touchpoint ${fmtDate(rec.nextTouchpointDate)}` : ''}.`, {
+    ms: 5000,
     action: {
       label: 'Undo',
       run: async () => {
@@ -5251,6 +5273,10 @@ const ACTIONS = {
   'edit-person': (el) => personForm(person(el)),
   'quick-add': () => quickAddSheet(),
   'light-off': (el) => endLightTouch(person(el)),
+  'toggle-light': (el) => {
+    const p = person(el);
+    if (p) (p.lightTouch ? endLightTouch(p) : startLightTouch(p));
+  },
   'dream-off': (el) => endDream(person(el)),
   'dismiss-engage': async (el) => {
     const p = person(el);

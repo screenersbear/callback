@@ -1084,6 +1084,9 @@ details.loop-done[open] summary { margin-bottom: 8px; }
 .warmth-btn-hint { font-size: 15px; font-weight: 700; letter-spacing: 0.5px; color: var(--text); }
 /* Warmth, relationship and interest change with a tap on them. */
 .warmth-btn { cursor: pointer; }
+/* Light touch on someone's page stays put: tap it on or off. Filled in when on (11-10). */
+.light-toggle .light-badge { transition: background-color 0.15s ease, color 0.15s ease; }
+.light-toggle.is-on .light-badge { background: var(--hero); border-color: var(--hero); color: #fff; }
 
 .next-panel {
   position: relative;
