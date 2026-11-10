@@ -285,8 +285,11 @@ const DREAM_SKY_STAR = '<svg class="warmth-icon dream-sky-star" viewBox="0 0 16 
 const DREAM_STAR = '<svg class="warmth-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.4l2 4.3 4.6.6-3.4 3.2.9 4.6L8 11.8 3.9 14.1l.9-4.6L1.4 6.3 6 5.7z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>';
 
 // The dream list on someone's page: a star by their name, drawn like a
-// colouring book outline (the sky star's line). Tap it and it's coloured in
-// yellow, with a quick crayon scribble the first time (11-10).
+// colouring book outline (the sky star's line). Empty, its line is broken
+// up like a quick drawing (one break along each side); tap it
+// and it's coloured in yellow with a solid line, with a quick crayon
+// scribble the first time (11-10).
+const STAR_DASHED = 'M9 4.17L9.8 5.7L11.01 5.72M13 5.77L14.7 5.8L13.89 6.59M12.45 7.98L11.3 9.1L11.66 10.22M12.29 12.12L12.8 13.7L11.67 13.15M9.88 12.27L8.3 11.5L7.42 12.31M5.94 13.66L4.7 14.8L4.77 13.64M4.9 11.64L5 10L4.08 9.3M2.5 8.09L1.2 7.1L2.2 6.92M4.16 6.56L5.6 6.3L6.1 4.98M6.81 3.12L7.5 1.3L8.07 2.39';
 const STAR_LINE = 'M7.5 1.3L9.8 5.7L14.7 5.8L11.3 9.1L12.8 13.7L8.3 11.5L4.7 14.8L5 10L1.2 7.1L5.6 6.3L7.5 1.3L7.9 2.1';
 const STAR_SHAPE = 'M7.5 1.3L9.8 5.7L14.7 5.8L11.3 9.1L12.8 13.7L8.3 11.5L4.7 14.8L5 10L1.2 7.1L5.6 6.3Z';
 const STAR_SCRIBBLE = 'M0 -0.4 L16 1.2 L0 2.8 L16 4.4 L0 6 L16 7.6 L0 9.2 L16 10.8 L0 12.4 L16 14 L0 15.6 L16 17.2';
@@ -299,7 +302,7 @@ function dreamStar(p) {
     <svg class="dream-star-pic" viewBox="0 0 16 16" aria-hidden="true">
       <clipPath id="${id}"><path d="${STAR_SHAPE}"/></clipPath>
       ${p.dreamList ? `<path class="dream-star-fill" d="${STAR_SCRIBBLE}" clip-path="url(#${id})"/>` : ''}
-      <path class="dream-star-line" d="${STAR_LINE}"/>
+      <path class="dream-star-line${p.dreamList ? '' : ' is-broken'}" d="${p.dreamList ? STAR_LINE : STAR_DASHED}"/>
     </svg></button>`;
 }
 
