@@ -24,7 +24,7 @@ import { openSheet, confirmSheet, choiceSheet, toast, closeAllSheets } from './u
 import { updateSwipeBar, setSwipePeek } from './swipebar.js';
 import * as sync from './sync.js';
 import { getPath } from './merge.js';
-import { mountMind, BUDDIES, buddyStyle, setBuddy, buddySVG } from './mind.js';
+import { mountMind, BUDDIES, buddyStyle, setBuddy, buddySVG, setWelcome } from './mind.js';
 import { startSky } from './sky.js';
 import { mountRing, figureSVG } from './ring.js';
 import { mountMap } from './map.js';
@@ -565,7 +565,9 @@ function renderToday() {
   // Today is the numbers and the head: every section is one of its thought
   // bubbles, so there's no header and no list of sections. A wide window
   // can have the board instead (List).
-  const head = S.people.length > 0 && (phoneQuery.matches || S.ui.todayView !== 'list');
+  // With nobody yet it's the head too (one bubble, to add someone), unless
+  // a wide window has List on. The welcome is always the head.
+  const head = !!S.ui.welcome || phoneQuery.matches || S.ui.todayView !== 'list';
   let html = head ? '' : `
     <div class="hero-band">
       <div class="brand-row">
@@ -574,7 +576,7 @@ function renderToday() {
       </div>
     </div>`;
 
-  if (!S.people.length) return html + firstRunHTML();
+  if (!S.people.length && !head) return html + firstRunHTML();
 
   const week = weekStats(weekStartStr(today));
   const g = S.settings.goals;
@@ -590,8 +592,9 @@ function renderToday() {
     // A bubble clicked in a big window: its cards on the right of the head.
     const sec = thoughtBeside() && S.ui.thoughtKey ? list.find((b) => b.key === S.ui.thoughtKey) : null;
     if (!sec) S.ui.thoughtKey = null;
-    const toggle = phoneQuery.matches ? '' : `<div class="today-view">${listButton('today-view', false)}</div>`;
-    return `<div class="dash is-mind${sec ? ' has-thought' : ''}">${stats}<div class="dash-main">${toggle}${conflictBannerHTML()}${exportReminderHTML(today)}${mindSlotHTML(list)}</div>${sec ? thoughtPanelHTML(sec) : ''}</div>`;
+    const toggle = phoneQuery.matches || S.ui.welcome ? '' : `<div class="today-view">${listButton('today-view', false)}</div>`;
+    const cls = `${sec ? ' has-thought' : ''}${S.ui.welcome ? ' is-welcome' : ''}${S.ui.arrive ? ' is-arriving' : ''}`;
+    return `<div class="dash is-mind${cls}">${stats}<div class="dash-main">${S.ui.welcome ? welcomeHTML() : ''}${toggle}${conflictBannerHTML()}${exportReminderHTML(today)}${mindSlotHTML(list)}</div>${sec ? thoughtPanelHTML(sec) : ''}</div>`;
   }
   const dash = (rest, aside = '') => `${html}<div class="dash${aside ? ' has-pick' : ''}">${stats}<div class="dash-main"><div class="today-view">${listButton('today-view', true)}</div>${conflictBannerHTML()}${exportReminderHTML(today)}${rest}</div>${aside}</div>`;
 
@@ -662,8 +665,12 @@ function mindSlotHTML(list) {
   const byKey = new Map(list.map((b) => [b.key, b]));
   // With just one, these read in the singular ("1 open loop").
   const one = { loops: 'open loop', 'today-light': 'light touch' };
-  const bubbles = THOUGHTS.filter(([k]) => byKey.has(k)).map(([key, label]) => ({ key, label: byKey.get(key).n === 1 && one[key] ? one[key] : label, title: byKey.get(key).title, n: byKey.get(key).n, weight: WEIGHT[key] ?? 1 }));
-  todayMind = { bubbles, pending: bubbles.reduce((a, b) => a + b.n * b.weight, 0) };
+  let bubbles = THOUGHTS.filter(([k]) => byKey.has(k)).map(([key, label]) => ({ key, label: byKey.get(key).n === 1 && one[key] ? one[key] : label, title: byKey.get(key).title, n: byKey.get(key).n, weight: WEIGHT[key] ?? 1 }));
+  // Nobody yet: one bubble, to add the first person (openThought). None
+  // at all while the welcome is up.
+  if (!S.people.length) bubbles = [{ key: 'first', label: 'add someone', title: 'Add your first person', n: '+', weight: 0, aria: 'Add your first person' }];
+  if (S.ui.welcome) bubbles = [];
+  todayMind = { bubbles, pending: bubbles.reduce((a, b) => a + (typeof b.n === 'number' ? b.n * b.weight : 0), 0) };
   return '<div class="mind-slot" data-mind-slot></div>';
 }
 
@@ -697,6 +704,10 @@ function thoughtSheet(key) {
 const thoughtQuery = window.matchMedia('(min-width: 1300px)');
 const thoughtBeside = () => thoughtQuery.matches && !phoneQuery.matches;
 function openThought(key) {
+  if (key === 'first') {
+    personForm(null);
+    return;
+  }
   if (!thoughtBeside()) {
     thoughtSheet(key);
     return;
@@ -713,7 +724,78 @@ function thoughtPanelHTML(sec) {
   </aside>`;
 }
 
-// Tapping the buddy's face: pick how it looks. Kept on this device.
+// Tapping the buddy's face (11-10): Settings, Buddy and Help, over its head.
+// Tapping the face again, or anywhere else, puts them away.
+function faceMenu() {
+  if (closeFaceMenu() || S.ui.welcome) return;
+  const head = document.querySelector('.mind-head');
+  if (!head) return;
+  const m = document.createElement('div');
+  m.className = 'buddy-menu';
+  m.dataset.acts = '';
+  m.setAttribute('role', 'menu');
+  m.setAttribute('aria-label', 'Buddy');
+  m.innerHTML = [['face-settings', 'Settings'], ['face-buddy', 'Buddy'], ['face-help', 'Help']]
+    .map(([a, label]) => `<button type="button" class="hand-btn" role="menuitem" data-action="${a}"><span class="hand-btn-text">${label}</span>${statScrib(label)}</button>`).join('');
+  document.body.appendChild(m);
+  placeFaceMenu();
+  if (head.matches(':focus-visible')) m.querySelector('button').focus({ preventScroll: true });
+}
+function placeFaceMenu() {
+  const m = document.querySelector('.buddy-menu');
+  const head = document.querySelector('.mind-head');
+  if (!m) return;
+  if (!head || !head.isConnected) {
+    m.remove();
+    return;
+  }
+  const r = head.getBoundingClientRect();
+  // The tap area is 2.7 head sizes tall; the head's top is just inside it.
+  const left = Math.max(12, Math.min(window.innerWidth - m.offsetWidth - 12, r.left + r.width / 2 - m.offsetWidth / 2));
+  const top = Math.max(12, r.top + r.height * 0.05 - m.offsetHeight - 4);
+  m.style.left = `${Math.round(left)}px`;
+  m.style.top = `${Math.round(top)}px`;
+}
+function closeFaceMenu() {
+  const m = document.querySelector('.buddy-menu');
+  if (m) m.remove();
+  return !!m;
+}
+document.addEventListener('pointerdown', (e) => {
+  if (document.querySelector('.buddy-menu') && !e.target.closest('.buddy-menu, .mind-head')) closeFaceMenu();
+}, true);
+window.addEventListener('resize', placeFaceMenu);
+window.addEventListener('scroll', () => closeFaceMenu(), { passive: true });
+
+// Help (11-10): just the tour, the one offered on first open.
+function helpSheet() {
+  const s = openSheet({
+    title: 'Help',
+    className: 'help-sheet',
+    body: `<p class="sheet-message">Want a tour of the app? It's the same one you could take when you first opened Callback.</p>
+      <button type="button" class="modal-cta primary" data-action="tour-start">Take the tour</button>`,
+  });
+  s.el.dataset.acts = '';
+}
+
+// Settings (11-10): a pop-up from the buddy's face, out of the bottom bar.
+// #/settings (the Mac menu, the 7 key, an old link) opens it over the page
+// you were on. It redraws with the page, unless you're typing in it.
+function openSettings() {
+  if (S.ui.settings && S.ui.settings.overlay.isConnected) return;
+  S.ui.settings = openSheet({ title: 'Settings', className: 'settings-sheet', body: renderSettings(true), onClose: () => { S.ui.settings = null; } });
+}
+function refreshSettings() {
+  const s = S.ui.settings;
+  if (!s || !s.overlay.isConnected) return;
+  const a = document.activeElement;
+  if (a && s.body.contains(a) && a.matches('input, textarea, select')) return;
+  const y = s.body.scrollTop;
+  s.body.innerHTML = renderSettings(true);
+  s.body.scrollTop = y;
+}
+
+// Picking how the buddy looks. Kept on this device.
 function buddySheet() {
   const cur = buddyStyle().key;
   const pick = (b) => `<button type="button" class="buddy-option${b.key === cur ? ' is-on' : ''}" data-buddy="${b.key}" aria-pressed="${b.key === cur}">${buddySVG(b.key)}<span>${esc(b.label)}</span></button>`;
@@ -1461,7 +1543,7 @@ function peekPage(name, page) {
     const y = fromDetail ? S.ui.scroll.get(`${name}/`) || 0 : 0;
     if (y) page.style.transform = `translate3d(0, ${-y}px, 0)`;
     const mind = pv.querySelector('[data-mind-slot]');
-    if (mind) mountMind(mind, todayMind, { onOpen: openThought, onFace: buddySheet });
+    if (mind) mountMind(mind, todayMind, { onOpen: openThought, onFace: faceMenu });
     mountRingIn(pv);
     const slot = pv.querySelector('[data-map-slot]');
     if (slot && mapNow) {
@@ -3388,13 +3470,13 @@ function installHTML() {
   return '<p>To install, use your browser menu and pick Install or Add to Home Screen. In Chrome and Edge it is the install icon in the address bar.</p>';
 }
 
-function renderSettings() {
+function renderSettings(inSheet = false) {
   const c = S.settings.cadence;
   const g = S.settings.goals;
   const appearance = getAppearance();
   const events = calendarEvents();
   return `
-    <header class="topbar"><h1>Settings</h1></header>
+    ${inSheet ? '' : '<header class="topbar"><h1>Settings</h1></header>'}
 
     ${sectionBlock('set-cadence', 'Cadence', null, `
       <p class="hint">How often Callback suggests reaching out, by warmth. Logging a touchpoint schedules the next one using these.</p>
@@ -3566,7 +3648,7 @@ async function onSyncResult(r) {
     return;
   }
   S.meta.sync = await sync.syncConfig();
-  if (parseRoute().name === 'settings' && !busy) render();
+  if (S.ui.settings && !busy) render();
   if (r.error && r.error.kind !== 'offline' && r.error.kind !== 'busy' && !syncWarned) {
     syncWarned = true;
     toast('Sync needs a look: see Settings, Your data.');
@@ -3816,6 +3898,197 @@ async function saveSetting(path, raw) {
 }
 
 // ---------------------------------------------------------------------------
+// The welcome and the tour (11-10)
+//
+// First open: the head bigger and facing you, with a hello and "Want a quick
+// tour?" over it. Yes: it pulls back to Today as it always looks and the
+// tour starts. No: "That's okay", how to find the tour later, then it pulls
+// back. The tour is a pop for each thing on Today, then one for each page,
+// and Help (tap the face) starts it again.
+
+function welcomeHTML() {
+  if (S.ui.welcome === 'no') {
+    return `<div class="welcome" role="status"><p class="welcome-hi">That's okay!</p>
+      <p class="welcome-text">You can take the tour any time: tap my face, then Help.</p></div>`;
+  }
+  return `<div class="welcome" role="group" aria-label="Welcome"><p class="welcome-hi">Hi! Welcome to Callback.</p>
+    <p class="welcome-text">I'm here to help you remember who to reach out to, when, and why. Want a quick tour?</p>
+    <div class="welcome-actions"><button type="button" class="btn primary" data-action="tour-yes">Yes, show me</button><button type="button" class="btn secondary" data-action="tour-no">No thanks</button></div></div>`;
+}
+
+// Over the head: on a wide window the head sits left of the middle.
+function placeWelcome() {
+  const w = document.querySelector('.welcome');
+  const h = document.querySelector('.mind-head');
+  const d = w && w.offsetParent;
+  if (!h || !d) return;
+  const dr = d.getBoundingClientRect();
+  const hr = h.getBoundingClientRect();
+  const half = Math.min(dr.width, 520) / 2;
+  const cx = Math.max(half, Math.min(dr.width - half, hr.left + hr.width / 2 - dr.left));
+  Object.assign(w.style, { left: `${Math.round(cx - half)}px`, right: 'auto', width: `${Math.round(half * 2)}px` });
+}
+window.addEventListener('resize', placeWelcome);
+
+const calmMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Off the welcome: the numbers fade in and the head pulls back.
+function leaveWelcome() {
+  S.ui.welcome = null;
+  S.ui.arrive = true;
+  render();
+  setWelcome(false);
+  setTimeout(() => { S.ui.arrive = false; }, 1200);
+}
+
+async function answerWelcome(yes) {
+  await db.setMeta('welcomed', nowISO());
+  if (yes) {
+    leaveWelcome();
+    setTimeout(startTour, calmMotion() ? 0 : 1100);
+    return;
+  }
+  S.ui.welcome = 'no';
+  render();
+  setTimeout(() => { if (S.ui.welcome === 'no') leaveWelcome(); }, 4500);
+}
+
+function tourSteps() {
+  const none = !S.people.length;
+  const phone = phoneQuery.matches;
+  return [
+    { route: 'today', at: '.dash.is-mind > .stats-row', text: "These are your numbers. To reach out is everyone due now. The other two count this week's touchpoints and new people against your weekly goals." },
+    { route: 'today', at: 'bubbles', text: none ? "Thought bubbles hold what's waiting for you: who's due, open loops, their news. Tap one to see who's in it, or drag it somewhere else. For now there's one, to add your first person." : "Each thought bubble is something waiting for you: who's due, open loops, their news. Tap one to see who's in it, or drag it somewhere else." },
+    { route: 'today', at: '.mind-head', text: "That's me! Tap my face for Settings, a new look for me, and Help. Drag me to turn my head." },
+    { route: 'today', at: '#tabbar', text: phone ? 'Swipe this bar, or tap its arrows, to go from page to page.' : 'This bar takes you from page to page.' },
+    { route: 'people', text: `People is everyone you keep in touch with. Add someone, search and filter, and tap a name to see their touchpoints, their news and open loops.${phone ? ' Circles and Organizations sit either side of the bar while you are here.' : ''}` },
+    { route: 'circles', text: 'Circles are your own groups of people, like actors or stylists. Someone can be in more than one.' },
+    { route: 'orgs', text: 'Organizations are where your people work, like agencies, brands and publications, with who is there now and who used to be.' },
+    { route: 'news', text: "Their news lists everyone's upcoming dates, like birthdays and launches, soonest first, so you can reach out on time." },
+    { route: 'week', text: 'Weekly review shows your week against your goals, a place to note what worked, and your past weeks.' },
+    { route: 'today', at: none ? 'first' : '.mind-head', text: none ? "That's the tour! Tap this bubble to add your first person." : "That's the tour! Tap my face, then Help, to take it again." },
+  ];
+}
+
+function startTour() {
+  closeAllSheets();
+  closeFaceMenu();
+  S.ui.tour = { i: 0, steps: tourSteps() };
+  let el = document.querySelector('.tour');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'tour';
+    el.dataset.acts = '';
+    el.innerHTML = `<div class="tour-ring" aria-hidden="true"></div>
+      <div class="tour-card" role="dialog" aria-modal="true" aria-label="Tour">
+        <p class="tour-count"></p><p class="tour-text" aria-live="polite"></p>
+        <div class="tour-actions"><button type="button" class="btn secondary" data-action="tour-end">End tour</button><button type="button" class="btn primary" data-action="tour-next">Next</button></div>
+      </div>`;
+    document.body.appendChild(el);
+  }
+  showTourStep();
+}
+
+function showTourStep() {
+  const T = S.ui.tour;
+  if (!T) return;
+  const step = T.steps[T.i];
+  if (parseRoute().name !== step.route) location.hash = `#/${step.route}`;
+  else placeTour();
+  // The page draws on the hash change; place it again once it has.
+  setTimeout(placeTour, 120);
+}
+
+function nextTourStep() {
+  const T = S.ui.tour;
+  if (!T) return;
+  if (T.i >= T.steps.length - 1) {
+    endTour();
+    return;
+  }
+  T.i += 1;
+  showTourStep();
+}
+
+function endTour() {
+  S.ui.tour = null;
+  const el = document.querySelector('.tour');
+  if (el) el.remove();
+  if (parseRoute().name !== 'today') location.hash = '#/today';
+}
+
+// What a step points at, as one box round all of it (the bubbles together).
+function tourBox(at) {
+  if (!at) return null;
+  let els;
+  if (at === 'bubbles') els = [...document.querySelectorAll('.mind button.thought')];
+  else if (at === 'first') els = [...document.querySelectorAll('.mind button.thought[data-key="first"]')];
+  else els = [document.querySelector(at)].filter(Boolean);
+  // A bubble's button is the middle of its cloud; the cloud's bumps reach
+  // about this much further out (mind.js sizes the button off the cloud).
+  const grow = at === 'bubbles' || at === 'first' ? [1.8, 1.92] : [1, 1];
+  const rs = els.map((e) => e.getBoundingClientRect()).filter((r) => r.width && r.height).map((r) => {
+    const cx = (r.left + r.right) / 2;
+    const cy = (r.top + r.bottom) / 2;
+    const hw = (r.width / 2) * grow[0];
+    const hh = (r.height / 2) * grow[1];
+    return { left: cx - hw, right: cx + hw, top: cy - hh, bottom: cy + hh };
+  });
+  if (!rs.length) return null;
+  return {
+    left: Math.min(...rs.map((r) => r.left)),
+    top: Math.min(...rs.map((r) => r.top)),
+    right: Math.max(...rs.map((r) => r.right)),
+    bottom: Math.max(...rs.map((r) => r.bottom)),
+  };
+}
+
+// The step's words in a card by what it's about (under it, or over it if
+// there's no room), with a ring round it; a page's own pop sits in the middle.
+function placeTour() {
+  const T = S.ui.tour;
+  const el = document.querySelector('.tour');
+  if (!T || !el) return;
+  const step = T.steps[T.i];
+  const last = T.i === T.steps.length - 1;
+  el.querySelector('.tour-count').textContent = `${T.i + 1} of ${T.steps.length}`;
+  el.querySelector('.tour-text').textContent = step.text;
+  el.querySelector('[data-action="tour-next"]').textContent = last ? 'Done' : 'Next';
+  el.querySelector('[data-action="tour-end"]').hidden = last;
+  const r = parseRoute().name === step.route ? tourBox(step.at) : null;
+  const ring = el.querySelector('.tour-ring');
+  const card = el.querySelector('.tour-card');
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const pad = 8;
+  el.classList.toggle('is-plain', !r);
+  ring.style.borderRadius = step.at === '.mind-head' ? '50%' : '';
+  if (r) {
+    Object.assign(ring.style, { display: 'block', left: `${Math.round(r.left - pad)}px`, top: `${Math.round(r.top - pad)}px`, width: `${Math.round(r.right - r.left + pad * 2)}px`, height: `${Math.round(r.bottom - r.top + pad * 2)}px` });
+  } else ring.style.display = 'none';
+  const cw = Math.min(360, vw - 32);
+  card.style.width = `${cw}px`;
+  const ch = card.offsetHeight;
+  let left = (vw - cw) / 2;
+  let top = (vh - ch) / 2;
+  if (r) {
+    const midY = Math.max(16, Math.min(vh - ch - 16, (r.top + r.bottom) / 2 - ch / 2));
+    left = Math.max(16, Math.min(vw - cw - 16, (r.left + r.right) / 2 - cw / 2));
+    if (r.bottom + pad + 12 + ch < vh - 16) top = r.bottom + pad + 12;
+    else if (r.top - pad - 12 - ch > 16) top = r.top - pad - 12 - ch;
+    // Too tall for either (the bar down the side of a wide window): beside it.
+    else if (r.right + pad + 12 + cw < vw - 16) [left, top] = [r.right + pad + 12, midY];
+    else if (r.left - pad - 12 - cw > 16) [left, top] = [r.left - pad - 12 - cw, midY];
+  }
+  card.style.left = `${Math.round(left)}px`;
+  card.style.top = `${Math.round(top)}px`;
+}
+window.addEventListener('resize', () => { if (S.ui.tour) placeTour(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && S.ui.tour) endTour();
+});
+
+// ---------------------------------------------------------------------------
 // Routing
 
 const ROUTES = {
@@ -3886,6 +4159,11 @@ function markSelected() {
 }
 
 function render() {
+  if (parseRoute().name === 'settings') {
+    const [name, id] = (currentKey || 'today/').split('/');
+    history.replaceState(null, '', `#/${name || 'today'}${id ? `/${id}` : ''}`);
+    openSettings();
+  }
   const r = parseRoute();
   const key = `${r.name}/${r.id || ''}`;
   const prevKey = currentKey;
@@ -3948,7 +4226,7 @@ function render() {
   S.ui.revealPick = false;
   view.dataset.route = r.name;
   const mindSlot = view.querySelector('[data-mind-slot]');
-  if (mindSlot) mountMind(mindSlot, todayMind, { onOpen: openThought, onFace: buddySheet });
+  if (mindSlot) mountMind(mindSlot, todayMind, { onOpen: openThought, onFace: faceMenu });
   mountRingIn(view);
   // Back out of a circle or organization: the map pulls back from it.
   const [prevName, prevId] = prevKey.split('/');
@@ -3974,6 +4252,15 @@ function render() {
   }
   placeSearchClear();
   currentKey = key;
+  // The face menu stays through a redraw of the same page, not a new one.
+  if (prevKey !== key) closeFaceMenu();
+  else placeFaceMenu();
+  refreshSettings();
+  if (S.ui.tour) setTimeout(placeTour, 0);
+  if (S.ui.welcome) {
+    placeWelcome();
+    setTimeout(placeWelcome, 60);
+  }
   // Opened from People with a reply waiting two days or more: ask now.
   if (S.ui.askReplyFor) {
     const ask = r.name === 'person' && S.ui.askReplyFor === r.id ? S.personById.get(r.id) : null;
@@ -6329,6 +6616,23 @@ const ACTIONS = {
     S.ui.thoughtKey = null;
     toggleMapView('today');
   },
+  'face-settings': () => {
+    closeFaceMenu();
+    openSettings();
+  },
+  'face-buddy': () => {
+    closeFaceMenu();
+    buddySheet();
+  },
+  'face-help': () => {
+    closeFaceMenu();
+    helpSheet();
+  },
+  'tour-yes': () => answerWelcome(true),
+  'tour-no': () => answerWelcome(false),
+  'tour-start': () => startTour(),
+  'tour-next': () => nextTourStep(),
+  'tour-end': () => endTour(),
   'close-thought': () => {
     S.ui.thoughtKey = null;
     render();
@@ -6431,7 +6735,7 @@ const ACTIONS = {
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
-  if (!el || !(view.contains(el) || el.closest('.thought-sheet'))) return;
+  if (!el || !(view.contains(el) || el.closest('.thought-sheet, .settings-sheet, [data-acts]'))) return;
   const fn = ACTIONS[el.dataset.action];
   if (!fn) return;
   e.preventDefault();
@@ -6528,7 +6832,7 @@ document.addEventListener('mousedown', (e) => {
 
 document.addEventListener('change', (e) => {
   const t = e.target;
-  if (!view.contains(t)) return;
+  if (!view.contains(t) && !t.closest('.settings-sheet')) return;
   if (t.dataset.detailField) {
     const p = S.personById.get(t.dataset.person);
     if (!p) return;
@@ -6555,12 +6859,12 @@ document.addEventListener('change', (e) => {
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   S.installPrompt = e;
-  if (parseRoute().name === 'settings') render();
+  if (S.ui.settings) render();
 });
 
 window.addEventListener('appinstalled', () => {
   S.installPrompt = null;
-  if (parseRoute().name === 'settings') render();
+  if (S.ui.settings) render();
 });
 
 // The date rolls over while the app sits open overnight: redraw when it
@@ -6715,6 +7019,8 @@ const COMMANDS = {
   import: () => importJSON(),
   shortcuts: () => shortcutsSheet(),
   ...Object.fromEntries(TAB_ORDER.map((t) => [`go-${t}`, () => { location.hash = `#/${t}`; }])),
+  // Settings is a pop-up now, over whatever page you're on.
+  'go-settings': () => openSettings(),
 };
 
 function runCommand(name) {
@@ -7011,6 +7317,16 @@ async function activeWeekly() {
 async function start() {
   try {
     if (!(await db.getMeta('installedAt'))) await db.setMeta('installedAt', nowISO());
+    // First open, with nobody in it yet: the welcome, the head big and
+    // facing you.
+    if (!(await db.getMeta('welcomed'))) {
+      if ((await db.getPeople()).length) await db.setMeta('welcomed', nowISO());
+      else {
+        S.ui.welcome = 'ask';
+        setWelcome(true, true);
+        if (parseRoute().name !== 'today') history.replaceState(null, '', '#/today');
+      }
+    }
     await loadListSorts();
     await refresh();
     sync.startAutoSync(onSyncResult);

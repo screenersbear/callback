@@ -2781,3 +2781,87 @@ html.is-sideways .turn-back {
 .dream-sky-star { color: #dca800; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .dream-sky-star { color: #e9c548; } }
 :root[data-theme="dark"] .dream-sky-star { color: #e9c548; }
+
+/* ---------- The buddy's face menu, the welcome and the tour (11-10) ---------- */
+
+/* Tap the face: Settings, Buddy and Help over its head, written by hand. */
+.buddy-menu {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  gap: 18px;
+  padding: 10px 18px 8px;
+  background: var(--surface);
+  border: 2px solid var(--hero);
+  border-radius: 22px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  animation: fade 0.15s ease;
+}
+.buddy-menu::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -8px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  background: var(--surface);
+  border-right: 2px solid var(--hero);
+  border-bottom: 2px solid var(--hero);
+  transform: rotate(45deg);
+}
+.buddy-menu .stat-scrib { display: block; width: 92%; height: 12px; margin: 2px auto 0; overflow: visible; }
+
+/* First open: a hello at the top, the numbers held back till it's done. */
+.dash.is-welcome { position: relative; }
+.dash.is-welcome > .stats-row { visibility: hidden; }
+.dash.is-arriving > .stats-row { animation: fade 0.6s ease; }
+.welcome {
+  position: absolute;
+  top: 10px;
+  left: 0;
+  right: 0;
+  z-index: 4;
+  padding: 0 20px;
+  text-align: center;
+  color: var(--text);
+  font-family: var(--font-hand);
+  pointer-events: none;
+  animation: fade 0.5s ease;
+}
+.welcome-hi { margin: 0 0 6px; font-size: 32px; line-height: 1.05; }
+.welcome-text { margin: 0 auto; max-width: 360px; font-size: 20px; line-height: 1.2; }
+.welcome-actions { display: flex; justify-content: center; gap: 10px; margin-top: 14px; pointer-events: auto; }
+.welcome-actions .btn { padding: 10px 18px; }
+
+/* The tour: a ring round what it's about, the rest dimmed, and a card. */
+.tour { position: fixed; inset: 0; z-index: 150; }
+.tour.is-plain { background: color-mix(in srgb, var(--hero) 55%, transparent); }
+.tour-ring {
+  position: fixed;
+  border: 3px solid var(--accent);
+  border-radius: 14px;
+  box-shadow: 0 0 0 9999px color-mix(in srgb, var(--hero) 55%, transparent);
+  pointer-events: none;
+  transition: left 0.3s ease, top 0.3s ease, width 0.3s ease, height 0.3s ease;
+}
+.tour-card {
+  position: fixed;
+  background: var(--surface);
+  color: var(--text);
+  border: 2px solid var(--ink);
+  border-radius: 14px;
+  padding: 14px 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  transition: left 0.3s ease, top 0.3s ease;
+}
+.tour-count { margin: 0 0 4px; font-family: var(--font-hand); font-size: 15px; color: var(--text-dim); }
+.tour-text { margin: 0; font-family: var(--font-hand); font-size: 19px; line-height: 1.25; }
+.tour-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.tour-actions .btn { padding: 10px 16px; }
+.tour-actions .btn[hidden] { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-ring, .tour-card { transition: none; }
+  .welcome, .buddy-menu, .dash.is-arriving > .stats-row { animation: none; }
+}

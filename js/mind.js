@@ -20,6 +20,7 @@ const EYE = 5; // the viewer's distance, in head sizes: a touch of perspective
 const HEAD = { x: 0.5, r: 0.3 }; // in stage widths; it sits at the bottom
 const REST_YAW = -0.32; // at rest it looks a little to the left, not at you
 const REST_PITCH = 0.24; // and tips its chin up a little, as if thinking
+const WELCOME_ZOOM = 1.3; // on first open it's this much bigger, until it pulls back
 const SKY = 0.57; // bubble heights (SLOTS) are given against this much sky
 const BUB = { rx: 0.16, ry: 0.1 }; // a bubble's size, in stage widths
 // Turning it by hand: only so far each way, and against a little give.
@@ -892,6 +893,12 @@ const st = {
   drag: null,
   lookYaw: REST_YAW,
   lookPitch: REST_PITCH,
+  // The welcome (setWelcome): bigger and turned to face you, easing back.
+  zoom: 1,
+  zoomGoal: 1,
+  front: 0,
+  frontGoal: 0,
+  hitZoom: 0,
   glance: null,
   nextGlance: 2,
   blinkAt: 3,
@@ -981,14 +988,21 @@ function resize() {
   st.top.setAttribute('viewBox', `0 0 ${w} ${h}`);
   st.sky.setAttribute('viewBox', `0 0 ${w} ${h}`);
   layout();
+  placeHit();
+}
+
+// The face's tap area, over the head wherever it is.
+function placeHit() {
   const { R, hx, hy } = geom();
   Object.assign(st.hit.style, { left: `${hx - R * 1.35}px`, top: `${hy - R * 1.4}px`, width: `${R * 2.7}px`, height: `${R * 2.7}px` });
+  st.hitZoom = st.zoom;
 }
 
 // Where the head is, in pixels, and how much sky there is above it.
 function geom() {
-  const R = Math.min(HEAD.r * st.w, st.h * 0.21);
-  const hy = st.h - R * 1.5;
+  const R = Math.min(HEAD.r * st.w, st.h * 0.21) * st.zoom;
+  // Zoomed in (the welcome) it sits a little higher, so the neck still fits.
+  const hy = st.h - R * mix(1.5, 1.62, clamp((st.zoom - 1) / (WELCOME_ZOOM - 1), 0, 1));
   return { R, hx: HEAD.x * st.w, hy, sky: hy - R * 1.15 };
 }
 
@@ -1043,8 +1057,9 @@ function newBubble(d, i) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'thought';
+  btn.dataset.key = d.key;
   btn.innerHTML = '<span class="thought-in"><span class="thought-n"></span><span class="thought-label"></span></span>';
-  const b = { key: d.key, seed: hashStr(d.key), state: 'in', p: st.first ? -0.14 * i : 0, wob: 0, x: null, y: null, s: 1, tx: 0, ty: 0, ts: 1, btn, n: d.n, moved: -9 };
+  const b = { key: d.key, seed: hashStr(d.key), state: 'in', p: st.first ? -0.14 * i : 0, wob: 0, x: null, y: null, s: 1, tx: 0, ty: 0, ts: 1, btn, n: typeof d.n === 'number' ? d.n : 0, moved: -9 };
   // Picked up and moved: it follows the finger, and isn't opened.
   btn.addEventListener('pointerdown', (e) => {
     if (e.button || b.state === 'pop' || st.carry) return;
@@ -1191,25 +1206,28 @@ function update({ bubbles = [], pending = 0 } = {}) {
     if (!b) {
       b = newBubble(d, i);
       st.bubbles.set(d.key, b);
-    } else if (b.n !== d.n) b.wob = 1;
-    b.n = d.n;
+    }
+    // A count, or (the add-someone bubble) a sign with nothing to count.
+    const n = typeof d.n === 'number' ? d.n : 0;
+    if (b.n !== n) b.wob = 1;
+    b.n = n;
     b.wt = d.weight ?? 1;
     b.btn.querySelector('.thought-n').textContent = String(d.n);
     b.btn.querySelector('.thought-label').textContent = d.label;
-    b.btn.setAttribute('aria-label', `${d.title}: ${d.n}. Show them`);
+    b.btn.setAttribute('aria-label', d.aria || `${d.title}: ${d.n}. Show them`);
   });
   st.order = bubbles.map((b) => b.key);
   if (st.pending > 0 && pending === 0) st.cheer = true;
   st.pending = pending;
-  st.total = bubbles.reduce((a, b) => a + b.n, 0);
+  st.total = bubbles.reduce((a, b) => a + (typeof b.n === 'number' ? b.n : 0), 0);
   if (st.first) {
     st.worry = 1 - Math.exp(-pending / 4.5);
     st.joy = pending > 0 ? 0 : 1;
   }
   st.first = false;
   st.hit.setAttribute('aria-label', st.total
-    ? `A hand-drawn face, ${pending >= 6 ? 'worried' : 'a little concerned'}: ${st.total} ${st.total === 1 ? 'thing is' : 'things are'} waiting. The bubbles above it open them. Tap the face to change how it looks.`
-    : 'A hand-drawn face, smiling: nothing is waiting. Tap it to change how it looks.');
+    ? `A hand-drawn face, ${pending >= 6 ? 'worried' : 'a little concerned'}: ${st.total} ${st.total === 1 ? 'thing is' : 'things are'} waiting. The bubbles above it open them. Tap the face for Settings, your buddy and Help.`
+    : 'A hand-drawn face, smiling: nothing is waiting. Tap it for Settings, your buddy and Help.');
   layout();
 }
 
@@ -1244,6 +1262,25 @@ export function buddySVG(key) {
   return `<svg class="buddy-pic" viewBox="0 0 100 100" aria-hidden="true">${parts.join('')}</svg>`;
 }
 
+// The welcome on first open: the head bigger and facing you (on), then
+// easing back to where it always sits (off). `now` skips the easing.
+export function setWelcome(on, now = false) {
+  st.zoomGoal = on ? WELCOME_ZOOM : 1;
+  st.frontGoal = on ? 1 : 0;
+  if (now || reduced.matches) {
+    st.zoom = st.zoomGoal;
+    st.front = st.frontGoal;
+    if (on) {
+      st.lookYaw = 0;
+      st.lookPitch = 0.03;
+    }
+  }
+  if (st.el && st.el.isConnected) {
+    draw();
+    kick();
+  }
+}
+
 // For tests: move time on by hand (a hidden test browser runs no frames).
 export function mindStep(seconds = 0, set = {}) {
   Object.assign(st, set);
@@ -1269,7 +1306,7 @@ function frame(now) {
   st.last = now;
   step(dt);
   // Moving things get every frame; a head just idling gets about 25.
-  const busy = st.drag || (st.carry && st.carry.moved) || st.lifted || [...st.bubbles.values()].some((b) => b.x != null && (Math.abs(b.x - b.tx) > 0.0005 || Math.abs(b.y - b.ty) > 0.0005)) || Math.abs(st.spinV) > 0.05 || Math.abs(st.spin) > 0.002 || Math.abs(st.tilt) > 0.002 || [...st.bubbles.values()].some((b) => b.state !== 'on' || b.wob > 0.01);
+  const busy = st.drag || (st.carry && st.carry.moved) || st.lifted || [...st.bubbles.values()].some((b) => b.x != null && (Math.abs(b.x - b.tx) > 0.0005 || Math.abs(b.y - b.ty) > 0.0005)) || Math.abs(st.spinV) > 0.05 || Math.abs(st.spin) > 0.002 || Math.abs(st.tilt) > 0.002 || [...st.bubbles.values()].some((b) => b.state !== 'on' || b.wob > 0.01) || st.zoom !== st.zoomGoal || st.front !== st.frontGoal;
   if (busy || now - st.lastDraw > 40) {
     st.lastDraw = now;
     draw();
@@ -1308,6 +1345,10 @@ function step(dt) {
   st.tilt += st.tiltV * dt;
   if (!st.drag && Math.abs(st.tilt) < 1e-4 && Math.abs(st.tiltV) < 1e-3) st.tilt = st.tiltV = 0;
   st.boil = st.drag || Math.abs(st.spinV) > 0.5 ? Math.floor(t * 8) * 0.37 : 0;
+  st.zoom = approach(st.zoom, st.zoomGoal, 2.4, dt);
+  st.front = approach(st.front, st.frontGoal, 2.4, dt);
+  if (Math.abs(st.zoom - st.zoomGoal) < 0.001) st.zoom = st.zoomGoal;
+  if (Math.abs(st.front - st.frontGoal) < 0.002) st.front = st.frontGoal;
 
   // Looking about: a slow sway, and a glance at a bubble now and then
   // (more often the more worried it is).
@@ -1329,6 +1370,9 @@ function step(dt) {
     yawT = clamp(REST_YAW * 0.5 + (gb.x - HEAD.x) * (carried ? 0.95 : 0.6), carried ? -0.75 : -0.45, carried ? 0.6 : 0.3);
     pitchT = clamp(((g.hy - (gb.y / SKY) * g.sky) / st.w) * (carried ? 0.5 : 0.35) + REST_PITCH * 0.5, REST_PITCH * 0.7, REST_PITCH + (carried ? 0.32 : 0.14));
   }
+  // Welcoming you, it looks right at you.
+  yawT = mix(yawT, 0, st.front);
+  pitchT = mix(pitchT, 0.03, st.front);
   const rate = carried ? 8 : gb ? 4 : 1.5;
   st.lookYaw = approach(st.lookYaw, yawT, rate, dt);
   st.lookPitch = approach(st.lookPitch, pitchT, rate, dt);
@@ -1384,6 +1428,7 @@ function put(d, { w = 2, op = 1, fill = null } = {}, top = false) {
 function draw() {
   resize();
   if (!st.w) return;
+  if (st.hitZoom !== st.zoom) placeHit();
   st.used = 0;
   st.topUsed = 0;
   const w = st.w;
