@@ -3,8 +3,8 @@
 // By day a hand-drawn sun with little rays crosses the sky with the time:
 // up on the left in the morning, highest at midday, down on the right. In
 // golden hour it turns orange and the page warms a touch. After dark the
-// page grays a little and outline stars come out across the sky, some
-// behind the clouds and a few round the buddy.
+// page grays a little and outline stars come out in the sky over the
+// buddy's head (clear of any hair), some behind the clouds.
 //
 // Sunrise and sunset are worked out for today from the phone's time zone
 // (a city for the common ones, else the zone's own longitude), so no
@@ -165,19 +165,21 @@ function star(cx, cy, r, seed, spin) {
   return `${d}L${r1(p[0][0] + (p[1][0] - p[0][0]) * 0.18)} ${r1(p[0][1] + (p[1][1] - p[0][1]) * 0.18)}`;
 }
 
-// Stars across the whole sky, as [across, down, size]: down runs from the
-// top of the stage (0) to a little below the top of the buddy's head (1).
-// Some land behind the clouds, which cover them; a few sit by the buddy.
+// Stars over the head, as [across, down, size]: down runs from the top of
+// the stage (0) to just above the tallest hair (1), so none sits beside or
+// below the buddy and none touches any hairstyle (11-10). Some land behind
+// the clouds, which cover them.
 const STARS = [
-  [0.05, 0.03, 7], [0.2, 0.1, 10], [0.37, 0.02, 6], [0.53, 0.12, 8], [0.7, 0.04, 11], [0.88, 0.11, 7], [0.97, 0.02, 5],
-  [0.11, 0.27, 6], [0.3, 0.33, 9], [0.47, 0.25, 5], [0.63, 0.36, 7], [0.82, 0.28, 10], [0.95, 0.4, 6],
-  [0.04, 0.5, 9], [0.22, 0.55, 6], [0.4, 0.6, 7], [0.58, 0.52, 6], [0.76, 0.6, 8], [0.92, 0.66, 7],
-  [0.08, 0.78, 11], [0.27, 0.82, 7], [0.73, 0.84, 6], [0.88, 0.86, 9],
-  // By the buddy, down its sides.
-  [0.07, 1.02, 8], [0.14, 1.2, 10], [0.06, 1.38, 7], [0.86, 1.04, 10], [0.93, 1.22, 7], [0.84, 1.36, 8],
+  [0.05, 0.05, 7], [0.18, 0.22, 9], [0.31, 0.03, 6], [0.43, 0.3, 8], [0.56, 0.07, 10], [0.68, 0.25, 6], [0.81, 0.04, 8], [0.94, 0.19, 7],
+  [0.09, 0.52, 6], [0.25, 0.66, 8], [0.38, 0.84, 5], [0.51, 0.57, 7], [0.64, 0.86, 9], [0.77, 0.6, 6], [0.9, 0.78, 9],
+  [0.03, 0.95, 6], [0.97, 0.97, 7],
 ];
+// How far the hair can reach above the middle of the head, in head radii:
+// the high ponytail at 1.74 with the head turned and tipped as far as it
+// goes (every style measured 11-10), plus a little room.
+const HAIR_TOP = 1.85;
 
-export function skyLines({ W, hx, hy, R, t, calm }) {
+export function skyLines({ W, hy, R, t, calm }) {
   const s = skyNow();
   const dark = isDark();
   const out = [];
@@ -207,12 +209,12 @@ export function skyLines({ W, hx, hy, R, t, calm }) {
   }
   // Night: outline stars, each twinkling on its own.
   if (s.night > 0.01) {
-    const bottom = hy - R * 0.9;
+    // The lowest a star's middle goes: its points stay clear of the hair.
+    const bottom = Math.max(top, hy - R * HAIR_TOP - 12);
     const color = dark ? '#e9c548' : '#dca800';
     STARS.forEach(([ax, dy, size], i) => {
       const x = W * ax;
       const y = top + (bottom - top) * dy;
-      if (Math.hypot(x - hx, y - hy) < R * 1.3) return;
       const tw = calm ? 1 : 0.82 + 0.18 * Math.sin(t * (0.7 + hash(i) * 0.6) + i * 2.1);
       const sz = size * (calm ? 1 : 0.94 + 0.08 * Math.sin(t * 0.5 + i));
       out.push({ d: star(x, y, sz, i * 3.7, hash(i + 4) * 0.4 - 0.2), stroke: color, w: 1.9, fill: null, op: Math.round(s.night * tw * 100) / 100 });
