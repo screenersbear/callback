@@ -57,7 +57,7 @@ const S = {
     collapsed: new Set(['today-light']),
     scroll: new Map(),
     backTo: null,
-    people: { q: '', sort: 'contact', reverse: false, sortOpen: false, warmth: new Set(), rel: new Set(), interest: new Set(), circles: new Set(), loops: false, dream: false, light: false, role: '', tag: '', org: '', showParked: false, filtersOpen: false, view: readPeopleView() },
+    people: { q: '', sort: 'contact', reverse: false, sortOpen: false, warmth: new Set(), rel: new Set(), interest: new Set(), circles: new Set(), loops: false, dream: false, light: false, role: '', org: '', showParked: false, filtersOpen: false, view: readPeopleView() },
     circle: { sort: 'contact', reverse: false, sortOpen: false, light: false },
     circlesReorder: false,
     orgsQ: '',
@@ -169,13 +169,6 @@ const membersOf = (id) => S.people.filter((p) => (p.circleIds || []).includes(id
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const firstName = (p) => (p.name || '').trim().split(/\s+/)[0] || 'them';
 
-function parseTags(str) {
-  const seen = new Set();
-  return String(str || '')
-    .split(/[,;#]/)
-    .map((t) => t.trim())
-    .filter((t) => t && !seen.has(t.toLowerCase()) && seen.add(t.toLowerCase()));
-}
 
 // ---------------------------------------------------------------------------
 // Small pieces of markup
@@ -1106,12 +1099,11 @@ function filteredPeople() {
   if (f.dream) list = list.filter((p) => p.dreamList);
   if (f.light) list = list.filter((p) => p.lightTouch);
   if (f.role) list = list.filter((p) => (p.role || '').toLowerCase() === f.role.toLowerCase());
-  if (f.tag) list = list.filter((p) => (p.tags || []).some((t) => t.toLowerCase() === f.tag.toLowerCase()));
   if (f.org) list = list.filter((p) => p.organizationId === f.org);
   if (q) {
     list = list.filter((p) => {
       const org = orgOf(p);
-      return [p.name, org && org.name, p.notes, p.role, p.email, p.howWeMet, ...(p.tags || []), ...circlesOf(p).map((c) => c.name)]
+      return [p.name, org && org.name, p.notes, p.role, p.email, p.howWeMet, ...circlesOf(p).map((c) => c.name)]
         .some((v) => v && v.toLowerCase().includes(q));
     });
   }
@@ -1146,7 +1138,7 @@ function sortPeople(list, sort, reverse = false) {
 
 function activeFilterCount() {
   const f = S.ui.people;
-  return f.warmth.size + f.rel.size + f.interest.size + f.circles.size + (f.loops ? 1 : 0) + (f.dream ? 1 : 0) + (f.light ? 1 : 0) + (f.role ? 1 : 0) + (f.tag ? 1 : 0) + (f.org ? 1 : 0);
+  return f.warmth.size + f.rel.size + f.interest.size + f.circles.size + (f.loops ? 1 : 0) + (f.dream ? 1 : 0) + (f.light ? 1 : 0) + (f.role ? 1 : 0) + (f.org ? 1 : 0);
 }
 
 function peopleListHTML() {
@@ -1178,7 +1170,6 @@ function uniqueSorted(values) {
 function filtersHTML() {
   const f = S.ui.people;
   const roles = uniqueSorted(S.people.map((p) => p.role));
-  const tags = uniqueSorted(S.people.flatMap((p) => p.tags || []));
   const opt = (v, label, sel) => `<option value="${esc(v)}"${sel ? ' selected' : ''}>${esc(label)}</option>`;
   return `
     <p class="filter-label">Warmth</p>
@@ -1208,8 +1199,6 @@ function filtersHTML() {
     <div class="filter-grid">
       <label class="field"><span class="field-label">Role</span>
         <select data-filter="role">${opt('', 'Any role', !f.role)}${roles.map((r) => opt(r, r, f.role === r)).join('')}</select></label>
-      <label class="field"><span class="field-label">Tag</span>
-        <select data-filter="tag">${opt('', 'Any tag', !f.tag)}${tags.map((t) => opt(t, t, f.tag === t)).join('')}</select></label>
       <label class="field"><span class="field-label">Organization</span>
         <select data-filter="org">${opt('', 'Any organization', !f.org)}${S.orgs.map((o) => opt(o.id, o.name, f.org === o.id)).join('')}</select></label>
     </div>
@@ -1569,14 +1558,16 @@ function renderPerson(id, { panel = false } = {}) {
     ${prompt}
     <button type="button" class="hero-cta log-cta" data-action="log" data-id="${pid}">Log touchpoint</button>
     ${p.warmth === 'parked' ? '' : ideaHTML(p)}
-    ${sectionBlock(k('details'), 'Details', null, detailsHTML(p), 'navy')}
-    ${sectionBlock(k('personal'), 'Personal', null, personalHTML(p), 'yellow')}
-    ${sectionBlock(k('connections'), 'Connections', null, connectionsHTML(p), 'navy')}`;
-
-  const right = `
     ${sectionBlock(k('news'), 'Their news', newsOf(id).length, newsListHTML(p), 'yellow')}
     ${sectionBlock(k('loops'), 'Open loops', openLoopsOf(id).length, loopsHTML(p), 'navy')}
     ${sectionBlock(k('timeline'), 'Touchpoints', tps.length, timelineHTML(p, tps), 'yellow')}`;
+
+  // After Log touchpoint: news, loops and touchpoints, then who they are.
+  // Two columns put those beside the rest; one column stacks them in order.
+  const right = `
+    ${sectionBlock(k('details'), 'Details', null, detailsHTML(p), 'navy')}
+    ${sectionBlock(k('personal'), 'Personal', null, personalHTML(p), 'yellow')}
+    ${sectionBlock(k('connections'), 'Connections', null, connectionsHTML(p), 'navy')}`;
 
   const top = panel
     ? `<div class="detail-top"><button type="button" class="back-btn pick-close" data-action="close-pick">${X_ICON_SMALL}Close</button>
@@ -1624,8 +1615,16 @@ function detailsHTML(p) {
       ? `<span class="contact-value">${contactLink(p, f.key)}</span>${btn('Edit')}`
       : btn(`+ Add ${esc(f.word)}`)}</dd></div>`);
   }
+  // Birthday sits with the contact details, changed in its own small sheet.
+  const bday = (text) => `<button type="button" class="text-btn inline contact-edit" data-action="edit-birthday" data-id="${esc(p.id)}">${text}</button>`;
+  if (p.birthday) {
+    const today = todayStr();
+    const nextBday = nextYearly(`2000-${String(p.birthday.month).padStart(2, '0')}-${String(p.birthday.day).padStart(2, '0')}`, today);
+    rows.push(`<div class="detail-row contact-row"><dt>Birthday</dt><dd><span class="contact-value">${esc(birthdayText(p.birthday))}<span class="pd-sub">${esc(nextBday === today ? 'Today' : cap(relDay(nextBday, today)))}</span></span>${bday('Edit')}</dd></div>`);
+  } else {
+    rows.push(`<div class="detail-row contact-row"><dt>Birthday</dt><dd>${bday('+ Add birthday')}</dd></div>`);
+  }
   if (p.howWeMet) row('How we met', `<span class="pre">${esc(p.howWeMet)}</span>`);
-  if (p.tags && p.tags.length) row('Tags', `<span class="tags">${p.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</span>`);
   if (p.notes) row('Notes', `<span class="pre">${esc(p.notes)}</span>`);
   if (p.cadenceOverrideDays) row('Rhythm', `Every ${esc(span(p.cadenceOverrideDays))}, set by you`);
   if (p.pastOrganizations && p.pastOrganizations.length) {
@@ -1640,8 +1639,8 @@ function detailsHTML(p) {
       .join('<br>'));
   }
   row('Added', esc(fmtTimestamp(p.createdAt)));
-  const hint = !p.howWeMet && !p.notes && !(p.tags || []).length
-    ? `<p class="hint">Add how you met, tags and notes with <button type="button" class="text-btn inline" data-action="edit-person" data-id="${esc(p.id)}">Edit</button>.</p>`
+  const hint = !p.howWeMet && !p.notes
+    ? `<p class="hint">Add how you met and notes with <button type="button" class="text-btn inline" data-action="edit-person" data-id="${esc(p.id)}">Edit</button>.</p>`
     : '';
   return `<dl class="details">${rows.join('')}</dl>${hint}`;
 }
@@ -1865,16 +1864,8 @@ function birthdayText(b) {
 function personalHTML(p) {
   const pid = esc(p.id);
   const details = p.details || [];
-  const today = todayStr();
-  const nextBday = p.birthday ? nextYearly(`2000-${String(p.birthday.month).padStart(2, '0')}-${String(p.birthday.day).padStart(2, '0')}`, today) : null;
   return `
     <div class="pd-list">
-      <div class="pd-row pd-birthday">
-        <span class="pd-label-text">Birthday</span>
-        ${p.birthday
-          ? `<button type="button" class="pd-value-btn" data-action="edit-birthday" data-id="${pid}">${esc(birthdayText(p.birthday))}<span class="pd-sub">${esc(nextBday === today ? 'Today' : cap(relDay(nextBday, today)))}</span></button>`
-          : `<button type="button" class="text-btn" data-action="edit-birthday" data-id="${pid}">+ Add birthday</button>`}
-      </div>
       ${details.map((d) => `<div class="pd-row">
         <input class="pd-label" value="${esc(d.label)}" data-detail-field="label" data-person="${pid}" data-id="${esc(d.id)}" aria-label="Label" autocomplete="off">
         <textarea class="pd-value" rows="1" data-detail-field="value" data-person="${pid}" data-id="${esc(d.id)}" aria-label="${esc(d.label || 'Detail')}">${esc(d.value)}</textarea>
@@ -3709,7 +3700,6 @@ async function quickAddPerson({ name, instagram, note, where, followed, circleId
     instagram,
     website: '',
     howWeMet: where,
-    tags: [],
     notes: note,
     cadenceOverrideDays: null,
     ...relFields([DEFAULT_RELATIONSHIP]),
@@ -3934,7 +3924,6 @@ function personForm(p, preset = {}) {
         ${field('instagram', 'Instagram', atHandle(v.instagram), 'autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="@handle" data-handle')}
         ${field('website', 'Website', v.website, 'autocomplete="off" inputmode="url" placeholder="example.com"')}
         <label class="field"><span class="field-label">How we met</span><textarea name="howWeMet" rows="2" placeholder="Introduced by Sam at the Rialto screening">${esc(v.howWeMet || '')}</textarea></label>
-        ${field('tags', 'Tags', (v.tags || []).join(', '), 'autocomplete="off" placeholder="commercial, nyc, fashion"')}
         <label class="field"><span class="field-label">Notes</span><textarea name="notes" rows="3">${esc(v.notes || '')}</textarea></label>
         <label class="field"><span class="field-label">Custom rhythm in days (optional)</span>
           <input name="override" type="number" min="1" max="3650" inputmode="numeric" value="${esc(v.cadenceOverrideDays || '')}" placeholder="Leave empty to follow their warmth">
@@ -4055,7 +4044,6 @@ function personForm(p, preset = {}) {
       instagram: handleValue(get('instagram')),
       website: get('website'),
       howWeMet: get('howWeMet'),
-      tags: parseTags(get('tags')),
       notes: get('notes'),
       cadenceOverrideDays: override > 0 ? override : null,
       ...relFields(fd.getAll('relationshipTypes').map(String)),
@@ -5186,7 +5174,6 @@ async function addPeople(contacts, warmth, relationshipType = DEFAULT_RELATIONSH
       website: c.website,
       howWeMet: '',
       notes: c.notes,
-      tags: parseTags(c.tags.join(',')),
       birthday: c.birthday || null,
       details: [],
       organizationId: c.org ? orgIds.get(c.org.trim().toLowerCase()) : null,
@@ -5530,7 +5517,7 @@ const ACTIONS = {
     render();
   },
   'clear-filters': () => {
-    Object.assign(S.ui.people, { q: '', warmth: new Set(), rel: new Set(), interest: new Set(), circles: new Set(), loops: false, dream: false, light: false, role: '', tag: '', org: '' });
+    Object.assign(S.ui.people, { q: '', warmth: new Set(), rel: new Set(), interest: new Set(), circles: new Set(), loops: false, dream: false, light: false, role: '', org: '' });
     render();
   },
   'edit-reflection': (el) => reflectionSheet(el.dataset.week),
@@ -5924,7 +5911,7 @@ if (window.callbackApp && window.callbackApp.onCommand) window.callbackApp.onCom
 // The website and the phone don't get it.
 
 // Name matches first (start of the name, then the start of any word, then
-// anywhere in it), then org, role, email, notes, how you met, tags and
+// anywhere in it), then org, role, email, notes, how you met and
 // circles. Parked people come after the others at the same level.
 function findMatches(query, max = 8) {
   const q = query.trim().toLowerCase();
@@ -5938,7 +5925,7 @@ function findMatches(query, max = 8) {
     else if (name.includes(q)) rank = 2;
     else {
       const org = orgOf(p);
-      const other = [org && org.name, p.role, p.email, p.notes, p.howWeMet, ...(p.tags || []), ...circlesOf(p).map((c) => c.name)];
+      const other = [org && org.name, p.role, p.email, p.notes, p.howWeMet, ...circlesOf(p).map((c) => c.name)];
       if (!other.some((v) => v && v.toLowerCase().includes(q))) continue;
       rank = 3;
     }

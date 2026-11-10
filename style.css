@@ -763,10 +763,7 @@ button.pick-typed { border-bottom: 3px solid var(--ink); }
   border-bottom: 1px solid var(--line);
 }
 .pd-row:last-child { border-bottom: none; }
-.pd-birthday { grid-template-columns: 110px 1fr; align-items: baseline; }
-.pd-birthday .text-btn { justify-self: start; text-align: left; padding: 6px 0; }
-.pd-birthday .pd-label-text { padding-top: 6px; }
-.pd-label-text, .pd-label {
+.pd-label {
   font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
@@ -784,18 +781,6 @@ button.pick-typed { border-bottom: 3px solid var(--ink); }
 }
 .pd-value { font-size: 16px; color: var(--text); resize: none; overflow: hidden; line-height: 1.4; font-family: inherit; display: block; }
 .pd-label:focus, .pd-value:focus { outline: none; border-bottom-color: var(--accent); }
-.pd-value-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  border: none;
-  background: none;
-  padding: 6px 0;
-  text-align: left;
-  font-size: 16px;
-  letter-spacing: 0;
-}
 .pd-sub { font-size: 14px; color: var(--text-dim); }
 .pd-remove {
   width: 30px;
@@ -1173,15 +1158,10 @@ details.loop-done[open] summary { margin-bottom: 8px; }
 .detail-row dd { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
 .contact-row dd { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; }
 .contact-value { min-width: 0; overflow-wrap: anywhere; }
+.contact-value .pd-sub { display: block; }
 .contact-edit { flex-shrink: 0; font-size: 14px; color: var(--text-dim); }
 .contact-row dd > .contact-edit:only-child { color: var(--text); }
 
-.tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.tag {
-  border: 1px solid var(--ink);
-  padding: 1px 8px;
-  font-size: 14px;
-}
 
 .news-item {
   display: grid;
