@@ -352,15 +352,25 @@ function resize() {
   // while the bottom bar is swiped, the peek's.
   const page = st.el.closest('.peek-app');
   const top = st.el.getBoundingClientRect().top + (page ? -page.getBoundingClientRect().top : window.scrollY);
-  const h = Math.round(Math.max(w * 0.95, barTop - top));
+  // In the list beside an open page (a wide window): down to the list's
+  // foot, however far the list or the page is scrolled.
+  const list = st.el.closest('.split-list');
+  const room = list ? list.getBoundingClientRect().bottom - st.el.getBoundingClientRect().top - list.scrollTop : barTop - top;
+  const h = Math.round(Math.max(w * 0.95, room));
   const dpr = Math.min(3, window.devicePixelRatio || 1);
-  if (w === st.w && h === st.h && dpr === st.dpr) return;
-  Object.assign(st, { w, h, dpr });
+  if (w === st.w && h === st.hWant && dpr === st.dpr) return;
+  Object.assign(st, { w, h, hWant: h, dpr });
   st.el.style.height = `${h}px`;
+  // Whatever sits under it in the list still fits without scrolling.
+  const over = list ? list.scrollHeight - list.clientHeight : 0;
+  if (over > 0 && over < 80 && h - over >= w * 0.6) {
+    st.h = h - over;
+    st.el.style.height = `${st.h}px`;
+  }
   st.cv.width = Math.round(w * dpr);
-  st.cv.height = Math.round(h * dpr);
+  st.cv.height = Math.round(st.h * dpr);
   st.cv.style.width = `${w}px`;
-  st.cv.style.height = `${h}px`;
+  st.cv.style.height = `${st.h}px`;
 }
 
 // Pixels per height at the front, and where the front and the far side

@@ -65,6 +65,11 @@ const S = {
     // the choice stays on this device.
     circlesView: readMapView('circles'),
     orgsView: readMapView('orgs'),
+    // Today in a wide window: the head (or the board, with List on), and
+    // the bubble whose cards are open on the right of the head.
+    todayView: readMapView('today'),
+    thought: null,
+    thoughtKey: null,
     // Today's board in a big window: who's open on the right ({ id, focus }),
     // and the board's people in order, to move on to the next one.
     pick: null,
@@ -489,10 +494,11 @@ window.addEventListener('resize', fitBrandTitle);
 function renderToday() {
   const today = todayStr();
   const t = buildToday({ people: S.people, touchpointsByPerson: S.tpsByPerson, news: S.news, loops: S.loops }, today);
-  // On a phone Today is the numbers and the head: every section is one of
-  // its thought bubbles, so there's no header and no list of sections.
-  const phone = phoneQuery.matches && S.people.length > 0;
-  let html = phone ? '' : `
+  // Today is the numbers and the head: every section is one of its thought
+  // bubbles, so there's no header and no list of sections. A wide window
+  // can have the board instead (List).
+  const head = S.people.length > 0 && (phoneQuery.matches || S.ui.todayView !== 'list');
+  let html = head ? '' : `
     <div class="hero-band">
       <div class="brand-row">
         <div class="brand-logo-wrap shine-sweep">${LOGO}</div>
@@ -509,11 +515,17 @@ function renderToday() {
     ${statBox(`${week.regular.length}<small>/${g.touchpoints}</small>`, 'Touchpoints this week', null, 'touchpoints')}
     ${statBox(`${week.added.length}<small>/${g.newPeople}</small>`, 'New people this week', null, 'added')}
   </div>`;
-  // On a phone the numbers sit in a row on top; on a wider window they
+  // On a phone the numbers sit in a row on top; with the side rail they
   // stack in a column on the left and the rest of Today fills the right.
   const list = todaySectionList(t);
-  if (phone) return `<div class="dash is-mind">${stats}<div class="dash-main">${conflictBannerHTML()}${exportReminderHTML(today)}${mindSlotHTML(list)}</div></div>`;
-  const dash = (rest, aside = '') => `${html}<div class="dash${aside ? ' has-pick' : ''}">${stats}<div class="dash-main">${conflictBannerHTML()}${exportReminderHTML(today)}${rest}</div>${aside}</div>`;
+  if (head) {
+    // A bubble clicked in a big window: its cards on the right of the head.
+    const sec = thoughtBeside() && S.ui.thoughtKey ? list.find((b) => b.key === S.ui.thoughtKey) : null;
+    if (!sec) S.ui.thoughtKey = null;
+    const toggle = phoneQuery.matches ? '' : `<div class="today-view">${listButton('today-view', false)}</div>`;
+    return `<div class="dash is-mind${sec ? ' has-thought' : ''}">${stats}<div class="dash-main">${toggle}${conflictBannerHTML()}${exportReminderHTML(today)}${mindSlotHTML(list)}</div>${sec ? thoughtPanelHTML(sec) : ''}</div>`;
+  }
+  const dash = (rest, aside = '') => `${html}<div class="dash${aside ? ' has-pick' : ''}">${stats}<div class="dash-main"><div class="today-view">${listButton('today-view', true)}</div>${conflictBannerHTML()}${exportReminderHTML(today)}${rest}</div>${aside}</div>`;
 
   const blocks = list.map((b, i) => ({ key: b.key, n: b.n, html: sectionBlock(b.key, b.title, b.n, b.inner, i % 2 ? 'navy' : 'yellow') }));
   if (!list.some((b) => b.key !== 'today-light')) return dash(caughtUpHTML(today) + blocks.map((b) => b.html).join(''));
@@ -611,6 +623,26 @@ function thoughtSheet(key) {
   });
 }
 
+// A window wide enough for a bubble's cards to open beside the head.
+const thoughtQuery = window.matchMedia('(min-width: 1300px)');
+const thoughtBeside = () => thoughtQuery.matches && !phoneQuery.matches;
+function openThought(key) {
+  if (!thoughtBeside()) {
+    thoughtSheet(key);
+    return;
+  }
+  // The same bubble again puts its cards away.
+  S.ui.thoughtKey = S.ui.thoughtKey === key ? null : key;
+  render();
+}
+function thoughtPanelHTML(sec) {
+  return `<aside class="thought-panel" aria-label="${esc(sec.title)}">
+    <div class="detail-top"><button type="button" class="back-btn pick-close" data-action="close-thought">${X_ICON_SMALL}Close</button></div>
+    <section class="section-block"><h2 class="heading-yellow"><span>${esc(sec.title)} [${sec.n}]</span></h2>
+    <div class="card-list">${sec.inner}</div></section>
+  </aside>`;
+}
+
 // Tapping the buddy's face: pick how it looks. Kept on this device.
 function buddySheet() {
   const cur = buddyStyle().key;
@@ -696,7 +728,7 @@ const PER_ITEM = { justmet: 3, overdue: 3, due: 3, resurfaced: 3, loops: 1.2, ne
 // fit side by side (a full-screen 14 or 16 inch Mac is 1496 or wider).
 // The sizes here match the board's in style.css.
 const bigQuery = window.matchMedia('(min-width: 1400px)');
-const BOARD = { rail: 0, pad: 32, stats: 172, gap: 28, col: 340, colGap: 20, panelMin: 560, panelMax: 1000 };
+const BOARD = { rail: 200, pad: 32, stats: 172, gap: 28, col: 340, colGap: 20, panelMin: 560, panelMax: 1000 };
 
 // How many columns fit beside the numbers, and beside the open person.
 function boardFit(withPanel) {
@@ -1176,7 +1208,7 @@ function filtersHTML() {
 function readPeopleView() {
   try { return localStorage.getItem('callback.peopleView') === 'list' ? 'list' : 'ring'; } catch { return 'ring'; }
 }
-const ringOn = () => phoneQuery.matches && S.people.length > 0 && S.ui.people.view !== 'list';
+const ringOn = () => S.people.length > 0 && S.ui.people.view !== 'list';
 let ringPeople = [];
 
 // How big someone stands in the ring: the closer you are, the bigger.
@@ -1305,7 +1337,7 @@ function peekPage(name, page) {
     const y = fromDetail ? S.ui.scroll.get(`${name}/`) || 0 : 0;
     if (y) page.style.transform = `translate3d(0, ${-y}px, 0)`;
     const mind = pv.querySelector('[data-mind-slot]');
-    if (mind) mountMind(mind, todayMind, { onOpen: thoughtSheet, onFace: buddySheet });
+    if (mind) mountMind(mind, todayMind, { onOpen: openThought, onFace: buddySheet });
     mountRingIn(pv);
     const slot = pv.querySelector('[data-map-slot]');
     if (slot && mapNow) {
@@ -1404,7 +1436,7 @@ function renderPeopleHand(f, n) {
 function renderPeople() {
   const f = S.ui.people;
   const n = activeFilterCount();
-  if (phoneQuery.matches && S.people.length) return renderPeopleHand(f, n);
+  if (S.people.length) return renderPeopleHand(f, n);
   return `
     <header class="topbar"><h1>People</h1>
       <span class="topbar-actions">
@@ -2127,7 +2159,7 @@ function timelineHTML(p, tps) {
 // Organizations
 
 function renderOrgs(id) {
-  const hand = phoneQuery.matches && S.orgs.length > 0;
+  const hand = S.orgs.length > 0;
   const map = hand && S.ui.orgsView !== 'list';
   if (map && id && S.orgById.has(id)) return orgInside(S.orgById.get(id));
   const q = S.ui.orgsQ.trim().toLowerCase();
@@ -2205,7 +2237,7 @@ function isOverdue(p, today = todayStr()) {
 }
 
 function renderCircles(id) {
-  const hand = phoneQuery.matches && S.circles.length > 0;
+  const hand = S.circles.length > 0;
   const map = hand && S.ui.circlesView !== 'list';
   if (map && id && S.circleById.has(id)) return circleInside(S.circleById.get(id));
   const today = todayStr();
@@ -3219,13 +3251,20 @@ const SPLIT_EMPTY = {
 };
 const splitList = (name) => (wideQuery.matches ? SPLIT_LIST[name] || null : null);
 
+const SPLIT_PAGE = { circles: 'circle', orgs: 'org' };
 function splitHTML(r, list) {
-  const open = r.name !== list;
+  // Picked on the map (#/circles/<id>): inside it on the left, its page on
+  // the right.
+  const inside = r.name === list && r.id && SPLIT_PAGE[list];
+  const open = r.name !== list || inside;
   const [title, text] = SPLIT_EMPTY[list];
+  const side = ROUTES[list](inside ? r.id : undefined);
+  // ↑ and ↓ go through a list, not the ring or the map.
+  const rows = side.includes('row-card');
   return `<div class="split">
-    <section class="split-list" data-list="${list}" aria-label="${esc(TITLES[list])}">${ROUTES[list]()}</section>
-    <section class="split-detail">${open ? ROUTES[r.name](r.id) : `<div class="empty split-empty"><p class="empty-title">${title}</p><p>${text}</p>
-      <p class="field-hint">↑ and ↓ move through the list. ${inMacApp ? 'Help, Keyboard Shortcuts lists the rest.' : 'Press ? for all the shortcuts.'}</p></div>`}</section>
+    <section class="split-list" data-list="${list}" aria-label="${esc(TITLES[list])}">${side}</section>
+    <section class="split-detail">${open ? ROUTES[inside || r.name](r.id) : `<div class="empty split-empty"><p class="empty-title">${title}</p><p>${text}</p>
+      <p class="field-hint">${rows ? `↑ and ↓ move through the list. ${inMacApp ? 'Help, Keyboard Shortcuts lists the rest.' : 'Press ? for all the shortcuts.'}` : inMacApp ? 'Help, Keyboard Shortcuts lists the shortcuts.' : 'Press ? for all the shortcuts.'}</p></div>`}</section>
   </div>`;
 }
 
@@ -3306,7 +3345,7 @@ function render() {
   S.ui.revealPick = false;
   view.dataset.route = r.name;
   const mindSlot = view.querySelector('[data-mind-slot]');
-  if (mindSlot) mountMind(mindSlot, todayMind, { onOpen: thoughtSheet, onFace: buddySheet });
+  if (mindSlot) mountMind(mindSlot, todayMind, { onOpen: openThought, onFace: buddySheet });
   mountRingIn(view);
   // Back out of a circle or organization: the map pulls back from it.
   const [prevName, prevId] = prevKey.split('/');
@@ -3336,6 +3375,7 @@ function render() {
 wideQuery.addEventListener('change', () => render());
 bigQuery.addEventListener('change', () => render());
 phoneQuery.addEventListener('change', () => render());
+thoughtQuery.addEventListener('change', () => { if (S.ui.thoughtKey) render(); });
 
 // Resizing a big window can fit more or fewer board columns.
 let boardResize = 0;
@@ -5329,6 +5369,14 @@ const ACTIONS = {
     render();
   },
   'circles-view': () => toggleMapView('circles'),
+  'today-view': () => {
+    S.ui.thoughtKey = null;
+    toggleMapView('today');
+  },
+  'close-thought': () => {
+    S.ui.thoughtKey = null;
+    render();
+  },
   'orgs-view': () => toggleMapView('orgs'),
   'map-out': (el) => {
     if (history.state && history.state.fromMap) history.back();

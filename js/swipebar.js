@@ -1,19 +1,20 @@
-// The bottom bar: one button that slides through the sections, on a phone
-// and in a wide window (the Mac app) alike.
+// The bottom bar on a phone: one button that slides through the sections.
+// Wide windows (the Mac app) keep the rail of tabs down the side.
 //
 // The section you're in sits in the middle as its icon, no words, with a
 // little triangle on each side that has another section. Swipe along the
 // bar to the left and the page slides off that way with the next section
 // drawn right beside it, coming in from the right as one strip (no gap
-// between them); swipe to the right to go back. On a Mac the same goes for
-// a two-finger swipe on the trackpad over the bar, or a drag with the
-// mouse. A tap on a triangle does the same, and a tap on the icon goes to
-// the top of its section, the way its tab did.
+// between them); swipe to the right to go back (a sideways scroll over the
+// bar does the same, for a trackpad on a narrow window). A tap on a triangle
+// does the same, and a tap on the icon goes to the top of its section, the
+// way its tab did.
 //
 // The page next door (a "peek") is drawn by the app (setSwipePeek) into a
 // layer of its own beside this one; once it's slid all the way in, the app
 // goes there for real and the layer is taken away in the same moment.
 
+const phone = matchMedia('(max-width: 899px)');
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 const STEP = 46; // px from one icon to the next on the strip
 const SLIDE_MS = 260;
@@ -282,7 +283,7 @@ function release(x, ok = true, v = 0) {
 
 function wire(bar) {
   bar.addEventListener('pointerdown', (e) => {
-    if (S.busy || S.wheel || e.button) return;
+    if (!phone.matches || S.busy || S.wheel || e.button) return;
     S.drag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, moved: false, x: 0, v: 0, t: performance.now(), lx: e.clientX };
   });
   bar.addEventListener('pointermove', (e) => {
@@ -325,7 +326,7 @@ function wire(bar) {
   // them like a finger, and the swipe ends when they've stopped. Up and
   // down scrolls the page as usual.
   bar.addEventListener('wheel', (e) => {
-    if (e.ctrlKey) return; // a pinch
+    if (e.ctrlKey || !phone.matches) return; // a pinch, or the rail
     const k = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerWidth : 1;
     const dx = e.deltaX * k;
     const dy = e.deltaY * k;
