@@ -12,6 +12,8 @@
 // can be picked up and put somewhere else (dropped on another, they swap
 // places), and stays where it's put, on this device.
 
+import { skyLines } from './sky.js';
+
 const NS = 'http://www.w3.org/2000/svg';
 const TAU = Math.PI * 2;
 const EYE = 5; // the viewer's distance, in head sizes: a touch of perspective
@@ -771,6 +773,7 @@ const st = {
   spots: readSpots(),
   carry: null, // a bubble being moved by hand
   pool: [],
+  skyPool: [],
   used: 0,
   w: 0,
   h: 0,
@@ -824,9 +827,10 @@ const SLOTS = {
 function build() {
   const el = document.createElement('div');
   el.className = 'mind';
-  el.innerHTML = '<svg class="mind-ink" aria-hidden="true"></svg><div class="mind-head" role="button" tabindex="0"></div>';
+  el.innerHTML = '<svg class="mind-sky" aria-hidden="true"></svg><svg class="mind-ink" aria-hidden="true"></svg><div class="mind-head" role="button" tabindex="0"></div>';
   st.el = el;
-  st.svg = el.querySelector('svg');
+  st.sky = el.querySelector('.mind-sky');
+  st.svg = el.querySelector('.mind-ink');
   st.hit = el.querySelector('.mind-head');
   wireHead(st.hit);
   // A phone sends its click a moment after the finger lifts, and by then
@@ -877,6 +881,7 @@ function resize() {
   st.h = h;
   st.el.style.height = `${h}px`;
   st.svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  st.sky.setAttribute('viewBox', `0 0 ${w} ${h}`);
   layout();
   const { R, hx, hy } = geom();
   Object.assign(st.hit.style, { left: `${hx - R * 1.35}px`, top: `${hy - R * 1.4}px`, width: `${R * 2.7}px`, height: `${R * 2.7}px` });
@@ -1320,8 +1325,36 @@ function draw() {
   // another bubble goes under it.
   for (const pass of [0, 1]) for (const key of [...st.bubbles.keys()]) drawBubble(st.bubbles.get(key), { w, R, hx, hy, sky }, pass);
 
+  drawSky({ R, hx, hy });
+
   for (let i = st.used; i < st.pool.length; i++) {
     const p = st.pool[i];
+    if (p._.d !== '') { p.setAttribute('d', ''); p._.d = ''; }
+  }
+}
+
+// The sky behind it all (sky.js): the sun by day, stars at night. Clouds
+// are filled, so whatever is behind one is hidden.
+function drawSky({ R, hx, hy }) {
+  const lines = skyLines({ W: st.w, hx, hy, R, t: st.t, calm: reduced.matches });
+  lines.forEach((l, i) => {
+    let p = st.skyPool[i];
+    if (!p) {
+      p = document.createElementNS(NS, 'path');
+      st.sky.appendChild(p);
+      st.skyPool[i] = p;
+      p._ = {};
+    }
+    const c = p._;
+    const fill = l.fill || 'none';
+    if (c.d !== l.d) { p.setAttribute('d', l.d); c.d = l.d; }
+    if (c.s !== l.stroke) { p.setAttribute('stroke', l.stroke); c.s = l.stroke; }
+    if (c.w !== l.w) { p.setAttribute('stroke-width', l.w); c.w = l.w; }
+    if (c.f !== fill) { p.setAttribute('fill', fill); c.f = fill; }
+    if (c.op !== l.op) { p.setAttribute('opacity', l.op); c.op = l.op; }
+  });
+  for (let i = lines.length; i < st.skyPool.length; i++) {
+    const p = st.skyPool[i];
     if (p._.d !== '') { p.setAttribute('d', ''); p._.d = ''; }
   }
 }

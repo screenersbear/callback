@@ -24,6 +24,7 @@ import { updateSwipeBar, setSwipePeek } from './swipebar.js';
 import * as sync from './sync.js';
 import { getPath } from './merge.js';
 import { mountMind, BUDDIES, buddyStyle, setBuddy, buddySVG } from './mind.js';
+import { startSky } from './sky.js';
 import { mountRing, figureSVG } from './ring.js';
 import { mountMap } from './map.js';
 
@@ -6258,4 +6259,6 @@ async function start() {
   }
 }
 
+// The sky behind the buddy, and the page warming at golden hour and graying at night.
+startSky();
 start();

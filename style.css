@@ -324,7 +324,8 @@ html:has(.dash.is-mind), body:has(.dash.is-mind) { overflow: hidden; overscroll-
   user-select: none;
   -webkit-tap-highlight-color: transparent;
 }
-.mind-ink { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.mind-sky, .mind-ink { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.mind-sky path { stroke-linecap: round; stroke-linejoin: round; }
 .mind-ink path { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
 .mind-head { position: absolute; border-radius: 50%; touch-action: none; cursor: grab; }
 .mind-head:active { cursor: grabbing; }
@@ -2612,3 +2613,18 @@ html.is-sideways .turn-back {
 .turn-back svg { width: 72px; height: 72px; margin-bottom: 8px; }
 .turn-back-title { margin: 0; font-family: var(--font-hand); font-size: 26px; color: var(--text); }
 .turn-back-text { margin: 0; font-size: 15px; color: var(--text-dim); }
+
+/* ---------- The sky (11-10) ----------
+   sky.js sets --golden and --night (0 to 1) and .sky-tint on the page, in
+   the light look only: golden hour warms the page a touch, and after dark
+   it grays a little, the green and yellow going quieter. Every colour that
+   uses the app's green comes through these, so it follows a changed green. */
+:root.sky-tint {
+  --bg: color-mix(in srgb, color-mix(in srgb, #ffffff, #fff4e4 calc(var(--golden, 0) * 100%)), #e5e8ec calc(var(--night, 0) * 100%));
+  --surface: var(--bg);
+  --navy: color-mix(in srgb, var(--green), #6c7a70 calc(var(--night, 0) * 60%));
+  --ink: var(--navy);
+  --hero: var(--navy);
+  --overlay: color-mix(in srgb, var(--navy) 90%, transparent);
+  --accent: color-mix(in srgb, #ffd103, #cbc6a8 calc(var(--night, 0) * 55%));
+}
