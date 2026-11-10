@@ -753,6 +753,8 @@ button.pick-typed { border-bottom: 3px solid var(--ink); }
 
 /* ---------- Personal ---------- */
 
+/* The small things about someone, at the foot of their page (11-09). */
+.person-notes { margin: 0 0 26px; }
 .pd-list { display: flex; flex-direction: column; margin-bottom: 12px; }
 .pd-row {
   display: grid;

@@ -1564,10 +1564,11 @@ function renderPerson(id, { panel = false } = {}) {
 
   // After Log touchpoint: news, loops and touchpoints, then who they are.
   // Two columns put those beside the rest; one column stacks them in order.
+  // The small things about them come last, on their own, with no heading.
   const right = `
     ${sectionBlock(k('details'), 'Details', null, detailsHTML(p), 'navy')}
-    ${sectionBlock(k('personal'), 'Personal', null, personalHTML(p), 'yellow')}
-    ${sectionBlock(k('connections'), 'Connections', null, connectionsHTML(p), 'navy')}`;
+    ${sectionBlock(k('connections'), 'Connections', null, connectionsHTML(p), 'navy')}
+    <div class="person-notes">${personalHTML(p)}</div>`;
 
   const top = panel
     ? `<div class="detail-top"><button type="button" class="back-btn pick-close" data-action="close-pick">${X_ICON_SMALL}Close</button>
@@ -3467,8 +3468,12 @@ window.addEventListener('resize', () => {
   boardResize = setTimeout(() => {
     const b = view.querySelector('.board[data-fit]');
     if (b && Number(b.dataset.fit) !== boardFit(!!view.querySelector('.pick-panel'))) render();
+    else view.querySelectorAll('textarea.pd-value').forEach(fitHeight);
   }, 120);
 });
+// The hand font arriving after the page drew can wrap a detail onto
+// another line, so they're measured again.
+if (document.fonts) document.fonts.addEventListener('loadingdone', () => view.querySelectorAll('textarea.pd-value').forEach(fitHeight));
 
 // A click anywhere on someone's card on Today (but its buttons) opens
 // them: on the board, on the right; otherwise their page. Selecting text
