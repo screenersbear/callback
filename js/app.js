@@ -5715,20 +5715,14 @@ function pickFile(accept, onFile) {
   input.click();
 }
 
-// ONE-TIME (11-10): a backup also carries this device's sync repository and
-// key, so the phone can be added to the home screen again (for the new icon)
-// without typing the key. Take out syncKey here and in importJSON once that
-// move is done; normally the key is never in a backup.
 async function exportJSON() {
   const data = await db.exportAll();
-  const c = S.meta.sync;
-  if (c) data.syncKey = { repo: c.repo, token: c.token };
   const ok = await saveFile(`callback-backup-${todayStr()}.json`, JSON.stringify(data, null, 2), 'application/json');
   if (!ok) return;
   await db.setMeta('lastExportAt', data.exportedAt);
   await db.setMeta('exportReminderUntil', null);
   await refresh();
-  toast(c ? "Backup saved, with your sync key this time. Delete the file once it's imported." : 'Backup saved');
+  toast('Backup saved');
 }
 
 function importJSON() {
@@ -5775,15 +5769,9 @@ function importJSON() {
       }
       try {
         const counts = await db.importAll(payload, mode);
-        // ONE-TIME (11-10): see exportJSON.
-        const k = payload.syncKey;
-        const syncBack = !S.meta.sync && k && typeof k.token === 'string' && k.token && sync.validRepo(String(k.repo || ''));
-        if (syncBack) await db.setMeta('sync', { repo: k.repo, token: k.token, device: deviceLabel(), joined: false });
         s.close();
         await refresh();
-        const done = mode === 'replace' ? 'Backup restored' : `Merged. ${plural(counts.people, 'person', 'people')} added or updated`;
-        toast(syncBack ? `${done}. Sync is on again.` : mode === 'replace' ? done : `${done}.`);
-        if (syncBack) sync.request(0);
+        toast(mode === 'replace' ? 'Backup restored' : `Merged. ${plural(counts.people, 'person', 'people')} added or updated.`);
       } catch (err) {
         toast(err.message || 'The import did not finish. Nothing was changed.');
       }
