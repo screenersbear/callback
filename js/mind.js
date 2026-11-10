@@ -244,22 +244,112 @@ function curl(u, v, dir, r, turn = 1, n = 14) {
 }
 const heading = (a, b) => Math.atan2(b[1] - a[1], b[0] - a[0]);
 
-// Where the outline leaves the neck: one long loop, drawn the way the pen
-// carries on, so the neck line runs on through it into the jaw.
-function coil(u, v, dir, R) {
-  const turn = -1;
-  const e1 = [Math.cos(dir), Math.sin(dir)];
-  const e2 = [Math.cos(dir + (turn * Math.PI) / 2), Math.sin(dir + (turn * Math.PI) / 2)];
-  const rl = R * 0.15;
-  const rw = R * 0.07;
-  const drift = R * 0.06;
-  return Array.from({ length: 26 }, (_, i) => {
-    const b = ((i + 1) / 26) * TAU;
-    const a1 = rl * Math.sin(b) + (drift * b) / TAU;
-    const a2 = rw * (1 - Math.cos(b));
-    return [u + e1[0] * a1 + e2[0] * a2, v + e1[1] * a1 + e2[1] * a2];
+// The chin and neck (11-10), traced from the user's own drawing: from the
+// end of the line along the bottom, up the neck, round a tall loop, a
+// little loop back, out along the jaw and back to the corner, where the
+// outline goes on up the cheek. In units of the neck's drop (from the
+// corner to the lowest point), each with the pen's weight there (1 is the
+// heaviest, down the cheek).
+const CHIN = [[-0.919, 0.952, 0.18],[-0.828, 0.982, 0.18],[-0.708, 1, 0.27],[-0.587, 1, 0.36],[-0.467, 0.961, 0.45],[-0.349, 0.892, 0.45],[-0.238, 0.789, 0.64],[-0.154, 0.69, 0.64],[-0.09, 0.587, 0.73],[-0.042, 0.473, 0.64],[-0.009, 0.325, 0.64],[0.006, 0.175, 0.73],[-0.003, 0.024, 0.73],[-0.009, -0.127, 0.73],[-0.018, -0.247, 0.73],[-0.024, -0.322, 0.64],[-0.009, -0.355, 0.64],[0.015, -0.334, 0.55],[0.039, -0.262, 0.45],[0.045, -0.157, 0.45],[0.027, -0.063, 0.41],[-0.003, 0.036, 0.45],[-0.066, 0.099, 0.41],[-0.148, 0.157, 0.27],[-0.226, 0.166, 0.27],[-0.28, 0.145, 0.32],[-0.316, 0.108, 0.27],[-0.301, 0.084, 0.23],[-0.226, 0.084, 0.27],[-0.105, 0.096, 0.32],[0.015, 0.105, 0.41],[0.166, 0.111, 0.45],[0.319, 0.096, 0.45],[0.443, 0.057, 0.5],[0.512, 0.009, 0.45],[0.536, -0.027, 0.36],[0.512, -0.039, 0.36],[0.437, -0.027, 0.32],[0.319, -0.006, 0.36],[0.196, 0.009, 0.45],[0.075, 0.009, 0.45],[0, 0, 0.45]];
+const CHIN_U = 0.5; // the neck's drop at rest, in head sizes
+const CHIN_KNEE = 0.17; // below the loops the neck stretches to reach the bottom
+
+// A pen line (11-10): a filled shape, so it swells and thins the way a pen
+// does with a hand on it. Put down light, fuller along long sweeps, lighter
+// round tight turns, and lifted off in a long taper. A point's 4th value,
+// where there is one, is its weight outright (the traced chin). `w` is the
+// line at its heaviest; `k` is the head's size against Today's.
+function penPath(pts, seed, waves, amp, w, k = 1) {
+  const n = pts.length;
+  if (n < 2) return '';
+  const c = [];
+  for (let i = 0; i < n; i++) {
+    const a = pts[Math.max(0, i - 1)];
+    const b = pts[Math.min(n - 1, i + 1)];
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const l = Math.hypot(dx, dy) || 1;
+    const o = amp * noise(seed + (pts[i][2] ?? i / n) * waves * 3 + st.boil);
+    c.push([pts[i][0] - (dy / l) * o, pts[i][1] + (dx / l) * o, pts[i][3]]);
+  }
+  // Along the curve through the midpoints (as inkPath draws it), closely.
+  const gap = 1.5 * Math.max(k, 0.4);
+  const S = [[c[0][0], c[0][1], 0]];
+  let p0 = c[0];
+  let f0 = 0;
+  const go = (q, e, f1) => {
+    const len = Math.hypot(q[0] - p0[0], q[1] - p0[1]) + Math.hypot(e[0] - q[0], e[1] - q[1]);
+    const m = Math.max(1, Math.ceil(len / gap));
+    for (let j = 1; j <= m; j++) {
+      const t = j / m;
+      const u = 1 - t;
+      S.push([u * u * p0[0] + 2 * u * t * q[0] + t * t * e[0], u * u * p0[1] + 2 * u * t * q[1] + t * t * e[1], mix(f0, f1, t)]);
+    }
+    p0 = e;
+    f0 = f1;
+  };
+  for (let i = 1; i < n - 1; i++) go(c[i], [(c[i][0] + c[i + 1][0]) / 2, (c[i][1] + c[i + 1][1]) / 2], i + 0.5);
+  const z = c[n - 1];
+  go([(p0[0] + z[0]) / 2, (p0[1] + z[1]) / 2], z, n - 1);
+  const m = S.length;
+  const at = [0];
+  for (let j = 1; j < m; j++) at.push(at[j - 1] + Math.hypot(S[j][0] - S[j - 1][0], S[j][1] - S[j - 1][1]));
+  const L = at[m - 1];
+  if (L < 0.4 * k) return '';
+  const weight = (f) => {
+    const i = Math.min(n - 1, Math.floor(f));
+    const a = c[i][2];
+    const b = c[Math.min(n - 1, i + 1)][2];
+    return a == null || b == null ? a ?? b : mix(a, b, f - i);
+  };
+  // How sharply it turns, evened out over a few points either side.
+  const bend = S.map((p, j) => {
+    if (j === 0 || j === m - 1) return 0;
+    const a1 = Math.atan2(p[1] - S[j - 1][1], p[0] - S[j - 1][0]);
+    const a2 = Math.atan2(S[j + 1][1] - p[1], S[j + 1][0] - p[0]);
+    return Math.abs(Math.atan2(Math.sin(a2 - a1), Math.cos(a2 - a1))) / Math.max(0.2 * k, (at[j + 1] - at[j - 1]) / 2);
   });
+  const down = c[0][2] == null;
+  const lift = c[n - 1][2] == null;
+  const rin = Math.min(L * 0.15, 10 * k);
+  const rout = Math.min(L * 0.35, 26 * k);
+  const half = S.map((p, j) => {
+    let f = weight(p[2]);
+    if (f == null) {
+      let b = 0;
+      let q = 0;
+      for (let d = -4; d <= 4; d++) if (bend[j + d] != null) { b += bend[j + d]; q++; }
+      // Heavier running up and down, lighter running across (as in the
+      // drawing: the cheek and neck full, the jaw line and tail light).
+      const a = S[Math.max(0, j - 3)];
+      const z = S[Math.min(m - 1, j + 3)];
+      const across = Math.abs(Math.sin(Math.atan2(z[1] - a[1], z[0] - a[0])));
+      f = mix(0.45, 1, across) * mix(0.42, 1, 1 / (1 + ((b / q) * k * 7) ** 2)) * (1 + 0.12 * noise(seed * 1.3 + at[j] / (25 * k)));
+    }
+    if (down) f *= mix(0.3, 1, smooth(clamp(at[j] / rin, 0, 1)));
+    if (lift) f *= mix(0.12, 1, smooth(clamp((L - at[j]) / rout, 0, 1)));
+    return Math.max(0.06, (w / 2) * f);
+  });
+  // Out to each side, round at the ends.
+  const side = [];
+  const back = [];
+  const dir = [];
+  for (let j = 0; j < m; j++) {
+    const a = S[Math.max(0, j - 2)];
+    const b = S[Math.min(m - 1, j + 2)];
+    const th = Math.atan2(b[1] - a[1], b[0] - a[0]);
+    dir.push(th);
+    const h = half[j];
+    side.push(`${r1(S[j][0] - Math.sin(th) * h)} ${r1(S[j][1] + Math.cos(th) * h)}`);
+    back.push(`${r1(S[j][0] + Math.sin(th) * h)} ${r1(S[j][1] - Math.cos(th) * h)}`);
+  }
+  const cap = (j, from) => [1, 2, 3].map((q) => {
+    const a = from - (Math.PI / 4) * q;
+    return `${r1(S[j][0] + Math.cos(a) * half[j])} ${r1(S[j][1] + Math.sin(a) * half[j])}`;
+  });
+  return `M${side.join('L')}L${cap(m - 1, dir[m - 1] + Math.PI / 2).join('L')}L${back.reverse().join('L')}L${cap(0, dir[0] - Math.PI / 2).join('L')}Z`;
 }
+const PEN_AMP = 0.3; // the hand's shake: less than before, for smoother lines
 
 // Every line of the head for one expression, in the head's own space, kept
 // to a few strokes the way a single-line drawing goes: they run from one
@@ -1146,7 +1236,7 @@ export function setBuddy(key) {
 export function buddySVG(key) {
   const style = BUDDIES.find((x) => x.key === key) || BUDDIES[0];
   const parts = [];
-  const out = (d, { w = 2, op = 1 } = {}) => { if (d) parts.push(`<path d="${d}" stroke-width="${w}"${op < 1 ? ` opacity="${op}"` : ''}/>`); };
+  const out = (d, { w = 2, op = 1, fill = null } = {}) => { if (d) parts.push(`<path d="${d}"${fill ? ' style="fill:currentColor;stroke:none"' : ` stroke-width="${w}"`}${op < 1 ? ` opacity="${op}"` : ''}/>`); };
   const boil = st.boil;
   st.boil = 0;
   drawHead(out, { R: 30, hx: 50, hy: 54, yaw: REST_YAW, pitch: REST_PITCH, roll: 0, squash: 0, bottom: 102, style, ex: { worry: 0, joy: 0.35, open: 0.6, lookU: 0, lookV: 0 } });
@@ -1315,7 +1405,7 @@ function draw() {
     lookU: st.glance ? clamp(yawT * 1.2, -1, 1) : 0,
     lookV: st.glance ? clamp(st.lookPitch * 1.6, -1, 1) : 0,
   };
-  drawHead(put, { R, hx, hy, yaw: st.spin + st.lookYaw, pitch: st.lookPitch + st.tilt, roll, squash, bottom: st.h + 2, trail: true, style: st.style, ex });
+  drawHead(put, { R, hx, hy, yaw: st.spin + st.lookYaw, pitch: st.lookPitch + st.tilt, roll, squash, bottom: st.h + 2, style: st.style, ex });
 
   // Sparkles, the moment the last bubble goes.
   const sp = t - st.sparkle;
@@ -1384,6 +1474,7 @@ function drawSky({ R, hx, hy }) {
 // The head itself, into `out` (the page's pool of lines, or a picture of
 // it for the picker): where it is, which way it's turned, its look and
 // its face.
+const PEN = { fill: 'currentColor' };
 function drawHead(out, P) {
   const { R, hx, hy, yaw, pitch, roll, squash, style, ex } = P;
   const C = { cy: Math.cos(yaw), sy: Math.sin(yaw), cp: Math.cos(pitch), sp: Math.sin(pitch), cr: Math.cos(roll), sr: Math.sin(roll) };
@@ -1399,42 +1490,42 @@ function drawHead(out, P) {
     return [hx + x * C.cr - y * C.sr, hy + x * C.sr + y * C.cr];
   };
 
-  // The outline is half a head, from the left: up the left of the neck, a
-  // loop where it leaves it, round the head and over the top, then (below)
-  // it swings in to become the right brow and the nose, all one line. The
-  // right side, the jaw and the chin are left open.
+  // The outline is half a head, from the left: in along the bottom, up the
+  // neck and through the chin's loops (CHIN), round the head and over the
+  // top, then (below) it swings in to become the right brow and the nose,
+  // all one line, drawn with a pen's weight (penPath). The right side is
+  // left open.
   const skin = hull([...SKIN, ...hairHull(style.hair)].map((p) => scr(rot(p))));
   const cont = contour(skin, hx, R);
   let way;
   let swingOK = true;
   let upPart = null;
   let arc = null;
-  let trail = null;
+  const k = R / 103;
   if (cont) {
-    const bottom = P.bottom;
+    // The chin and neck (CHIN), its corner where the outline leaves the
+    // neck and its foot along the bottom; below the loops it stretches to
+    // reach the bottom as the head tips.
     const [lx, ly] = cont.L;
-    let up = [[lx - R * 0.06, bottom], [lx - R * 0.03, mix(bottom, ly, 0.5)], [lx, ly]];
-    if (P.trail) {
-      // On Today there's no bar line for the neck to stand on: the pen comes
-      // in from the left along the bottom, thin, thickening as it turns up
-      // into the neck.
-      const yb = bottom - 2 - R * 0.07;
-      const fx = lx - R * 0.07;
-      const x0 = Math.max(R * 0.12, hx - R * 1.55);
-      const run = spline([[x0, yb + R * 0.02], [mix(x0, fx, 0.5), yb + R * 0.035], [fx - R * 0.26, yb + R * 0.012], [fx - R * 0.06, yb - R * 0.035], [fx, yb - R * 0.16], [lx - R * 0.03, mix(yb, ly, 0.55)], [lx, ly]], 44);
-      const cut = 18;
-      trail = run.slice(0, cut + 1);
-      up = run.slice(cut);
-    }
-    const loopPts = coil(lx, ly - R * 0.02, heading(up[up.length - 2], up[up.length - 1]), R);
+    const yb = P.bottom - 2 - R * 0.07;
+    const u = R * CHIN_U;
+    const reach = clamp(((yb - ly) / u - CHIN_KNEE) / (1 - CHIN_KNEE), 0.5, 2);
+    const chin = CHIN.map(([x, y, f]) => [lx + x * u, ly + (y > CHIN_KNEE ? CHIN_KNEE + (y - CHIN_KNEE) * reach : y) * u, f]);
     const head = resampleOpen(cont.head, 3.2);
+    // On up the cheek the pen bears down again, as in the drawing.
+    const from = CHIN[CHIN.length - 1][2];
+    for (let i = 1, d = 0; i < head.length; i++) {
+      d += Math.hypot(head[i][0] - head[i - 1][0], head[i][1] - head[i - 1][1]);
+      if (d > u * 0.6) break;
+      head[i][2] = mix(from, 0.97, smooth(d / (u * 0.6)));
+    }
     // Turned to show its right profile, the line carries on down that side
     // so the face has an edge to sit on.
     const prof = clamp((Math.sin(yaw) - 0.7) / 0.25, 0, 1) * clamp((Math.cos(yaw) + 0.45) / 0.3, 0, 1);
     swingOK = prof < 0.5;
     let end = head.findIndex((p) => p[0] > hx + R * (0.5 + 0.8 * prof));
     if (end < 2) end = head.length;
-    upPart = [...up, ...loopPts];
+    upPart = chin;
     arc = head;
     way = [...upPart, ...head.slice(1, end)];
   } else {
@@ -1447,7 +1538,7 @@ function drawHead(out, P) {
   // The pen's way round, and on into `more` (the brow) with a swing between.
   const drawWay = (more = []) => {
     const n = way.length;
-    const pts = way.map((p, i) => [p[0], p[1], -5 + (4 * i) / n]);
+    const pts = way.map((p, i) => [p[0], p[1], -5 + (4 * i) / n, p[2]]);
     if (more.length > 1) {
       const E = way[n - 1];
       const B = more[0];
@@ -1462,18 +1553,7 @@ function drawHead(out, P) {
       }
       pts.push(...more);
     }
-    out(inkPath(pts, 1.7, 2.5, 0.8), { w: 2.1 });
-    if (trail) {
-      // Thinner and thinner the farther left it runs.
-      const m = trail.length - 1;
-      const tp = trail.map((p, i) => [p[0], p[1], -6.4 + (1.4 * i) / m]);
-      const K = 6;
-      for (let k = 0; k < K; k++) {
-        const a = Math.floor((k * m) / K);
-        const b = Math.floor(((k + 1) * m) / K);
-        out(inkPath(tp.slice(a, b + 1), 1.7, 2.5, 0.8), { w: r1(mix(0.45, 1.9, ((k + 1) / K) ** 1.4)) });
-      }
-    }
+    out(penPath(pts, 1.7, 2.5, PEN_AMP, 2.8, k), PEN);
     wayDone = true;
   };
 
@@ -1505,7 +1585,7 @@ function drawHead(out, P) {
         if (len < Math.max(1.2, R * 0.045)) { run = []; return; } // no specks where a line turns away
         // The brow-and-nose line waits: the outline may run on into it.
         if (line.join && from === 0 && !joinRun) joinRun = { run, line, op };
-        else out(inkPath(run, line.seed, line.waves, 0.7), { w: line.w, op: r1(op) });
+        else out(penPath(run, line.seed, line.waves, PEN_AMP, line.w * 1.5, k), { ...PEN, op: r1(op) });
       }
       run = [];
     };
@@ -1532,7 +1612,7 @@ function drawHead(out, P) {
   }
   const swung = wayDone;
   if (!wayDone && way.length > 1) drawWay();
-  if (joinRun && !swung) out(inkPath(joinRun.run, joinRun.line.seed, joinRun.line.waves, 0.7), { w: joinRun.line.w, op: r1(joinRun.op) });
+  if (joinRun && !swung) out(penPath(joinRun.run, joinRun.line.seed, joinRun.line.waves, PEN_AMP, joinRun.line.w * 1.5, k), { ...PEN, op: r1(joinRun.op) });
 
 }
 
