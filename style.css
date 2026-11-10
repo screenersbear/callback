@@ -2709,14 +2709,13 @@ html.is-sideways .turn-back {
    quieter. Every colour that uses the app's green comes through these, so
    it follows a changed green. */
 :root.sky-tint {
-  --bg: color-mix(in srgb, color-mix(in srgb, #ffffff, #fff4e4 calc(var(--golden, 0) * 100%)), #d7dce2 calc(var(--night, 0) * 100%));
+  /* --bg and --sky are set as plain colors by sky.js. */
   --surface: var(--bg);
   --navy: color-mix(in srgb, var(--green), #6c7a70 calc(var(--night, 0) * 60%));
   --ink: var(--navy);
   --hero: var(--navy);
   --overlay: color-mix(in srgb, var(--navy) 90%, transparent);
   --accent: color-mix(in srgb, #ffd103, #cbc6a8 calc(var(--night, 0) * 55%));
-  --sky: color-mix(in srgb, color-mix(in srgb, var(--bg), #2f4270 calc(var(--late, 0) * 100%)), #1c2a4f calc(var(--deep, 0) * 100%));
 }
 /* Late at night Today's sky goes navy, then a deeper navy (11-10). Only the
    page behind the buddy: its clouds (filled with --bg), pop-ups and the other
@@ -2724,15 +2723,15 @@ html.is-sideways .turn-back {
    .sky-late-text once the navy is dark enough that light words read better
    than dark ones. */
 :root.sky-tint:has(#app .dash.is-mind:not(.is-welcome)),
-:root.sky-tint:has(#app .dash.is-mind:not(.is-welcome)) #app { background: var(--sky); }
-:root.sky-tint:has(#app .dash.is-mind:not(.is-welcome)) body { background: linear-gradient(var(--sky), var(--sky)); }
-:root.sky-tint .peek:has(.dash.is-mind), :root.sky-tint .peek:has(.dash.is-mind) .peek-app { background: var(--sky); }
+:root.sky-tint:has(#app .dash.is-mind:not(.is-welcome)) #app { background: var(--sky, var(--bg)); }
+:root.sky-tint:has(#app .dash.is-mind:not(.is-welcome)) body { background: linear-gradient(var(--sky, var(--bg)), var(--sky, var(--bg))); }
+:root.sky-tint .peek:has(.dash.is-mind), :root.sky-tint .peek:has(.dash.is-mind) .peek-app { background: var(--sky, var(--bg)); }
 .dash.is-mind .thought-panel { background: var(--bg); }
 .sky-late-text .dash.is-mind:not(.is-welcome) > .stats-row,
 .sky-late-text .dash.is-mind:not(.is-welcome) .today-view { --text: #eef1f6; --text-dim: rgba(238, 241, 246, 0.78); color: var(--text); }
 .sky-late-text .dash.is-mind:not(.is-welcome) .mind { color: color-mix(in srgb, var(--green), #ffffff 62%); }
 @media (max-width: 899px) {
-  :root.sky-tint:has(#app .dash.is-mind:not(.is-welcome)) .tabbar { background: var(--sky); }
+  :root.sky-tint:has(#app .dash.is-mind:not(.is-welcome)) .tabbar { background: var(--sky, var(--bg)); }
   .sky-late-text:has(#app .dash.is-mind:not(.is-welcome)) .tabbar { --text: #eef1f6; --text-dim: rgba(238, 241, 246, 0.78); color: var(--text); }
 }
 

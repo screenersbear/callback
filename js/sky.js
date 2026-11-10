@@ -133,11 +133,19 @@ function tint() {
     root.style.setProperty('--night', night);
     root.style.setProperty('--late', late);
     root.style.setProperty('--deep', deep);
+    // The backgrounds as plain colors, worked out here. Left to the browser
+    // as nested color-mix(), a phone that can't resolve one paints nothing
+    // at all, and the page goes white (11-10, after changing the app's color).
+    const bg = mixHex(mixHex('#ffffff', '#fff4e4', golden), '#d7dce2', night);
+    root.style.setProperty('--bg', bg);
+    root.style.setProperty('--sky', mixHex(mixHex(bg, '#2f4270', late), '#1c2a4f', deep));
   } else {
     root.style.removeProperty('--golden');
     root.style.removeProperty('--night');
     root.style.removeProperty('--late');
     root.style.removeProperty('--deep');
+    root.style.removeProperty('--bg');
+    root.style.removeProperty('--sky');
   }
 }
 
