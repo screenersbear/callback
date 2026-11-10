@@ -1076,6 +1076,31 @@ details.loop-done[open] summary { margin-bottom: 8px; }
 .person-fig-pic path, .fig-choice-pic path { fill: none; stroke: currentColor; stroke-width: 3.4; stroke-linecap: round; stroke-linejoin: round; }
 .fig-row { grid-template-columns: repeat(3, 1fr); }
 .person-name { margin: 0; font-size: 26px; line-height: 1.05; text-transform: uppercase; overflow-wrap: anywhere; }
+/* The dream list star sits right after the last word of the name: an
+   outline like a colouring book until it's tapped, then coloured in yellow
+   (a crayon scribble that draws itself once, just after the tap). */
+.person-name-line { margin: 0; }
+.person-name-line .person-name { display: inline; }
+.dream-star {
+  display: inline-block;
+  vertical-align: middle;
+  width: 44px;
+  height: 44px;
+  margin: -10px -9px -8px -3px;
+  padding: 7px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.dream-star-pic { display: block; width: 100%; height: 100%; overflow: visible; }
+.dream-star-line { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.dream-star-fill { fill: none; stroke: var(--accent); stroke-width: 3.6; stroke-linecap: round; stroke-linejoin: round; }
+.dream-star.is-filling .dream-star-fill { stroke-dasharray: 180; animation: dream-colour 0.55s ease-out both; }
+@keyframes dream-colour { from { stroke-dashoffset: 180; } to { stroke-dashoffset: 0; } }
+.dream-star:active .dream-star-pic { transform: scale(0.92); }
+@media (prefers-reduced-motion: reduce) { .dream-star.is-filling .dream-star-fill { animation: none; } }
 .person-sub { margin: 0; font-size: 16px; font-weight: 700; color: var(--text-dim); }
 .person-sub a { color: var(--text); }
 

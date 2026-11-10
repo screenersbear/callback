@@ -284,6 +284,25 @@ function interestLabel(k, { prefix = false } = {}) {
 const DREAM_SKY_STAR = '<svg class="warmth-icon dream-sky-star" viewBox="0 0 16 16" aria-hidden="true"><path d="M7.5 1.3L9.8 5.7L14.7 5.8L11.3 9.1L12.8 13.7L8.3 11.5L4.7 14.8L5 10L1.2 7.1L5.6 6.3L7.5 1.3L7.9 2.1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const DREAM_STAR = '<svg class="warmth-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.4l2 4.3 4.6.6-3.4 3.2.9 4.6L8 11.8 3.9 14.1l.9-4.6L1.4 6.3 6 5.7z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>';
 
+// The dream list on someone's page: a star by their name, drawn like a
+// colouring book outline (the sky star's line). Tap it and it's coloured in
+// yellow, with a quick crayon scribble the first time (11-10).
+const STAR_LINE = 'M7.5 1.3L9.8 5.7L14.7 5.8L11.3 9.1L12.8 13.7L8.3 11.5L4.7 14.8L5 10L1.2 7.1L5.6 6.3L7.5 1.3L7.9 2.1';
+const STAR_SHAPE = 'M7.5 1.3L9.8 5.7L14.7 5.8L11.3 9.1L12.8 13.7L8.3 11.5L4.7 14.8L5 10L1.2 7.1L5.6 6.3Z';
+const STAR_SCRIBBLE = 'M0 -0.4 L16 1.2 L0 2.8 L16 4.4 L0 6 L16 7.6 L0 9.2 L16 10.8 L0 12.4 L16 14 L0 15.6 L16 17.2';
+let dreamJustStarred = null;
+function dreamStar(p) {
+  const id = `dream-clip-${esc(p.id)}`;
+  const filling = dreamJustStarred === p.id;
+  if (filling) dreamJustStarred = null;
+  return `<button type="button" class="dream-star${p.dreamList ? ' is-on' : ''}${filling ? ' is-filling' : ''}" data-action="toggle-dream" data-id="${esc(p.id)}" aria-pressed="${p.dreamList ? 'true' : 'false'}" aria-label="Dream list">
+    <svg class="dream-star-pic" viewBox="0 0 16 16" aria-hidden="true">
+      <clipPath id="${id}"><path d="${STAR_SHAPE}"/></clipPath>
+      ${p.dreamList ? `<path class="dream-star-fill" d="${STAR_SCRIBBLE}" clip-path="url(#${id})"/>` : ''}
+      <path class="dream-star-line" d="${STAR_LINE}"/>
+    </svg></button>`;
+}
+
 function dreamBadge() {
   return `<span class="dream-badge">${DREAM_STAR}<span>Dream list</span></span>`;
 }
@@ -1634,15 +1653,13 @@ function renderPerson(id, { panel = false } = {}) {
   const left = `
     <header class="person-head has-fig">
       <button type="button" class="person-fig" data-action="change-figure" data-id="${pid}" style="color: var(--w-${esc(p.warmth)})" aria-label="How they're drawn: ${esc(figureWords(figureOf(p)).toLowerCase())}. Change it">${figureSVG(figureOf(p), 'person-fig-pic', 170)}</button>
-      <h1 class="person-name">${esc(p.name)}</h1>
+      <div class="person-name-line"><h1 class="person-name">${esc(p.name)}</h1>${dreamStar(p)}</div>
       ${sub ? `<p class="person-sub">${sub}</p>` : ''}
       <div class="person-badges">
         <button type="button" class="warmth-btn" data-action="change-warmth" data-id="${pid}" aria-label="Change warmth, now ${esc(WARMTH_INFO[p.warmth].label)}">
           ${warmthBadge(p.warmth)}</button>
         <button type="button" class="warmth-btn" data-action="change-rel" data-id="${pid}" aria-label="Change relationship, now ${esc(relWords(p))}">
           <span class="rel-set">${relLabels(p)}</span></button>
-        ${p.dreamList ? `<button type="button" class="warmth-btn" data-action="dream-off" data-id="${pid}" aria-label="On your dream list. Take them off it">
-          ${dreamBadge()}<span class="warmth-btn-hint">Remove</span></button>` : ''}
         <button type="button" class="warmth-btn light-toggle${p.lightTouch ? ' is-on' : ''}" data-action="toggle-light" data-id="${pid}" aria-pressed="${p.lightTouch ? 'true' : 'false'}" aria-label="Light touch">
           ${lightBadge()}</button>
       </div>
@@ -4047,6 +4064,24 @@ function wirePasteBox(form) {
   }
 }
 
+// On the dream list from the star by their name. Someone you haven't
+// reached out to yet waits there with no rhythm until you do.
+async function startDream(p) {
+  if (!p || p.dreamList) return;
+  await db.savePerson({ ...p, dreamList: true });
+  dreamJustStarred = p.id;
+  await refresh();
+  toast(`${firstName(p)} is on your dream list.`, {
+    action: {
+      label: 'Undo',
+      run: async () => {
+        await db.savePerson({ ...S.personById.get(p.id), dreamList: false });
+        await refresh();
+      },
+    },
+  });
+}
+
 // Off the dream list from their page. Someone you haven't reached out to
 // yet then joins the regular rhythm, so the toast says when their first
 // touchpoint is (today, unless a date was already set).
@@ -5670,6 +5705,10 @@ const ACTIONS = {
     if (p) (p.lightTouch ? endLightTouch(p) : startLightTouch(p));
   },
   'dream-off': (el) => endDream(person(el)),
+  'toggle-dream': (el) => {
+    const p = person(el);
+    if (p) (p.dreamList ? endDream(p) : startDream(p));
+  },
   'dismiss-engage': async (el) => {
     const p = person(el);
     const latest = p && tpsOf(p.id)[0];
