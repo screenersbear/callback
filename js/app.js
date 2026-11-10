@@ -2057,15 +2057,21 @@ async function syncBirthdayNews(p) {
 
 // The person's own rhythm (11-10): a preset, a number of days, or the
 // default for their warmth or light touch. Stored as cadenceOverrideDays.
-function rhythmPickerHTML(p) {
+// The default option says what the default is, short enough for a phone
+// ("Every 6 weeks (default)"; the hint below names each warmth's); the
+// person form calls the field Touchpoints.
+const rhythmDefaultText = (p) => rhythmWords({ ...p, cadenceOverrideDays: null }, S.settings)
+  .replace(/ \([^()]*default\)$/, ' (default)')
+  .replace(/^The cold sequence/, 'Cold sequence');
+function rhythmPickerHTML(p, label = 'Rhythm') {
   const n = p && Number(p.cadenceOverrideDays) > 0 ? Math.round(Number(p.cadenceOverrideDays)) : 0;
   const pick = !n ? 'default' : RHYTHM_PRESETS.some((r) => r.days === n) ? String(n) : 'custom';
   const c = S.settings.cadence;
-  return `<label class="field"><span class="field-label">Rhythm</span>
+  return `<label class="field"><span class="field-label">${esc(label)}</span>
       <select name="rhythm" data-rhythm>
         ${RHYTHM_PRESETS.map((r) => `<option value="${r.days}"${pick === String(r.days) ? ' selected' : ''}>${esc(r.label)} (${r.days} days)</option>`).join('')}
         <option value="custom"${pick === 'custom' ? ' selected' : ''}>Custom</option>
-        <option value="default"${pick === 'default' ? ' selected' : ''}>Use default</option>
+        <option value="default"${pick === 'default' ? ' selected' : ''}>${esc(rhythmDefaultText(p || {}))}</option>
       </select>
       <span class="field-hint">The defaults: warm ${every(c.warm).toLowerCase()}, active ${every(c.active).toLowerCase()}, on a project ${every(c.client).toLowerCase()}, light touch ${every(c.lightTouch).toLowerCase()}.</span></label>
     <label class="field rhythm-days"${pick === 'custom' ? '' : ' hidden'}><span class="field-label">Days</span>
@@ -4405,7 +4411,7 @@ function personForm(p, preset = {}) {
         ${field('website', 'Website', v.website, 'autocomplete="off" inputmode="url" placeholder="example.com"')}
         <label class="field"><span class="field-label">How we met</span><textarea name="howWeMet" rows="2" placeholder="Introduced by Sam at the Rialto screening">${esc(v.howWeMet || '')}</textarea></label>
         <label class="field"><span class="field-label">Notes</span><textarea name="notes" rows="3">${esc(v.notes || '')}</textarea></label>
-        ${rhythmPickerHTML(v)}
+        ${rhythmPickerHTML(v, 'Touchpoints')}
       </details>
       <button type="submit" class="modal-cta primary">${isNew ? 'Add person' : 'Save changes'}</button>
       ${isNew ? '' : '<button type="button" class="btn danger wide" data-delete>Delete person</button>'}
@@ -4462,6 +4468,14 @@ function personForm(p, preset = {}) {
       }
     });
   }
+  // The default touchpoints option follows the warmth and light touch picked.
+  const rhythmDefault = form.querySelector('[data-rhythm] option[value="default"]');
+  form.addEventListener('change', (e) => {
+    if (!rhythmDefault || !['warmth', 'lightTouch', 'relationshipTypes'].includes(e.target.name)) return;
+    const w = form.querySelector('[name="warmth"]:checked');
+    const light = form.querySelector('[name="lightTouch"]');
+    rhythmDefault.textContent = rhythmDefaultText({ ...v, warmth: w ? w.value : v.warmth, lightTouch: light ? light.checked : !!v.lightTouch });
+  });
   form.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-pick]');
     if (!b) return;
