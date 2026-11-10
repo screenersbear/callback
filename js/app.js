@@ -696,7 +696,7 @@ function thoughtSheet(key) {
     const host = e.target.closest('[data-pick]');
     if (!host || e.target.closest('button, a, input, textarea, select, label, [data-action]')) return;
     if (String(window.getSelection() || '').trim()) return;
-    location.hash = `#/person/${host.dataset.pick}${host.dataset.focus ? `/${host.dataset.focus}` : ''}`;
+    leaveTo(`#/person/${host.dataset.pick}${host.dataset.focus ? `/${host.dataset.focus}` : ''}`);
   });
 }
 
@@ -3135,8 +3135,7 @@ function statSheet(kind) {
   s.body.addEventListener('click', (e) => {
     const go = e.target.closest('[data-go]');
     if (go) {
-      s.close();
-      location.hash = go.dataset.go;
+      leaveTo(go.dataset.go);
       return;
     }
     if (e.target.closest('[data-add]')) {
@@ -4324,6 +4323,32 @@ document.addEventListener('click', (e) => {
   e.preventDefault();
   openFromPeople(a.dataset.askReply);
 });
+
+// Off to another page from inside a popup (11-10): the popup goes first,
+// and the page is drawn without it before moving on. An iPhone keeps a
+// picture of the page you leave for its swipe back from the edge, and with
+// the popup still up in that picture it seemed to be open again back there.
+function leaveTo(to) {
+  closeAllSheets();
+  let gone = false;
+  const go = () => {
+    if (gone) return;
+    gone = true;
+    if (typeof to === 'function') to();
+    else location.hash = to;
+  };
+  requestAnimationFrame(() => requestAnimationFrame(go));
+  setTimeout(go, 150);
+}
+// Links in popups (people, organizations) work the same way.
+document.addEventListener('click', (e) => {
+  const a = e.target.closest && e.target.closest('.sheet-overlay a[href^="#/"]');
+  if (!a || a.closest('[data-action]') || e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const ask = a.dataset.askReply;
+  leaveTo(ask ? () => openFromPeople(ask) : a.getAttribute('href'));
+}, true);
 
 window.addEventListener('hashchange', (e) => {
   const from = new URL(e.oldURL).hash || '#/today';
