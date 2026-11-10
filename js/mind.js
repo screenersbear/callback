@@ -63,6 +63,7 @@ const smooth = (t) => t * t * (3 - 2 * t);
 const approach = (cur, target, rate, dt) => cur + (target - cur) * (1 - Math.exp(-rate * dt));
 const sheetOpen = () => document.body.classList.contains('sheet-open');
 const r1 = (v) => Math.round(v * 10) / 10;
+const r2 = (v) => Math.round(v * 100) / 100;
 
 // Value noise: the same wobble for the same spot on a line, so a stroke
 // keeps its hand-drawn shake as the head turns instead of crawling.
@@ -939,7 +940,7 @@ function newBubble(d, i) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'thought';
-  btn.innerHTML = '<span class="thought-n"></span><span class="thought-label"></span>';
+  btn.innerHTML = '<span class="thought-in"><span class="thought-n"></span><span class="thought-label"></span></span>';
   const b = { key: d.key, seed: hashStr(d.key), state: 'in', p: st.first ? -0.14 * i : 0, wob: 0, x: null, y: null, s: 1, tx: 0, ty: 0, ts: 1, btn, n: d.n, moved: -9 };
   // Picked up and moved: it follows the finger, and isn't opened.
   btn.addEventListener('pointerdown', (e) => {
@@ -1530,9 +1531,11 @@ function drawBubble(b, { w, R, hx, hy, sky }, pass) {
   const t = st.t;
   const calm = reduced.matches;
   // Each cloud drifts ever so slightly on its own slow loop: a few px side
-  // to side and up and down, never in step with the others.
-  const driftX = calm ? 0 : (Math.sin(t * 0.31 + b.seed) * 0.6 + Math.sin(t * 0.17 + b.seed * 1.7) * 0.4) * 0.009;
-  const driftY = calm ? 0 : (Math.sin(t * 0.43 + b.seed * 0.6) * 0.7 + Math.sin(t * 0.9 + b.seed) * 0.3) * 0.004;
+  // to side and up and down, never in step with the others. The words go
+  // with it, the same distance at the same moment (11-10: a little slower).
+  const dt = t * 0.65;
+  const driftX = calm ? 0 : (Math.sin(dt * 0.31 + b.seed) * 0.6 + Math.sin(dt * 0.17 + b.seed * 1.7) * 0.4) * 0.009;
+  const driftY = calm ? 0 : (Math.sin(dt * 0.43 + b.seed * 0.6) * 0.7 + Math.sin(dt * 0.9 + b.seed) * 0.3) * 0.004;
   const cx = (b.x + driftX) * w;
   const cy = ((b.y + driftY) / SKY) * sky;
   const bs = b.s;
@@ -1606,8 +1609,12 @@ function drawBubble(b, { w, R, hx, hy, sky }, pass) {
   const bw = BUB.rx * w * 2 * 0.82;
   const bh = BUB.ry * w * 2 * 0.72;
   const btn = b.btn;
-  const tf = `translate(${r1(cx - bw / 2)}px, ${r1(cy - bh / 2)}px) scale(${Math.max(0.01, Math.round(scale * 1000) / 1000)})`;
+  // The button only moves, on a layer of its own so it glides by fractions
+  // of a pixel just like the cloud's line; its words grow and shrink inside.
+  const tf = `translate(${r2(cx - bw / 2)}px, ${r2(cy - bh / 2)}px)`;
   if (btn._tf !== tf) { btn.style.transform = tf; btn._tf = tf; }
+  const sc = `scale(${Math.max(0.01, Math.round(scale * 1000) / 1000)})`;
+  if (btn._sc !== sc) { btn.firstChild.style.transform = sc; btn._sc = sc; }
   if (btn._w !== bw) { btn.style.width = `${bw}px`; btn.style.height = `${bh}px`; btn._w = bw; }
   const op = r1(textOp);
   if (btn._op !== op) { btn.style.opacity = op; btn._op = op; }
