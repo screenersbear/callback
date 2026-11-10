@@ -10,13 +10,6 @@
 // does the same, and a tap on the icon goes to the top of its section, the
 // way its tab did.
 //
-// Circles and Organizations live under People (11-10): their tabs carry
-// data-under="people", so they're left out of the slide and drawn as their
-// icons either side of it instead, Circles on the left and Organizations on
-// the right, shown while you're in People. On one of them the middle is
-// still People, so a tap there goes back, and a swipe goes on to the
-// sections either side of People as usual.
-//
 // The page next door (a "peek") is drawn by the app (setSwipePeek) into a
 // layer of its own beside this one; once it's slid all the way in, the app
 // goes there for real and the layer is taken away in the same moment.
@@ -32,9 +25,6 @@ const far = (w) => Math.min(w * 0.25, 180);
 const S = {
   bar: null,
   tabs: [],
-  under: [],
-  sides: [],
-  sub: null,
   idx: 0,
   strip: null,
   now: null,
@@ -110,25 +100,18 @@ function build() {
   const bar = document.getElementById('tabbar');
   if (!bar) return false;
   S.bar = bar;
-  const all = [...bar.querySelectorAll('.tab')].map((a) => ({
+  S.tabs = [...bar.querySelectorAll('.tab')].map((a) => ({
     key: a.dataset.tab,
     href: a.getAttribute('href'),
     name: (a.querySelector('.tab-label') || a).textContent.trim(),
     icon: (a.querySelector('.tab-icon') || a).innerHTML,
-    under: a.dataset.under || null,
   }));
-  S.tabs = all.filter((t) => !t.under);
-  S.under = all.filter((t) => t.under);
-  const side = (t) => (t ? `<a class="slide-side tab-icon is-off" href="${t.href}" data-key="${t.key}" aria-label="${t.name}" title="${t.name}" tabindex="-1">${t.icon}</a>` : '');
   const el = document.createElement('div');
   el.className = 'slider';
-  el.innerHTML = side(S.under[0])
-    + `<button type="button" class="slide-arrow is-prev">${tri}</button>`
+  el.innerHTML = `<button type="button" class="slide-arrow is-prev">${tri}</button>`
     + `<a class="slide-now" href="${S.tabs[0].href}"><span class="slide-strip" aria-hidden="true">${S.tabs.map((t) => `<span class="slide-icon tab-icon">${t.icon}</span>`).join('')}</span></a>`
-    + `<button type="button" class="slide-arrow is-next">${tri}</button>`
-    + side(S.under[1]);
+    + `<button type="button" class="slide-arrow is-next">${tri}</button>`;
   bar.appendChild(el);
-  S.sides = [...el.querySelectorAll('.slide-side')];
   S.strip = el.querySelector('.slide-strip');
   S.now = el.querySelector('.slide-now');
   S.prev = el.querySelector('.is-prev');
@@ -153,20 +136,8 @@ function label() {
   const p = S.tabs[S.idx - 1];
   const n = S.tabs[S.idx + 1];
   S.now.setAttribute('href', t.href);
-  S.now.setAttribute('aria-label', S.sub ? `Back to ${t.name}` : t.name);
-  if (S.sub) S.now.removeAttribute('aria-current');
-  else S.now.setAttribute('aria-current', 'page');
-  // Circles and Organizations, either side, while you're in their section.
-  for (const a of S.sides) {
-    const u = S.under.find((x) => x.key === a.dataset.key);
-    const here = !!u && u.under === t.key;
-    a.classList.toggle('is-off', !here);
-    a.tabIndex = here ? 0 : -1;
-    a.setAttribute('aria-hidden', String(!here));
-    a.classList.toggle('is-on', S.sub === a.dataset.key);
-    if (S.sub === a.dataset.key) a.setAttribute('aria-current', 'page');
-    else a.removeAttribute('aria-current');
-  }
+  S.now.setAttribute('aria-label', t.name);
+  S.now.setAttribute('aria-current', 'page');
   S.prev.classList.toggle('is-off', !p);
   S.next.classList.toggle('is-off', !n);
   S.prev.disabled = !p;
@@ -182,10 +153,7 @@ function label() {
 // Called by the app after each page is drawn, with the section it's in.
 export function updateSwipeBar(tab) {
   if (!build()) return;
-  // On Circles or Organizations the bar stands at People.
-  const sub = S.under.find((u) => u.key === tab);
-  S.sub = sub ? sub.key : null;
-  const i = S.tabs.findIndex((t) => t.key === (sub ? sub.under : tab));
+  const i = S.tabs.findIndex((t) => t.key === tab);
   if (i >= 0) S.idx = i;
   label();
   if (S.enter) {

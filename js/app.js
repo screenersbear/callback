@@ -2589,7 +2589,7 @@ function renderOrgs(id) {
   }
   if (hand) {
     return `
-    ${peopleBack()}<header class="topbar"><h1>Organizations</h1></header>
+    <header class="topbar"><h1>Organizations</h1></header>
     <div class="people-hand">
       <div class="hand-row">
         <button type="button" class="hand-btn" data-action="add-org"><span class="hand-btn-text">+ Add organization</span>${statScrib('Add organization')}</button>
@@ -2602,7 +2602,7 @@ function renderOrgs(id) {
     ${map && list.length ? mapHTML('orgs', list) : `<div class="card-list" id="orgList">${body}</div>`}`;
   }
   return `
-    ${peopleBack()}<header class="topbar"><h1>Organizations</h1>
+    <header class="topbar"><h1>Organizations</h1>
       <button type="button" class="icon-btn" data-action="add-org" aria-label="Add organization">+</button></header>
     ${S.orgs.length ? `<input type="search" class="search" id="orgSearch" placeholder="Search organizations" value="${esc(S.ui.orgsQ)}" autocomplete="off" aria-label="Search organizations">` : ''}
     <div class="card-list" id="orgList">${body}</div>`;
@@ -2639,11 +2639,6 @@ function isOverdue(p, today = todayStr()) {
   return !dreamOnly(p) && (p.nextTouchpointDate || today) < today;
 }
 
-// On a phone Circles and Organizations sit under People (their icons are
-// either side of People's in the bottom bar), so each starts with a way
-// back to People. A wide window has them in the rail instead (11-10).
-const peopleBack = () => `<div class="detail-top phone-back">${backButton('#/people', 'Back')}</div>`;
-
 function renderCircles(id) {
   const hand = S.circles.length > 0;
   const map = hand && S.ui.circlesView !== 'list';
@@ -2677,7 +2672,7 @@ function renderCircles(id) {
   }
   if (hand) {
     return `
-    ${peopleBack()}<header class="topbar"><h1>Circles</h1>
+    <header class="topbar"><h1>Circles</h1>
       ${!map && S.circles.length > 1 ? `<span class="topbar-actions"><button type="button" class="text-btn" data-action="toggle-reorder" aria-pressed="${reorder}">${reorder ? 'Done' : 'Reorder'}</button></span>` : ''}</header>
     <div class="people-hand"><div class="hand-row">
       <button type="button" class="hand-btn" data-action="add-circle"><span class="hand-btn-text">+ New circle</span>${statScrib('New circle')}</button>
@@ -2686,7 +2681,7 @@ function renderCircles(id) {
     ${map ? mapHTML('circles') : `<div class="card-list">${body}</div>`}`;
   }
   return `
-    ${peopleBack()}<header class="topbar"><h1>Circles</h1>
+    <header class="topbar"><h1>Circles</h1>
       <span class="topbar-actions">
         ${S.circles.length > 1 ? `<button type="button" class="text-btn" data-action="toggle-reorder" aria-pressed="${reorder}">${reorder ? 'Done' : 'Reorder'}</button>` : ''}
         <button type="button" class="icon-btn" data-action="add-circle" aria-label="New circle">+</button>
@@ -6295,7 +6290,7 @@ async function offerFollowCleanup() {
 // One set of commands. On a computer the single keys below work in any
 // browser; the Mac app's menu sends the same commands with ⌘ shortcuts.
 
-const TAB_ORDER = ['today', 'people', 'week', 'circles', 'orgs', 'settings'];
+const TAB_ORDER = ['today', 'people', 'circles', 'orgs', 'news', 'week', 'settings'];
 const inMacApp = !!(window.callbackApp && window.callbackApp.mac);
 
 function openPerson() {
@@ -6604,7 +6599,7 @@ function shortcutsSheet() {
     [mac ? '⌘F' : '/', mac ? 'Find someone (on Orgs, search orgs)' : 'Search'],
     ['S', 'Snooze the person you have open'],
     ['↑ ↓', 'Previous or next in the list, or on Today in a big window'],
-    [mac ? '⌘1 to ⌘5' : '1 to 6', 'Today, People, Week, Circles, Orgs' + (mac ? '' : ', Settings')],
+    [mac ? '⌘1 to ⌘6' : '1 to 7', 'Today, People, Circles, Orgs, Their news, Week' + (mac ? '' : ', Settings')],
     ...(mac ? [['⌘,', 'Settings'], ['⌘[', 'Back'], ['⌘E', 'Export a backup'], ['⌘O', 'Import a backup']] : []),
     ['Esc', 'Close a form, a popup or the person open beside Today'],
   ];

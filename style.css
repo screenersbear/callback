@@ -2345,12 +2345,6 @@ html.mac-app .sheet-overlay, html.mac-app .toast { -webkit-app-region: no-drag; 
   .slide-strip.is-moving { transition: transform 0.2s cubic-bezier(0.3, 0.6, 0.3, 1); }
   .slide-icon { flex: 0 0 46px; height: 40px; display: grid; place-items: center; }
   .slide-icon svg { width: 27px; height: 27px; }
-  /* Circles and Organizations either side of People (11-10). */
-  .slide-side { flex: none; width: 44px; height: 44px; display: grid; place-items: center; color: var(--text-dim); -webkit-tap-highlight-color: transparent; }
-  .slide-side svg { width: 23px; height: 23px; }
-  .slide-side.is-off { visibility: hidden; pointer-events: none; }
-  .slide-side.is-on { color: var(--text); }
-  .slide-side:active { opacity: 0.5; }
   /* The section next door, drawn beside the page while the bar is swiped;
      the page slid aside is clipped at the screen's edges meanwhile. */
   html.is-swiping #app { overflow-x: clip; }
@@ -2625,10 +2619,11 @@ html.is-sideways .turn-back {
 /* ---------- The sky (11-10) ----------
    sky.js sets --golden and --night (0 to 1) and .sky-tint on the page, in
    the light look only: golden hour warms the page a touch, and after dark
-   it grays a little, the green and yellow going quieter. Every colour that
-   uses the app's green comes through these, so it follows a changed green. */
+   it grays (a step darker since 11-10b), the green and yellow going
+   quieter. Every colour that uses the app's green comes through these, so
+   it follows a changed green. */
 :root.sky-tint {
-  --bg: color-mix(in srgb, color-mix(in srgb, #ffffff, #fff4e4 calc(var(--golden, 0) * 100%)), #e5e8ec calc(var(--night, 0) * 100%));
+  --bg: color-mix(in srgb, color-mix(in srgb, #ffffff, #fff4e4 calc(var(--golden, 0) * 100%)), #d7dce2 calc(var(--night, 0) * 100%));
   --surface: var(--bg);
   --navy: color-mix(in srgb, var(--green), #6c7a70 calc(var(--night, 0) * 60%));
   --ink: var(--navy);
@@ -2676,11 +2671,29 @@ html.is-sideways .turn-back {
 .news-row { grid-template-columns: 62px 1fr auto; color: inherit; text-decoration: none; margin-bottom: 0; }
 .news-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .news-row-name { font-weight: 700; }
-/* The way back to People on Circles and Organizations is for the phone;
-   a wide window has them in the rail. */
-.phone-back + .topbar { padding-top: 2px; }
-@media (min-width: 900px) { .phone-back { display: none; } }
-
+/* On Their news the top headings (the years, or the months when it's all
+   one year) are the same color bands as Weekly review's, green and yellow
+   in turn (11-10). */
+.news-list > .fold > .fold-head {
+  font-size: 19px;
+  letter-spacing: -0.3px;
+  padding: 8px 18px;
+  border-bottom: 0;
+  background: var(--hero);
+  color: #fff;
+  border-left: 11px solid var(--accent);
+}
+.news-list > .fold:nth-child(even) > .fold-head {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-left-color: var(--navy);
+}
+.news-list > .fold > .fold-head .fold-n { color: inherit; }
+.news-list > .fold + .fold { margin-top: 14px; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .news-list > .fold:nth-child(odd) > .fold-head { box-shadow: inset 0 0 0 2px var(--ink); }
+}
+:root[data-theme="dark"] .news-list > .fold:nth-child(odd) > .fold-head { box-shadow: inset 0 0 0 2px var(--ink); }
 /* Waiting on a reply, on People: a little drawn "!" after the name (11-10). */
 .reply-flag { display: inline-block; width: 11px; height: 22px; margin-left: 4px; vertical-align: -3px; color: var(--text); }
 .reply-flag svg { display: block; width: 100%; height: 100%; overflow: visible; }
