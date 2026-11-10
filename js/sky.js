@@ -82,7 +82,8 @@ const SUN_EDGE = 0.05;
 // Where the day is: the sun's way across (0 at sunrise, 1 at sunset), how
 // golden it is, how much it's night (0 by day, 1 an hour after sunset), and
 // how much the stars are out (11-10: only once the sun is fully gone, and
-// gone again before it shows in the morning).
+// gone again before it shows in the morning), and how late it is: 0 until
+// night is full, up to 1 by about 10 PM, back to 0 before the morning light.
 export function skyNow() {
   const d = now();
   const m = d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
@@ -91,6 +92,10 @@ export function skyNow() {
   const morning = 0.6 * smooth(rise - 20, rise, m) * (1 - smooth(rise + 15, rise + 55, m));
   const night = Math.max(smooth(set + 5, set + 60, m), 1 - smooth(rise - 50, rise, m));
   const edge = SUN_EDGE * (set - rise);
+  // The small hours carry on from last night's evening, across midnight.
+  const small = m < rise;
+  const lateFrom = Math.max(20 * 60, set + 60);
+  const late = smooth(lateFrom, lateFrom + 120, small ? m + 1440 : m) * (1 - smooth(rise - 170, rise - 50, small ? m : m - 1440));
   return {
     f: (m - rise) / (set - rise),
     // The page warms in golden hour and lets go of it as the light goes.
@@ -98,6 +103,7 @@ export function skyNow() {
     // The sun itself stays orange all the way down.
     sunGold: Math.max(evening, morning),
     night,
+    late,
     stars: night * Math.max(smooth(set + edge, set + edge + 20, m), 1 - smooth(rise - edge - 20, rise - edge, m)),
     rise,
     set,
@@ -114,14 +120,19 @@ function tint() {
   const s = skyNow();
   const golden = isDark() ? 0 : r2(s.golden);
   const night = isDark() ? 0 : r2(s.night);
+  const late = isDark() ? 0 : r2(s.late);
   const on = golden > 0 || night > 0;
   root.classList.toggle('sky-tint', on);
+  // Past this much navy, light words read better on Today than dark ones.
+  root.classList.toggle('sky-late-text', late >= 0.54);
   if (on) {
     root.style.setProperty('--golden', golden);
     root.style.setProperty('--night', night);
+    root.style.setProperty('--late', late);
   } else {
     root.style.removeProperty('--golden');
     root.style.removeProperty('--night');
+    root.style.removeProperty('--late');
   }
 }
 
