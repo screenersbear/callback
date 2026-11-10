@@ -149,6 +149,19 @@ function tpLoop(tp) {
     || list.find((l) => !l.touchpointId && Math.abs(Date.parse(l.createdAt) - at) < 5000)
     || null;
 }
+// How a closed promise ended: `outcome` is 'kept' (or got, on their side) or
+// 'letGo'; older closed ones count as kept. `keptBy` is the touchpoint logged
+// when you kept it. Both only count while the promise is closed, since an
+// older copy of the app can reopen one and leave them behind.
+const isLetGo = (l) => l.status === 'closed' && l.outcome === 'letGo';
+const keptLoopOf = (tp) => loopsOf(tp.personId).find((l) => l.status === 'closed' && l.keptBy === tp.id) || null;
+const OPEN_AGAIN = { status: 'open', closedAt: null, outcome: null, keptBy: null };
+// A touchpoint's words: the promise it kept comes first.
+function tpNote(t) {
+  const k = keptLoopOf(t);
+  if (!k) return t.note || '';
+  return `Kept the promise: ${k.description}${t.note ? `. ${t.note}` : ''}`;
+}
 const orgOf = (p) => (p && p.organizationId ? S.orgById.get(p.organizationId) : null);
 // A person's circles in your order. Ids of deleted circles are skipped.
 const circlesOf = (p) => S.circles.filter((c) => (p.circleIds || []).includes(c.id));
@@ -805,7 +818,7 @@ function replyRow(t) {
   return `<div class="reply-row" data-pick="${esc(t.personId)}" data-focus="${id}">
     <a class="light-main" href="#/person/${esc(t.personId)}/${id}"><span class="light-name">${esc(p.name)}</span>
       <span class="reply-what">${esc(touchTypeLabel(t.type))} <span class="dot">·</span> ${esc(fmtDate(t.date))}</span>
-      ${t.note ? `<span class="light-idea">${esc(t.note)}</span>` : ''}</a>
+      ${tpNote(t) ? `<span class="light-idea">${esc(tpNote(t))}</span>` : ''}</a>
     <span class="reply-actions">
       <button type="button" class="primary small-btn" data-action="reply-mark" data-key="yes" data-id="${id}">Replied</button>
       <button type="button" class="secondary small-btn" data-action="reply-mark" data-key="no" data-id="${id}">No reply</button>
@@ -934,7 +947,7 @@ function personCard(p, kind, news = null) {
     ${stage ? '<p class="first-line"><span class="first-tag">First contact</span></p>' : ''}
     <p class="item-facts">${facts.join(' <span class="dot">·</span> ')}</p>
     ${newsLine}
-    ${last && last.note ? `<p class="item-last"><span class="item-last-label">Last:</span> ${esc(last.note)}</p>` : ''}
+    ${last && tpNote(last) ? `<p class="item-last"><span class="item-last-label">Last:</span> ${esc(tpNote(last))}</p>` : ''}
     ${prompt || idea}
     <div class="item-actions">${actions}</div>
   </article>`;
@@ -997,7 +1010,7 @@ function loopCard(l, { coming = false } = {}) {
       <p class="loop-desc">${theirs ? `Waiting on ${esc(midSentence(l.description))} from ${who}.` : `You promised ${who}: ${esc(l.description)}`}</p>
       <p class="item-facts"><b>${theirs ? 'Expected' : 'Due'} ${esc(when)}</b></p>
       <div class="item-actions">
-        <button type="button" class="btn primary" data-action="close-loop" data-id="${lid}">${theirs ? 'Got it' : 'Done'}</button>
+        <button type="button" class="btn primary" data-action="close-loop" data-id="${lid}">${theirs ? 'Got it' : 'Kept it'}</button>
         <button type="button" class="btn secondary" data-action="open-person" data-id="${pid}">Open</button>
       </div>
     </article>`;
@@ -1006,10 +1019,10 @@ function loopCard(l, { coming = false } = {}) {
     return `<article class="item-card loop-card is-theyowe" data-pick="${pid}">
       <p class="loop-kicker">${loopIcon('theyOwe')}<span>On their side</span></p>
       <p class="loop-desc">Still waiting on ${esc(midSentence(l.description))} from ${who}.</p>
-      <p class="item-facts"><b>Expected ${esc(fmtDate(l.dueDate))}</b> <span class="dot">·</span> ${esc(relDay(l.dueDate, today))}. A gentle nudge?</p>
+      <p class="item-facts"><b>Expected ${esc(fmtDate(l.dueDate))}</b> <span class="dot">·</span> ${esc(relDay(l.dueDate, today))}</p>
       <div class="item-actions">
-        <button type="button" class="btn primary" data-action="loop-follow-up" data-id="${lid}">Log follow-up</button>
-        <button type="button" class="btn secondary" data-action="close-loop" data-id="${lid}">Got it</button>
+        <button type="button" class="btn primary" data-action="close-loop" data-id="${lid}">Got it</button>
+        <button type="button" class="btn secondary" data-action="loop-not-yet" data-id="${lid}">Not yet</button>
         <button type="button" class="btn secondary" data-action="open-person" data-id="${pid}">Open</button>
       </div>
     </article>`;
@@ -1019,7 +1032,8 @@ function loopCard(l, { coming = false } = {}) {
     <p class="loop-desc">You promised ${who}: ${esc(l.description)}</p>
     <p class="item-facts"><b>${n === 0 ? 'Due today' : `Due ${esc(relDay(l.dueDate, today))}`}</b></p>
     <div class="item-actions">
-      <button type="button" class="btn primary" data-action="close-loop" data-id="${lid}">Done</button>
+      <button type="button" class="btn primary" data-action="close-loop" data-id="${lid}">Kept it</button>
+      <button type="button" class="btn secondary" data-action="loop-not-yet" data-id="${lid}">Not yet</button>
       <button type="button" class="btn secondary" data-action="open-person" data-id="${pid}">Open</button>
     </div>
   </article>`;
@@ -2011,7 +2025,8 @@ function newsListHTML(p) {
 function loopRow(l, today) {
   const closed = l.status === 'closed';
   let when = '';
-  if (closed) when = l.closedAt ? `Done ${fmtDate(toDateStr(new Date(l.closedAt)), { weekday: false })}` : 'Done';
+  const shut = isLetGo(l) ? 'Let go' : 'Done';
+  if (closed) when = l.closedAt ? `${shut} ${fmtDate(toDateStr(new Date(l.closedAt)), { weekday: false })}` : shut;
   else if (l.dueDate) {
     const n = daysBetween(l.dueDate, today);
     const lead = l.direction === 'theyOwe' ? 'Expected' : 'Due';
@@ -2049,7 +2064,7 @@ function loopsHTML(p) {
     ${done.length ? `<details class="loop-done"><summary>Done (${done.length})</summary><ul class="loop-list">${done.map((l) => loopRow(l, today)).join('')}</ul></details>` : ''}`;
 }
 
-function loopSheet(p, l = null) {
+function loopSheet(p, l = null, { focusDate = false } = {}) {
   if (!p) return;
   const v = l || { direction: 'iOwe', description: '', dueDate: '' };
   const s = openSheet({
@@ -2066,11 +2081,24 @@ function loopSheet(p, l = null) {
       <label class="field"><span class="field-label">By when? (optional)</span>
         <input type="date" name="dueDate" value="${esc(v.dueDate || '')}">
         <span class="field-hint">With a date, it shows on Today when it's due. Without one, it waits here.</span></label>
+      ${l && l.status !== 'closed' ? '<button type="button" class="btn secondary wide" data-let-go>Let it go</button>' : ''}
       ${l ? '<button type="button" class="btn danger wide" data-delete>Delete loop</button>' : ''}
       <button type="submit" class="modal-cta primary">${l ? 'Save' : 'Add loop'}</button>
     </form>`,
   });
   const form = s.body.querySelector('form');
+  if (focusDate) {
+    const d = form.querySelector('[name="dueDate"]');
+    d.focus();
+    try { d.showPicker(); } catch { /* not everywhere */ }
+  }
+  const go = s.body.querySelector('[data-let-go]');
+  if (go) {
+    go.addEventListener('click', async () => {
+      s.close();
+      await letGoLoop(l);
+    });
+  }
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(form);
@@ -2108,30 +2136,94 @@ function loopSheet(p, l = null) {
   }
 }
 
-// Closing a loop on your side is often a touchpoint in itself, so offer to log it.
+// Done on a promise. Yours opens Promise kept, to log how it got to them in
+// one go; theirs (Got it) just closes.
 async function closeLoop(l) {
   if (!l || l.status === 'closed') return;
-  await db.saveOpenLoop({ ...l, status: 'closed', closedAt: nowISO() });
-  await refresh();
   const p = S.personById.get(l.personId);
-  if (l.direction !== 'iOwe' || !p) {
-    toast('Loop closed', { action: { label: 'Undo', run: () => reopenLoop(S.loops.find((x) => x.id === l.id)) } });
+  if (l.direction === 'iOwe' && p) {
+    // Closed without saving, a ticked box goes back to how it was.
+    logSheet(p, { keep: l, onClose: () => render() });
     return;
   }
-  const log = await confirmSheet({
-    title: 'Log this as a touchpoint?',
-    message: `You kept a promise to ${esc(firstName(p))}: ${esc(l.description)}. Logging it lets Callback schedule what's next.`,
-    confirmLabel: 'Log touchpoint',
-    cancelLabel: 'Not now',
-  });
-  if (log) logSheet(S.personById.get(l.personId), { note: l.description });
+  await db.saveOpenLoop({ ...l, status: 'closed', closedAt: nowISO(), outcome: 'kept', keptBy: null });
+  await refresh();
+  toast('Loop closed', { action: { label: 'Undo', run: () => reopenLoop(S.loops.find((x) => x.id === l.id), { quiet: true }) } });
 }
 
-async function reopenLoop(l) {
-  if (!l) return;
-  await db.saveOpenLoop({ ...l, status: 'open', closedAt: null });
+async function letGoLoop(l) {
+  if (!l || l.status === 'closed') return;
+  await db.saveOpenLoop({ ...l, status: 'closed', closedAt: nowISO(), outcome: 'letGo', keptBy: null });
   await refresh();
-  toast('Loop reopened');
+  toast('Let go', { action: { label: 'Undo', run: () => reopenLoop(S.loops.find((x) => x.id === l.id), { quiet: true }) } });
+}
+
+async function reopenLoop(l, { quiet = false } = {}) {
+  if (!l) return;
+  await db.saveOpenLoop({ ...l, ...OPEN_AGAIN });
+  await refresh();
+  if (quiet) return;
+  toast(l.direction === 'iOwe' ? 'The promise is open again' : 'Loop reopened', { action: { label: 'Undo', run: async () => { await db.saveOpenLoop(l); await refresh(); } } });
+}
+
+// Not yet, on a promise that's due: more time, a word that it's late, or let
+// it go.
+async function notYetSheet(l) {
+  const p = l && S.personById.get(l.personId);
+  if (!p) return;
+  const mine = l.direction === 'iOwe';
+  const first = firstName(p);
+  const today = todayStr();
+  const week = addDays([today, l.dueDate || today].sort().pop(), 7);
+  const key = await choiceSheet({
+    title: 'Not yet?',
+    extra: `<p class="sheet-person">${esc(p.name)}</p><p class="keep-quote">${esc(l.description)}</p>`,
+    options: [
+      { key: 'week', label: 'Give it another week', detail: `${mine ? 'Due' : 'Expected'} ${fmtDate(week)} instead.` },
+      { key: 'date', label: 'Pick a new date', detail: 'For when you know.' },
+      mine
+        ? { key: 'late', label: `Tell ${first} it's running late`, detail: 'Logs that you let them know, and gives it another week.' }
+        : { key: 'nudge', label: `Nudge ${first}`, detail: 'Logs a follow-up, and gives it another week.' },
+      { key: 'go', label: 'Let it go', detail: 'Off your list, filed under Done as let go. Nothing logged.' },
+    ],
+  });
+  const fresh = S.loops.find((x) => x.id === l.id);
+  if (!key || !fresh || fresh.status === 'closed') return;
+  const moveOn = async () => {
+    const cur = S.loops.find((x) => x.id === l.id) || fresh;
+    await db.saveOpenLoop({ ...cur, dueDate: week });
+  };
+  if (key === 'week') {
+    await moveOn();
+    await refresh();
+    toast(`${mine ? 'Due' : 'Expected'} ${fmtDate(week)} now`, { action: { label: 'Undo', run: async () => { await db.saveOpenLoop(fresh); await refresh(); } } });
+  } else if (key === 'date') {
+    loopSheet(p, fresh, { focusDate: true });
+  } else if (key === 'late') {
+    logSheet(p, { note: `Let them know it's running late: ${midSentence(fresh.description)}`, onSave: moveOn });
+  } else if (key === 'nudge') {
+    logSheet(p, { note: `Followed up about: ${midSentence(fresh.description)}`, onSave: moveOn });
+  } else if (key === 'go') {
+    await letGoLoop(fresh);
+  }
+}
+
+// What a promise reads as on the timeline, by where it stands.
+function promiseWord(l) {
+  if (l.status !== 'closed') return l.direction === 'iOwe' ? 'You promised:' : 'They promised:';
+  if (isLetGo(l)) return 'Let go:';
+  return l.direction === 'iOwe' ? 'Promise kept:' : 'They came through:';
+}
+
+// Under a touchpoint: the promise it kept, its note, and the promise made with
+// it, ticked once it's kept. Untick it and the promise is open again.
+function tlPromise(t) {
+  const k = keptLoopOf(t);
+  const m = tpLoop(t);
+  const shut = m && m.status === 'closed';
+  return `${k ? `<p class="tl-kept">${CHECK}<span><b>Kept the promise:</b> ${esc(k.description)}</span></p>` : ''}
+    ${t.note ? `<p class="tl-note">${esc(t.note)}</p>` : ''}
+    ${m ? `<label class="tl-promise${shut ? ' is-shut' : ''}"><input type="checkbox" class="loop-box" data-loop-toggle="${esc(m.id)}"${shut ? ' checked' : ''} aria-label="${shut ? 'Open again' : m.direction === 'iOwe' ? 'Promise kept' : 'Got it'}: ${esc(m.description)}"><span><b>${esc(promiseWord(m))}</b> ${esc(m.description)}</span></label>` : ''}`;
 }
 
 function timelineHTML(p, tps) {
@@ -2144,7 +2236,7 @@ function timelineHTML(p, tps) {
         <span class="tl-node" aria-hidden="true"></span>
         <div class="tl-body">
           <p class="tl-head"><span class="tl-date">${esc(fmtDate(t.date))}</span><span class="tl-type">${esc(touchTypeLabel(t.type))}</span>${t.interest ? interestLabel(t.interest) : ''}</p>
-          ${t.note ? `<p class="tl-note">${esc(t.note)}</p>` : ''}
+          ${tlPromise(t)}
           <div class="tl-foot">
             <button type="button" class="resp resp-${esc(t.responded || 'pending')}" data-action="set-response" data-id="${esc(t.id)}" aria-label="Reply status: ${esc(respondedLabel(t.responded))}. Change">${esc(respondedLabel(t.responded))}</button>
             <button type="button" class="text-btn" data-action="edit-tp" data-id="${esc(t.id)}">Edit</button>
@@ -2500,7 +2592,7 @@ function logRow(t) {
   const p = S.personById.get(t.personId);
   return `<div class="log-row">
     <a class="log-row-main" href="#/person/${esc(t.personId)}/${esc(t.id)}"><span class="log-row-date">${esc(fmtDate(t.date))}</span>
-      <b>${esc(p ? p.name : 'Someone')}</b> <span class="dot">·</span> ${esc(touchTypeLabel(t.type))}${t.lightTouch ? ' <span class="dot">·</span> Light touch' : ''}${t.note ? `<span class="log-row-note">${esc(t.note)}</span>` : ''}</a>
+      <b>${esc(p ? p.name : 'Someone')}</b> <span class="dot">·</span> ${esc(touchTypeLabel(t.type))}${t.lightTouch ? ' <span class="dot">·</span> Light touch' : ''}${tpNote(t) ? `<span class="log-row-note">${esc(tpNote(t))}</span>` : ''}</a>
     <span class="log-row-side"><button type="button" class="resp resp-${esc(t.responded || 'pending')}" data-action="set-response" data-id="${esc(t.id)}" aria-label="Reply status: ${esc(respondedLabel(t.responded))}. Change">${esc(respondedLabel(t.responded))}</button>
       <button type="button" class="text-btn" data-action="edit-tp" data-id="${esc(t.id)}">Edit</button></span>
   </div>`;
@@ -4075,18 +4167,23 @@ function whyText(p, tps, next) {
   return `${cap(span(c[p.warmth]))} after ${after}, because ${first} is ${warmthWord(p.warmth)}.`;
 }
 
-function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } = {}) {
+// `keep` is a promise of yours being kept: the promise shows on top, the note
+// is only what's to add, and saving closes it with this touchpoint (keptBy).
+// `onSave` runs once the touchpoint is saved.
+function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose, keep = null, onSave = null } = {}) {
   if (!p) return;
   const editing = !!touchpoint;
   const today = todayStr();
+  // A touchpoint that kept a promise shows it when edited, too.
+  const kept = keep || (editing ? keptLoopOf(touchpoint) : null);
   // A typed idea is what you said you'd do, so it fills in what you did.
   // Any other idea is offered with "Use it" instead.
-  const idea = editing ? null : shownIdea(p);
+  const idea = editing || keep ? null : shownIdea(p);
   const preset = note || (newsItem ? `Their news: ${newsItem.description}` : '');
   const v = touchpoint || {
     type: S.meta.lastLogType || 'email',
     date: today,
-    note: preset || (idea.own ? idea.own : ''),
+    note: keep ? '' : preset || (idea.own ? idea.own : ''),
     responded: 'pending',
   };
   const offer = idea && idea.text && idea.text !== v.note ? idea.text : '';
@@ -4099,18 +4196,19 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } 
   const made = editing ? tpLoop(touchpoint) : null;
   const madeDir = made ? made.direction : LOOP_DIRECTIONS[0].key;
   const s = openSheet({
-    title: editing ? 'Edit touchpoint' : 'Log touchpoint',
+    title: editing ? 'Edit touchpoint' : keep ? 'Promise kept' : 'Log touchpoint',
     className: 'log-sheet',
     onClose,
     body: `<p class="sheet-person">${esc(p.name)}</p>
+    ${kept ? `<p class="keep-quote">${editing ? '<b>Kept the promise:</b> ' : ''}${esc(kept.description)}</p>` : ''}
     <form class="form" novalidate>
-      <fieldset class="field"><legend class="field-label">How did you reach out?</legend>
+      <fieldset class="field"><legend class="field-label">${kept ? `How did it get to ${esc(firstName(p))}?` : 'How did you reach out?'}</legend>
         <div class="chip-choices">${TOUCH_TYPES.map((t) => `<label class="chip-choice"><input type="radio" name="type" value="${t.key}"${v.type === t.key ? ' checked' : ''}><span>${esc(t.label)}</span></label>`).join('')}</div>
       </fieldset>
       <label class="field"><span class="field-label">When</span><input type="date" name="date" value="${esc(v.date)}" required></label>
       <div class="field">
-        <label class="field"><span class="field-label">What you sent or said</span>
-          <textarea name="note" class="log-note" rows="1" maxlength="280" enterkeyhint="done" placeholder="Sent three frames from the beach test">${esc(v.note || '')}</textarea></label>
+        <label class="field"><span class="field-label">${kept ? 'Anything to add? (optional)' : 'What you sent or said'}</span>
+          <textarea name="note" class="log-note" rows="1" maxlength="280" enterkeyhint="done" placeholder="${kept ? 'Framed it too' : 'Sent three frames from the beach test'}">${esc(v.note || '')}</textarea></label>
         ${offer ? `<p class="field-hint log-idea"><span>${idea.own ? 'Your idea' : 'Idea'}: ${esc(offer)}</span> <button type="button" class="text-btn inline" data-use-idea>Use it</button></p>` : ''}
       </div>
       <fieldset class="field"><legend class="field-label">Did they reply?</legend>
@@ -4118,21 +4216,22 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } 
       </fieldset>
       <label class="field" data-reply-day-field${v.responded === 'yes' ? '' : ' hidden'}><span class="field-label">When did they reply?</span>
         <input type="date" name="replyDay" value="${esc(replyDefault)}" min="${esc(v.date)}" max="${today}"></label>
-      <fieldset class="field"><legend class="field-label">How did they seem? (optional)</legend>
+      ${kept ? '' : `<fieldset class="field"><legend class="field-label">How did they seem? (optional)</legend>
         <input type="hidden" name="interest" value="${esc(v.interest || '')}">
         <div class="interest-picks">${INTEREST_LEVELS.map((i) => `<button type="button" class="interest-pick${v.interest === i.key ? ' is-on' : ''}" data-interest="${i.key}" aria-pressed="${v.interest === i.key}">${interestIcon(i.key)}<span>${esc(i.label)}</span></button>`).join('')}</div>
-      </fieldset>
-      <div class="field promise-field">
+      </fieldset>`}
+      ${kept && !made ? '' : `<div class="field promise-field">
         <label class="field"><span class="field-label">Anything promised? (optional)</span>
           <input name="promise" maxlength="140" autocomplete="off" value="${esc(made ? made.description : '')}" placeholder="Send her a print of the window frame"></label>
-        ${made && made.status === 'closed' ? '<p class="field-hint">Done already.</p>' : ''}
+        ${made ? `<label class="check-row"><input type="checkbox" class="loop-box" name="promiseKept"${made.status === 'closed' ? ' checked' : ''}><span>${isLetGo(made) ? 'Let go' : made.direction === 'iOwe' ? 'Promise kept' : 'They came through'}</span></label>` : ''}
         <div class="promise-more"${made ? '' : ' hidden'}>
           <div class="seg">${LOOP_DIRECTIONS.map((d) => `<label class="seg-option"><input type="radio" name="promiseDir" value="${d.key}"${madeDir === d.key ? ' checked' : ''}><span>${esc(d.label)}</span></label>`).join('')}</div>
           <label class="field"><span class="field-label">By when? (optional)</span><input type="date" name="promiseDue" value="${esc(made && made.dueDate ? made.dueDate : '')}"></label>
         </div>
-      </div>
+      </div>`}
       ${editing ? '<button type="button" class="btn danger wide" data-delete>Delete touchpoint</button>' : ''}
-      <button type="submit" class="modal-cta primary">${editing ? 'Save changes' : 'Save touchpoint'}</button>
+      <button type="submit" class="modal-cta primary">${editing ? 'Save changes' : keep ? 'Save' : 'Save touchpoint'}</button>
+      ${keep ? '<button type="button" class="text-btn keep-only" data-keep-only>Mark it kept without logging</button>' : ''}
     </form>`,
   });
   const form = s.body.querySelector('form');
@@ -4210,7 +4309,7 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } 
       note: String(fd.get('note') || '').replace(/\s*\n+\s*/g, ' ').trim(),
       responded,
       respondedAt,
-      interest: String(fd.get('interest') || '') || null,
+      interest: form.querySelector('[name="interest"]') ? String(fd.get('interest') || '') || null : (touchpoint && touchpoint.interest) || null,
       lightTouch: touchpoint ? !!touchpoint.lightTouch : !!p.lightTouch,
     });
     const all = sortTouchpoints([...before.filter((t) => t.id !== tp.id), tp]);
@@ -4226,11 +4325,19 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } 
     const interest = tp.interest && (!editing || all[0].id === tp.id) ? { interest: tp.interest } : {};
     let person = await db.savePerson({ ...p, nextTouchpointDate: next, ...(clearedIdea ? { customIdea: '' } : {}), ...interest });
     if (newsItem) await db.saveNews({ ...newsItem, dismissedAt: nowISO() });
+    if (keep) {
+      const cur = S.loops.find((x) => x.id === keep.id) || keep;
+      await db.saveOpenLoop({ ...cur, status: 'closed', closedAt: nowISO(), outcome: 'kept', keptBy: tp.id });
+    }
+    if (onSave) await onSave(tp);
     // "Anything promised?" becomes an open loop alongside the touchpoint.
+    const promiseOn = !!form.querySelector('[name="promise"]');
     const promised = String(fd.get('promise') || '').trim();
     let loop = null;
     let promiseNote = '';
-    if (promised) {
+    if (!promiseOn) {
+      // Promise kept: no new promise asked for here.
+    } else if (promised) {
       const due = String(fd.get('promiseDue') || '');
       const fields = {
         personId: p.id,
@@ -4242,9 +4349,18 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } 
       if (!made) {
         loop = await db.saveOpenLoop({ ...fields, status: 'open', closedAt: null });
         promiseNote = 'added';
-      } else if (['touchpointId', 'direction', 'description', 'dueDate'].some((k) => (made[k] || null) !== fields[k])) {
-        await db.saveOpenLoop({ ...made, ...fields });
-        promiseNote = 'saved';
+      } else {
+        // The Promise kept box: unticked opens it again, ticked closes it
+        // as kept (nothing more logged).
+        const box = form.querySelector('[name="promiseKept"]');
+        const shut = made.status === 'closed';
+        const flip = box && box.checked !== shut
+          ? (box.checked ? { status: 'closed', closedAt: nowISO(), outcome: 'kept', keptBy: null } : OPEN_AGAIN)
+          : null;
+        if (flip || ['touchpointId', 'direction', 'description', 'dueDate'].some((k) => (made[k] || null) !== fields[k])) {
+          await db.saveOpenLoop({ ...made, ...fields, ...(flip || {}) });
+          promiseNote = flip ? (box.checked ? 'kept' : 'reopened') : 'saved';
+        }
       }
     } else if (made) {
       await db.deleteOpenLoop(made.id);
@@ -4262,33 +4378,62 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose } 
         toast('Touchpoint saved. Promise taken off.', { action: { label: 'Undo', run: async () => { await db.saveOpenLoop(made); await refresh(); } } });
       } else if (lightEnded) {
         toast(`Touchpoint and promise saved. ${firstName(person)} is off light touch now, since something real is in motion.`);
+      } else if (promiseNote === 'reopened') {
+        toast('Touchpoint saved. The promise is open again.');
+      } else if (promiseNote === 'kept') {
+        toast('Touchpoint saved. Promise kept.');
       } else {
         toast(promiseNote ? 'Touchpoint and promise saved' : 'Touchpoint saved');
       }
       return;
     }
-    showLogged(s, person, all, { clearedIdea, loop, lightEnded });
+    showLogged(s, person, all, { clearedIdea, loop, lightEnded, kept: keep });
   });
+
+  const keepOnly = s.body.querySelector('[data-keep-only]');
+  if (keepOnly) {
+    keepOnly.addEventListener('click', async () => {
+      const cur = S.loops.find((x) => x.id === keep.id) || keep;
+      await db.saveOpenLoop({ ...cur, status: 'closed', closedAt: nowISO(), outcome: 'kept', keptBy: null });
+      s.close();
+      await refresh();
+      toast('Promise kept', { action: { label: 'Undo', run: () => reopenLoop(S.loops.find((x) => x.id === keep.id), { quiet: true }) } });
+    });
+  }
 
   const del = s.body.querySelector('[data-delete]');
   if (del) {
     del.addEventListener('click', async () => {
-      const ok = await confirmSheet({ title: 'Delete this touchpoint?', message: 'It comes off the timeline for good.', confirmLabel: 'Delete', danger: true });
+      const ok = await confirmSheet({
+        title: 'Delete this touchpoint?',
+        message: kept ? 'It comes off the timeline for good, and the promise it kept is open again.' : 'It comes off the timeline for good.',
+        confirmLabel: 'Delete',
+        danger: true,
+      });
       if (!ok) return;
       const before = tpsOf(p.id);
       await db.deleteTouchpoint(touchpoint.id);
+      await reopenKept([touchpoint.id]);
       const rest = before.filter((t) => t.id !== touchpoint.id);
       if (before[0] && before[0].id === touchpoint.id) {
         await db.savePerson({ ...p, nextTouchpointDate: computeNextDate(p, rest, S.settings, today) });
       }
       await refresh();
       s.close();
-      toast('Touchpoint deleted');
+      toast(kept ? 'Touchpoint deleted. The promise is open again.' : 'Touchpoint deleted');
     });
   }
 }
 
-function showLogged(s, p, tps, { clearedIdea = false, loop = null, lightEnded = false } = {}) {
+// Deleting the touchpoint that kept a promise opens the promise again.
+async function reopenKept(ids) {
+  const gone = new Set(ids);
+  for (const l of S.loops) {
+    if (l.status === 'closed' && l.keptBy && gone.has(l.keptBy)) await db.saveOpenLoop({ ...l, ...OPEN_AGAIN });
+  }
+}
+
+function showLogged(s, p, tps, { clearedIdea = false, loop = null, lightEnded = false, kept = null } = {}) {
   const next = p.nextTouchpointDate;
   const name = esc(firstName(p));
   let prompt = '';
@@ -4305,7 +4450,7 @@ function showLogged(s, p, tps, { clearedIdea = false, loop = null, lightEnded = 
   s.setTitle('Logged');
   s.body.innerHTML = `<div class="logged">
     <div class="logged-check">${CHECK}</div>
-    <p class="logged-title">Touchpoint saved for ${esc(p.name)}.</p>
+    <p class="logged-title">${kept ? `Promise kept for ${esc(p.name)}.` : `Touchpoint saved for ${esc(p.name)}.`}</p>
     <section class="next-panel compact">
       <p class="next-label">${p.warmth === 'parked' ? 'Comes back' : 'Next touchpoint'}</p>
       <p class="next-date">${esc(fmtDate(next))}</p>
@@ -5196,10 +5341,7 @@ const ACTIONS = {
     if (l) loopSheet(S.personById.get(l.personId), l);
   },
   'close-loop': (el) => closeLoop(S.loops.find((x) => x.id === el.dataset.id)),
-  'loop-follow-up': (el) => {
-    const l = S.loops.find((x) => x.id === el.dataset.id);
-    if (l) logSheet(S.personById.get(l.personId), { note: `Followed up about: ${l.description}` });
-  },
+  'loop-not-yet': (el) => notYetSheet(S.loops.find((x) => x.id === el.dataset.id)),
   'dismiss-news': async (el) => {
     const n = S.news.find((x) => x.id === el.dataset.id);
     if (!n) return;
@@ -5658,6 +5800,7 @@ async function offerFollowCleanup() {
       await db.deleteTouchpoint(t.id);
       people.add(t.personId);
     }
+    await reopenKept([...ids]);
     for (const pid of people) {
       const p = S.personById.get(pid);
       if (!p) continue;

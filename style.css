@@ -1237,6 +1237,13 @@ details.loop-done[open] summary { margin-bottom: 8px; }
   letter-spacing: 0.5px;
 }
 .tl-note { margin: 4px 0 0; font-size: 16px; overflow-wrap: anywhere; }
+/* Promises under a touchpoint (11-09): the one it kept, and the one made
+   with it, ticked once it's kept. Unticking opens it again. */
+.tl-kept { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0 0; font-size: 16px; overflow-wrap: anywhere; }
+.tl-kept svg { width: 16px; height: 16px; flex-shrink: 0; margin-top: 3px; color: var(--ink); }
+.tl-promise { display: flex; align-items: flex-start; gap: 10px; margin: 8px 0 2px; font-size: 16px; overflow-wrap: anywhere; cursor: pointer; }
+.tl-promise .loop-box { margin-top: 0; }
+.tl-promise.is-shut span { color: var(--text-dim); }
 .tl-foot { display: flex; align-items: center; gap: 14px; margin-top: 4px; }
 
 .resp {
@@ -1542,6 +1549,10 @@ details.loop-done[open] summary { margin-bottom: 8px; }
   text-transform: uppercase;
 }
 .sheet-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+/* The promise a sheet is about (Promise kept, Not yet). */
+.keep-quote { margin: -2px 0 16px; padding: 4px 0 4px 12px; border-left: 4px solid var(--accent); font-size: 16px; overflow-wrap: anywhere; }
+.check-row { display: flex; align-items: center; gap: 10px; margin: 10px 0 4px; font-size: 16px; cursor: pointer; }
+.keep-only { display: block; margin: 12px auto 0; }
 
 .choice-list { display: flex; flex-direction: column; gap: 8px; }
 .choice {
