@@ -379,6 +379,15 @@ function sinceText(p, today = todayStr()) {
   return `${plural(n, 'day')} since contact`;
 }
 
+// The line over the date on someone's next touchpoint (11-10): "Next
+// touchpoint in 89 days", "Next touchpoint today", "Next touchpoint, 3 days
+// overdue". The rhythm itself is in Change date now.
+function nextLabelText(label, next, today = todayStr()) {
+  const n = daysBetween(today, next);
+  if (n < 0) return `${label}, ${plural(-n, 'day')} overdue`;
+  return `${label} ${relDay(next, today)}`;
+}
+
 function nextRelText(next, today = todayStr()) {
   const n = daysBetween(today, next);
   if (n === 0) return 'Today';
@@ -1678,9 +1687,8 @@ function renderPerson(id, { panel = false } = {}) {
       <p class="next-date">${esc(fmtDate(deadline))}</p>
       <p class="next-rel">${overdue ? 'Follow-up is late' : esc(cap(relDay(deadline, today)))} <span class="dot">·</span> A quick note while it's fresh</p>
     </section>` : `<section class="next-panel${overdue ? ' is-overdue' : ''}">
-      <p class="next-label">${p.warmth === 'parked' ? 'Comes back' : light ? 'Next light touch' : stage ? 'First touchpoint' : 'Next touchpoint'}</p>
+      <p class="next-label">${esc(nextLabelText(p.warmth === 'parked' ? 'Comes back' : light ? 'Next light touch' : stage ? 'First touchpoint' : 'Next touchpoint', shownNext, today))}</p>
       <p class="next-date">${esc(fmtDate(shownNext))}</p>
-      <p class="next-rel">${esc(nextRelText(shownNext, today))} <span class="dot">·</span> ${esc(cadenceLabel(p, tps, S.settings))}</p>
       <div class="next-actions">
         <button type="button" class="btn on-ink" data-action="snooze" data-id="${pid}">Snooze</button>
         <button type="button" class="btn on-ink" data-action="change-date" data-id="${pid}">Change date</button>
@@ -4920,9 +4928,8 @@ function showLogged(s, p, tps, { clearedIdea = false, loop = null, lightEnded = 
     <div class="logged-check">${CHECK}</div>
     <p class="logged-title">${kept ? `Promise kept for ${esc(p.name)}.` : `Touchpoint saved for ${esc(p.name)}.`}</p>
     <section class="next-panel compact">
-      <p class="next-label">${p.warmth === 'parked' ? 'Comes back' : 'Next touchpoint'}</p>
+      <p class="next-label">${esc(nextLabelText(p.warmth === 'parked' ? 'Comes back' : 'Next touchpoint', next))}</p>
       <p class="next-date">${esc(fmtDate(next))}</p>
-      <p class="next-rel">${esc(nextRelText(next))}</p>
     </section>
     <p class="logged-why">${whyText(p, tps, next)}</p>
     ${clearedIdea ? '<p class="logged-why">Your typed idea is used up, so fresh suggestions show next time.</p>' : ''}
@@ -4968,31 +4975,42 @@ function newsChoice(n, today = todayStr()) {
 }
 
 // Moves the next touchpoint to a date, with an undo.
-async function moveNext(p, d, message) {
-  const prev = p.nextTouchpointDate;
-  await db.savePerson({ ...p, nextTouchpointDate: d });
+// extra: other fields saved with it (a new rhythm from Change date), undone too.
+async function moveNext(p, d, message, extra = {}) {
+  const prev = { nextTouchpointDate: p.nextTouchpointDate };
+  for (const k of Object.keys(extra)) prev[k] = p[k] ?? null;
+  await db.savePerson({ ...p, ...extra, nextTouchpointDate: d });
   await refresh();
   toast(message, {
     action: {
       label: 'Undo',
       run: async () => {
         const cur = S.personById.get(p.id);
-        if (cur) await db.savePerson({ ...cur, nextTouchpointDate: prev });
+        if (cur) await db.savePerson({ ...cur, ...prev });
         await refresh();
       },
     },
   });
 }
 
+// Change date. Under the date sits their rhythm (11-10): tap it to pick
+// another rhythm. Until the date is changed by hand it follows the new
+// rhythm, so the date shown is what Save keeps.
 function dateSheet(p) {
   if (!p) return;
   const news = upcomingNews(p);
+  const parked = p.warmth === 'parked';
   const s = openSheet({
-    title: p.warmth === 'parked' ? 'Bring back on' : 'Next touchpoint',
+    title: parked ? 'Bring back on' : 'Next touchpoint',
     className: 'sheet-small',
     body: `<form class="form" novalidate>
       <label class="field"><span class="field-label">Reach out to ${esc(p.name)} on</span>
         <input type="date" name="date" value="${esc(p.nextTouchpointDate || todayStr())}" required></label>
+      ${parked ? '' : `<div class="date-rhythm">
+        <button type="button" class="date-rhythm-now" data-rhythm-open><span class="field-label">Rhythm</span>
+          <span class="date-rhythm-line"><span>${esc(cadenceLabel(p, tpsOf(p.id), S.settings))}</span><span class="date-rhythm-change">Change</span></span></button>
+        <div class="date-rhythm-pick" hidden>${rhythmPickerHTML(p)}</div>
+      </div>`}
       <button type="submit" class="modal-cta primary">Save date</button>
       ${news.length ? `<div class="news-picks">
         <p class="field-label">Or time it with their news</p>
@@ -5003,18 +5021,55 @@ function dateSheet(p) {
       </div>` : ''}
     </form>`,
   });
-  s.body.querySelector('form').addEventListener('submit', async (e) => {
+  const form = s.body.querySelector('form');
+  const dateIn = form.querySelector('[name="date"]');
+  const pick = form.querySelector('.date-rhythm-pick');
+  let dateTouched = false;
+  dateIn.addEventListener('input', () => { dateTouched = true; });
+  if (pick) {
+    wireRhythm(form);
+    form.querySelector('[data-rhythm-open]').addEventListener('click', (e) => {
+      e.currentTarget.hidden = true;
+      pick.hidden = false;
+      pick.querySelector('[data-rhythm]').focus();
+    });
+    // The date follows the rhythm being picked, unless it was set by hand.
+    const follow = () => {
+      if (dateTouched) return;
+      const sel = form.querySelector('[data-rhythm]');
+      const n = sel.value === 'default' ? null : sel.value === 'custom' ? parseInt(form.querySelector('[name="override"]').value, 10) : Number(sel.value);
+      if (sel.value === 'custom' && !(n >= 1 && n <= 3650)) return;
+      const d = computeNextDate({ ...p, cadenceOverrideDays: n }, tpsOf(p.id), S.settings, todayStr());
+      if (d) dateIn.value = d;
+    };
+    form.querySelector('[data-rhythm]').addEventListener('change', follow);
+    form.querySelector('[name="override"]').addEventListener('input', follow);
+  }
+  // A new rhythm picked here, saved with the date; undefined when Custom
+  // has no sensible number yet (the error shows).
+  const rhythmExtra = () => {
+    if (!pick || pick.hidden) return {};
+    const n = readRhythm(form);
+    if (n === undefined) return undefined;
+    return (n || null) !== (p.cadenceOverrideDays || null) ? { cadenceOverrideDays: n } : {};
+  };
+  const rhythmNote = (extra) => ('cadenceOverrideDays' in extra ? `. Rhythm: ${rhythmWords({ ...p, ...extra }, S.settings)}` : '');
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const d = String(new FormData(e.target).get('date') || '');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+    const extra = rhythmExtra();
+    if (!extra) return;
     s.close();
-    await moveNext(p, d, `Next touchpoint ${fmtDate(d)}`);
+    await moveNext(p, d, `Next touchpoint ${fmtDate(d)}${rhythmNote(extra)}`, extra);
   });
   s.body.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-news-date]');
     if (!b) return;
+    const extra = rhythmExtra();
+    if (!extra) return;
     s.close();
-    await moveNext(p, b.dataset.newsDate, `Next touchpoint ${fmtDate(b.dataset.newsDate)}, for their news: ${b.dataset.newsText}`);
+    await moveNext(p, b.dataset.newsDate, `Next touchpoint ${fmtDate(b.dataset.newsDate)}, for their news: ${b.dataset.newsText}${rhythmNote(extra)}`, extra);
   });
 }
 
