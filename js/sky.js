@@ -126,8 +126,10 @@ function tint() {
   const deep = isDark() ? 0 : r2(s.deep);
   const on = golden > 0 || night > 0;
   root.classList.toggle('sky-tint', on);
-  // Past this much navy, light words read better on Today than dark ones.
+  // Past this much navy, light words read better than dark ones.
   root.classList.toggle('sky-late-text', late >= 0.54);
+  // In the middle blues neither reads strongly, so nothing is dimmed then.
+  root.classList.toggle('sky-mid-text', late >= 0.2 && late < 0.7);
   if (on) {
     root.style.setProperty('--golden', golden);
     root.style.setProperty('--night', night);
@@ -136,16 +138,16 @@ function tint() {
     // The backgrounds as plain colors, worked out here. Left to the browser
     // as nested color-mix(), a phone that can't resolve one paints nothing
     // at all, and the page goes white (11-10, after changing the app's color).
-    const bg = mixHex(mixHex('#ffffff', '#fff4e4', golden), '#d7dce2', night);
-    root.style.setProperty('--bg', bg);
-    root.style.setProperty('--sky', mixHex(mixHex(bg, '#2f4270', late), '#1c2a4f', deep));
+    const cloud = mixHex(mixHex('#ffffff', '#fff4e4', golden), '#d7dce2', night);
+    root.style.setProperty('--cloud', cloud);
+    root.style.setProperty('--bg', mixHex(mixHex(cloud, '#2f4270', late), '#1c2a4f', deep));
   } else {
     root.style.removeProperty('--golden');
     root.style.removeProperty('--night');
     root.style.removeProperty('--late');
     root.style.removeProperty('--deep');
     root.style.removeProperty('--bg');
-    root.style.removeProperty('--sky');
+    root.style.removeProperty('--cloud');
   }
 }
 
