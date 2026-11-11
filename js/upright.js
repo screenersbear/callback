@@ -18,8 +18,9 @@
   var root = document.documentElement;
   var test = /[?&]turn=(left|right|up)\b/.exec(location.search);
   var coarse = window.matchMedia && window.matchMedia('(pointer: coarse)');
-  var phone = !!test || (Math.min(screen.width, screen.height) < 500 && !!(coarse && coarse.matches));
-  if (!phone) return;
+  // Asked again at every turn: a folding phone opened up is a small tablet.
+  var isPhone = function () { return !!test || (Math.min(screen.width, screen.height) < 500 && !!(coarse && coarse.matches)); };
+  if (!isPhone()) return;
   try {
     if (screen.orientation && screen.orientation.lock) screen.orientation.lock('portrait').catch(function () {});
   } catch (e) {}
@@ -45,6 +46,7 @@
   // window's shape (an open keyboard squashes that).
   function angle() {
     if (forced !== null) return forced;
+    if (!isPhone()) return 0;
     var so = screen.orientation;
     if (so && so.type && so.type.indexOf('landscape') === 0) return so.angle === 270 ? -90 : 90;
     var o = window.orientation;

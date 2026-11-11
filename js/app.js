@@ -9,7 +9,7 @@ import {
   WARMTH, WARMTH_INFO, COLD_STEPS, computeNextDate, warmthChangeFields, cadenceLabel, needsParkPrompt,
   needsWarmPrompt, SNOOZE_OPTIONS, snoozeDate, buildToday, coldState, sortTouchpoints, nextYearly, isDreamOnly,
   firstContactStage, JUST_MET_DAYS, leavesLightTouch, lightOffFields, isEngaging, ideaStage, replyDay, lastContactDay,
-  checkInDate, rhythmWords, RHYTHM_PRESETS, every, replyCheckDue,
+  checkInDate, rhythmWords, RHYTHM_PRESETS, replyCheckDue,
 } from './cadence.js';
 import { pickIdea, yearlyIdea, setIdeaLibrary, isOwnIdea } from './ideas.js';
 import { upcomingEvents, buildCalendar } from './ics.js';
@@ -491,7 +491,7 @@ function ideaSheet(p) {
     body: `<form class="form" novalidate>
       <label class="field"><span class="field-label">What will you reach out with?</span>
         <textarea name="idea" rows="3" maxlength="280" placeholder="Send the prints from Friday's test">${esc(p.customIdea || '')}</textarea>
-        <span class="field-hint">It shows in place of the suggestions until you log your next touchpoint with ${esc(firstName(p))}.</span></label>
+</label>
       <label class="check"><input type="checkbox" name="keep" checked> Also add it to my suggestions, for anyone</label>
       <button type="submit" class="modal-cta primary">Save idea</button>
     </form>`,
@@ -1774,7 +1774,6 @@ function renderPerson(id, { panel = false } = {}) {
     ${dreamOnly(p) ? `<section class="next-panel">
       <p class="next-label">On your dream list</p>
       <p class="next-date">No rhythm yet</p>
-      <p class="next-rel">Log a first touchpoint when you reach out, and Callback starts one.</p>
     </section>` : stage === 'justMet' ? `<section class="next-panel${overdue ? ' is-overdue' : ''}">
       <p class="next-label">Just met. Follow up by</p>
       <p class="next-date">${esc(fmtDate(deadline))}</p>
@@ -1919,21 +1918,29 @@ function contactLink(p, key) {
   return `<a href="${esc(normalizeUrl(v))}" target="_blank" rel="noopener">${esc(v.replace(/^https?:\/\//, ''))}</a>`;
 }
 
+// What a person's details don't have yet (11-11): only filled-in details
+// show, and one button adds any of these.
+function missingDetails(p) {
+  const out = [];
+  for (const f of CONTACT_FIELDS) {
+    if (!String(p[f.key] || '').trim()) out.push({ key: f.key, label: f.label, word: f.word });
+    if (f.key === 'phone' && !ACCOUNTS.some((x) => String(p[x.key] || '').trim())) out.push({ key: 'accounts', label: 'Accounts', word: 'an account' });
+  }
+  if (!p.birthday) out.push({ key: 'birthday', label: 'Birthday', word: 'birthday' });
+  return out;
+}
+
 function detailsHTML(p) {
   const rows = [];
   const row = (label, value) => rows.push(`<div class="detail-row"><dt>${esc(label)}</dt><dd>${value}</dd></div>`);
   for (const f of CONTACT_FIELDS) {
     const btn = (text) => `<button type="button" class="text-btn inline contact-edit" data-action="edit-contact" data-id="${esc(p.id)}" data-field="${f.key}">${text}</button>`;
-    rows.push(`<div class="detail-row contact-row"><dt>${esc(f.label)}</dt><dd>${(p[f.key] || '').trim()
-      ? `<span class="contact-value">${contactLink(p, f.key)}</span>${btn('Edit')}`
-      : btn(`+ Add ${esc(f.word)}`)}</dd></div>`);
+    if ((p[f.key] || '').trim()) rows.push(`<div class="detail-row contact-row"><dt>${esc(f.label)}</dt><dd><span class="contact-value">${contactLink(p, f.key)}</span>${btn('Edit')}</dd></div>`);
     // Their accounts sit after the phone, all changed in one small sheet.
     if (f.key === 'phone') {
       const had = ACCOUNTS.filter((a) => String(p[a.key] || '').trim());
       const abtn = (text) => `<button type="button" class="text-btn inline contact-edit" data-action="edit-accounts" data-id="${esc(p.id)}">${text}</button>`;
-      rows.push(`<div class="detail-row contact-row"><dt>Accounts</dt><dd>${had.length
-        ? `<span class="contact-value account-list">${had.map((a) => `<span class="account-line"><span class="account-name">${esc(a.label)}</span> <a href="${esc(accountUrl(a, p[a.key]))}" target="_blank" rel="noopener">${esc(looksLikeLink(p[a.key]) ? p[a.key] : atHandle(p[a.key]))}</a></span>`).join('')}</span>${abtn('Edit')}`
-        : abtn('+ Add an account')}</dd></div>`);
+      if (had.length) rows.push(`<div class="detail-row contact-row"><dt>Accounts</dt><dd><span class="contact-value account-list">${had.map((a) => `<span class="account-line"><span class="account-name">${esc(a.label)}</span> <a href="${esc(accountUrl(a, p[a.key]))}" target="_blank" rel="noopener">${esc(looksLikeLink(p[a.key]) ? p[a.key] : atHandle(p[a.key]))}</a></span>`).join('')}</span>${abtn('Edit')}</dd></div>`);
     }
   }
   // Birthday sits with the contact details, changed in its own small sheet.
@@ -1942,8 +1949,6 @@ function detailsHTML(p) {
     const today = todayStr();
     const nextBday = nextYearly(`2000-${String(p.birthday.month).padStart(2, '0')}-${String(p.birthday.day).padStart(2, '0')}`, today);
     rows.push(`<div class="detail-row contact-row"><dt>Birthday</dt><dd><span class="contact-value">${esc(birthdayText(p.birthday))}<span class="pd-sub">${esc(nextBday === today ? 'Today' : cap(relDay(nextBday, today)))}</span></span>${bday('Edit')}</dd></div>`);
-  } else {
-    rows.push(`<div class="detail-row contact-row"><dt>Birthday</dt><dd>${bday('+ Add birthday')}</dd></div>`);
   }
   // How often, in plain words, changed in its own small sheet (11-10).
   rows.push(`<div class="detail-row contact-row"><dt>Rhythm</dt><dd><span class="contact-value">${esc(rhythmWords(p, S.settings))}</span><button type="button" class="text-btn inline contact-edit" data-action="edit-rhythm" data-id="${esc(p.id)}">Change</button></dd></div>`);
@@ -1960,10 +1965,11 @@ function detailsHTML(p) {
       .join('<br>'));
   }
   row('Added', esc(fmtTimestamp(p.createdAt)));
-  const hint = !p.notes
-    ? `<p class="hint">Add notes with <button type="button" class="text-btn inline" data-action="edit-person" data-id="${esc(p.id)}">Edit</button>.</p>`
+  const missing = missingDetails(p);
+  const add = missing.length
+    ? `<button type="button" class="text-btn" data-action="add-missing-detail" data-id="${esc(p.id)}">${esc(missing.length === 1 ? `+ Add ${missing[0].word}` : '+ Add more')}</button>`
     : '';
-  return `<dl class="details">${rows.join('')}</dl>${hint}`;
+  return `<dl class="details">${rows.join('')}</dl>${add}`;
 }
 
 // Introductions, both ways: who introduced you and who they introduced you
@@ -1981,7 +1987,7 @@ function connectionsHTML(p) {
   if (could.length) row('Could introduce you to', could.map((x) => `${link(x)}${x.dreamList ? ` ${DREAM_STAR}` : ''}`).join('<br>'));
   const paths = pathsTo(p.id);
   if (paths.length) row('Paths to them', paths.map((c) => `<span class="path-inline">${link(c)} ${warmthBadge(c.warmth)}</span>`).join(''));
-  return `${rows.length ? `<dl class="details">${rows.join('')}</dl>` : '<p class="hint">Who introduced you, who you met through them, and who they could put you in touch with.</p>'}
+  return `${rows.length ? `<dl class="details">${rows.join('')}</dl>` : ''}
     <button type="button" class="text-btn" data-action="edit-person" data-id="${esc(p.id)}">Edit connections</button>`;
 }
 
@@ -2226,7 +2232,6 @@ function personalHTML(p) {
         <button type="button" class="pd-remove" data-action="remove-detail" data-person="${pid}" data-id="${esc(d.id)}" aria-label="Remove ${esc(d.label || 'detail')}">${X_ICON_SMALL}</button>
       </div>`).join('')}
     </div>
-    ${details.length ? '' : '<p class="hint">The small things that turn a contact into a relationship: where they\'re from, a pet\'s name, the show they love.</p>'}
     <button type="button" class="primary small-btn" data-action="add-detail" data-id="${pid}">+ Add detail</button>`;
 }
 
@@ -2264,22 +2269,20 @@ async function syncBirthdayNews(p) {
 // The person's own rhythm (11-10): a preset, a number of days, or the
 // default for their warmth or light touch. Stored as cadenceOverrideDays.
 // The default option says what the default is, short enough for a phone
-// ("Every 6 weeks (default)"; the hint below names each warmth's); the
-// person form calls the field Touchpoints.
+// ("Every 6 weeks (default)"); the person form calls the field
+// Touchpoints.
 const rhythmDefaultText = (p) => rhythmWords({ ...p, cadenceOverrideDays: null }, S.settings)
   .replace(/ \([^()]*default\)$/, ' (default)')
   .replace(/^The cold sequence/, 'Cold sequence');
 function rhythmPickerHTML(p, label = 'Rhythm') {
   const n = p && Number(p.cadenceOverrideDays) > 0 ? Math.round(Number(p.cadenceOverrideDays)) : 0;
   const pick = !n ? 'default' : RHYTHM_PRESETS.some((r) => r.days === n) ? String(n) : 'custom';
-  const c = S.settings.cadence;
   return `<label class="field"><span class="field-label">${esc(label)}</span>
       <select name="rhythm" data-rhythm>
         ${RHYTHM_PRESETS.map((r) => `<option value="${r.days}"${pick === String(r.days) ? ' selected' : ''}>${esc(r.label)} (${r.days} days)</option>`).join('')}
         <option value="custom"${pick === 'custom' ? ' selected' : ''}>Custom</option>
         <option value="default"${pick === 'default' ? ' selected' : ''}>${esc(rhythmDefaultText(p || {}))}</option>
-      </select>
-      <span class="field-hint">The defaults: warm ${every(c.warm).toLowerCase()}, active ${every(c.active).toLowerCase()}, on a project ${every(c.client).toLowerCase()}, light touch ${every(c.lightTouch).toLowerCase()}.</span></label>
+      </select></label>
     <label class="field rhythm-days"${pick === 'custom' ? '' : ' hidden'}><span class="field-label">Days</span>
       <input name="override" type="number" min="1" max="3650" inputmode="numeric" value="${pick === 'custom' ? n : ''}" placeholder="45"></label>
     <p class="field-error" data-error="rhythm" hidden>Type how many days, from 1 to 3650.</p>`;
@@ -2354,7 +2357,6 @@ function birthdaySheet(p) {
           <input name="year" type="number" inputmode="numeric" min="1900" max="2100" value="${esc(b.year || '')}" aria-label="Year (optional)"></label>
       </div>
       <p class="field-error" data-error="day" hidden>That month doesn't have that many days.</p>
-      <p class="field-hint">The year is optional. A birthday comes back every year: on Today a week early under Coming up, and again on the day.</p>
       ${p.birthday ? '<button type="button" class="btn danger wide" data-delete>Remove birthday</button>' : ''}
       <button type="submit" class="modal-cta primary">Save birthday</button>
     </form>`,
@@ -2439,7 +2441,6 @@ function newsListHTML(p) {
       <span class="news-item-rel">${esc(n.date === today ? 'Today' : cap(relDay(n.date, today)))}</span>
     </button>`;
   return `
-    <p class="hint">Upcoming dates worth reaching out about: a premiere, a launch, a new agency. They show up on Today when the day comes.</p>
     ${upcoming.map(item).join('')}${past.map(item).join('')}
     <button type="button" class="primary small-btn" data-action="add-news" data-id="${esc(p.id)}">+ Add a date</button>`;
 }
@@ -2495,7 +2496,7 @@ function loopsHTML(p) {
     </div>`;
   };
   return `
-    ${open.length ? LOOP_DIRECTIONS.map(group).join('') : `<p class="hint">Small promises, either way: a print you said you'd send, dates they said they'd share. Add them here so none slip.</p>`}
+    ${LOOP_DIRECTIONS.map(group).join('')}
     <button type="button" class="primary small-btn" data-action="add-loop" data-id="${esc(p.id)}">+ Add loop</button>
     ${done.length ? `<details class="loop-done"><summary>Done (${done.length})</summary><ul class="loop-list">${done.map((l) => loopRow(l, today)).join('')}</ul></details>` : ''}`;
 }
@@ -2516,7 +2517,7 @@ function loopSheet(p, l = null, { focusDate = false } = {}) {
       </fieldset>
       <label class="field"><span class="field-label">By when? (optional)</span>
         <input type="date" name="dueDate" value="${esc(v.dueDate || '')}">
-        <span class="field-hint">With a date, it shows on Today when it's due. Without one, it waits here.</span></label>
+</label>
       ${l && l.status !== 'closed' ? '<button type="button" class="btn secondary wide" data-let-go>Let it go</button>' : ''}
       ${l ? '<button type="button" class="btn danger wide" data-delete>Delete loop</button>' : ''}
       <button type="submit" class="modal-cta primary">${l ? 'Save' : 'Add loop'}</button>
@@ -2612,7 +2613,6 @@ const lastWrap = (tps) => tps.find((t) => t.type === 'project_wrapped') || null;
 function wrapSheet(p) {
   if (!p) return;
   const today = todayStr();
-  const paidAlready = relTypesOf(p).includes('pastClient');
   const s = openSheet({
     title: 'Wrap the project',
     className: 'sheet-small',
@@ -2624,7 +2624,6 @@ function wrapSheet(p) {
         <input type="date" name="wrapDate" value="${today}" required></label>
       <div class="field wrap-opt">
         <label class="check"><input type="checkbox" name="paid" checked> They paid you for this</label>
-        <span class="field-hint">${paidAlready ? `${esc(firstName(p))} is already down as a past client.` : `Adds Past client to how you know ${esc(firstName(p))}.`}</span>
       </div>
       <div class="field wrap-opt">
         <label class="check"><input type="checkbox" name="thanks" checked data-opt="thanksDate"> Send selects or a thank-you</label>
@@ -2634,7 +2633,6 @@ function wrapSheet(p) {
         <label class="check"><input type="checkbox" name="checkIn" checked data-opt="checkInDate"> Check in afterward</label>
         <label class="wrap-date"><span class="field-hint">On</span><input type="date" name="checkInDate" value="${addDays(today, WRAP_CHECK_IN_DAYS)}"></label>
       </div>
-      <p class="field-hint">${esc(firstName(p))} goes back to Warm${p.lightTouch ? ' and off light touch' : ''}. After the check-in, the usual rhythm takes over.</p>
       <button type="submit" class="modal-cta primary">Wrap it up</button>
     </form>`,
   });
@@ -2796,7 +2794,7 @@ function tlPromise(t) {
 
 function timelineHTML(p, tps) {
   if (!tps.length) {
-    return `<p class="hint">No touchpoints yet. When you reach out to ${esc(firstName(p))}, log it here and Callback schedules the next one.</p>`;
+    return '<p class="hint">No touchpoints yet.</p>';
   }
   return `<ol class="timeline">${tps
     .map(
@@ -6392,6 +6390,16 @@ const ACTIONS = {
   'dream-notes': (el) => notesSheet(person(el)),
   'edit-contact': (el) => contactSheet(person(el), el.dataset.field),
   'edit-accounts': (el) => accountsSheet(person(el)),
+  'add-missing-detail': async (el) => {
+    const p = person(el);
+    if (!p) return;
+    const missing = missingDetails(p);
+    const key = missing.length === 1 ? missing[0].key : await choiceSheet({ title: 'Add', extra: `<p class="sheet-person">${esc(p.name)}</p>`, options: missing.map((m) => ({ key: m.key, label: m.label })) });
+    if (!key) return;
+    if (key === 'accounts') accountsSheet(p);
+    else if (key === 'birthday') birthdaySheet(p);
+    else contactSheet(p, key);
+  },
   'edit-person': (el) => personForm(person(el)),
   'quick-add': () => quickAddSheet(),
   'light-off': (el) => endLightTouch(person(el)),
