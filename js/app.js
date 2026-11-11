@@ -1804,7 +1804,7 @@ function renderPerson(id, { panel = false } = {}) {
     ? `<div class="detail-top"><button type="button" class="back-btn pick-close" data-action="close-pick">${X_ICON_SMALL}Close</button>
       <span class="pick-links"><a class="text-btn" href="#/person/${pid}">Full page</a>
       <button type="button" class="text-btn" data-action="edit-person" data-id="${pid}">Edit</button></span></div>`
-    : `<div class="detail-top">${backButton('#/people', 'Back')}
+    : `<div class="detail-top">${splitList('person') ? `<button type="button" class="back-btn pick-close split-close" data-action="close-person">${X_ICON_SMALL}Close</button>` : backButton('#/people', 'Back')}
       <span class="pick-links"><button type="button" class="text-btn" data-action="edit-person" data-id="${pid}">Edit</button></span></div>`;
   return `
     ${top}
@@ -4160,9 +4160,10 @@ let currentKey = '';
 // circle sit side by side, like Mail, and the list keeps its place while
 // you go from one to the next. The phone never sees this.
 const wideQuery = window.matchMedia('(min-width: 1100px)');
-const SPLIT_LIST = { people: 'people', person: 'people', orgs: 'orgs', org: 'orgs', circles: 'circles', circle: 'circles' };
+// People with nobody open has the whole window (11-10); the list comes in
+// beside someone's page when they're opened.
+const SPLIT_LIST = { person: 'people', orgs: 'orgs', org: 'orgs', circles: 'circles', circle: 'circles' };
 const SPLIT_EMPTY = {
-  people: ['Pick someone on the left.', 'Their page opens here, and the list stays put.'],
   orgs: ['Pick an organization on the left.', 'Its page opens here, and the list stays put.'],
   circles: ['Pick a circle on the left.', 'Its page opens here, and the list stays put.'],
 };
@@ -4174,7 +4175,7 @@ function splitHTML(r, list) {
   // the right.
   const inside = r.name === list && r.id && SPLIT_PAGE[list];
   const open = r.name !== list || inside;
-  const [title, text] = SPLIT_EMPTY[list];
+  const [title, text] = SPLIT_EMPTY[list] || [];
   const side = ROUTES[list](inside ? r.id : undefined);
   // ↑ and ↓ go through a list, not the ring or the map.
   const rows = side.includes('row-card');
@@ -6420,6 +6421,7 @@ const ACTIONS = {
     else location.hash = `#/person/${el.dataset.id}`;
   },
   'close-pick': () => closePick(),
+  'close-person': () => { location.hash = '#/people'; },
   'change-warmth': (el) => warmthSheet(person(el)),
   'change-rel': (el) => relationshipSheet(person(el)),
   'change-figure': (el) => figureSheet(person(el)),
@@ -7054,7 +7056,7 @@ function openPerson() {
 
 // Down and up go to the next or previous row in the side list.
 function stepList(dir) {
-  const rows = [...view.querySelectorAll('.split-list a.row-card')];
+  const rows = [...view.querySelectorAll('.split-list a.row-card, #peopleList a.row-card')];
   if (!rows.length) return;
   const at = rows.findIndex((a) => a.classList.contains('is-selected'));
   const next = rows[at < 0 ? (dir > 0 ? 0 : rows.length - 1) : Math.min(rows.length - 1, Math.max(0, at + dir))];
@@ -7131,7 +7133,7 @@ document.addEventListener('keydown', (e) => {
   if (!name) return;
   // The arrows only move through a side list or Today's board; anywhere
   // else they scroll.
-  if ((name === 'next' || name === 'prev') && !view.classList.contains('is-split') && !boardOn()) return;
+  if ((name === 'next' || name === 'prev') && !view.classList.contains('is-split') && !boardOn() && !(wideQuery.matches && view.querySelector('#peopleList a.row-card'))) return;
   e.preventDefault();
   runCommand(name);
 });

@@ -356,7 +356,10 @@ function resize() {
   // foot, however far the list or the page is scrolled.
   const list = st.el.closest('.split-list');
   const room = list ? list.getBoundingClientRect().bottom - st.el.getBoundingClientRect().top - list.scrollTop : barTop - top;
-  const h = Math.round(Math.max(w * 0.95, room));
+  // At least nearly square, except on the Mac's full People page, which is
+  // so wide that square would run off the bottom of the window (11-10).
+  const square = !list && window.innerWidth >= 1100 ? Math.min(w * 0.95, Math.max(room, 420)) : w * 0.95;
+  const h = Math.round(Math.max(square, room));
   const dpr = Math.min(3, window.devicePixelRatio || 1);
   if (w === st.w && h === st.hWant && dpr === st.dpr) return;
   Object.assign(st, { w, h, hWant: h, dpr });

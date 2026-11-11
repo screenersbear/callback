@@ -2089,6 +2089,7 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
   }
   .split-detail { container-type: inline-size; min-width: 0; padding: 0 32px 64px; }
   .split-detail .back-btn { visibility: hidden; }
+  .split-detail .back-btn.split-close { visibility: visible; }
   .split-empty { margin-top: 72px; }
   .split-list .row-card.is-selected { box-shadow: inset 8px 0 0 var(--accent); padding-left: 22px; }
 
@@ -2674,7 +2675,10 @@ html:has(.map-wrap), html:has(.ring-wrap.is-inside) { background: var(--bg); }
   .thought-panel { max-width: 560px; }
 }
 @media (min-width: 1100px) {
+  /* People with nobody open has the whole window. */
+  #app:has(> .view:not(.is-split) .people-hand) { max-width: none; }
   .split-list:has(.ring-wrap, [data-map-slot]) { padding-bottom: 0; }
+  .ring-wrap > .visually-hidden { top: 0; }
   /* Inside a circle or organization, its page is already on the right. */
   .split-list .hand-end { display: none; }
 }
