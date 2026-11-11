@@ -2089,7 +2089,8 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
   }
   .split-detail { container-type: inline-size; min-width: 0; padding: 0 32px 64px; }
   .split-detail .back-btn { visibility: hidden; }
-  .split-detail .back-btn.split-close { visibility: visible; }
+  .split-detail .back-btn.split-close { visibility: visible; padding-right: 0; }
+  .split-top { justify-content: flex-end; }
   .split-empty { margin-top: 72px; }
   .split-list .row-card.is-selected { box-shadow: inset 8px 0 0 var(--accent); padding-left: 22px; }
 

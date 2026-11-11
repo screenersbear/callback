@@ -1804,7 +1804,10 @@ function renderPerson(id, { panel = false } = {}) {
     ? `<div class="detail-top"><button type="button" class="back-btn pick-close" data-action="close-pick">${X_ICON_SMALL}Close</button>
       <span class="pick-links"><a class="text-btn" href="#/person/${pid}">Full page</a>
       <button type="button" class="text-btn" data-action="edit-person" data-id="${pid}">Edit</button></span></div>`
-    : `<div class="detail-top">${splitList('person') ? `<button type="button" class="back-btn pick-close split-close" data-action="close-person">${X_ICON_SMALL}Close</button>` : backButton('#/people', 'Back')}
+    : splitList('person')
+    ? `<div class="detail-top split-top"><span class="pick-links"><button type="button" class="text-btn" data-action="edit-person" data-id="${pid}">Edit</button>
+      <button type="button" class="back-btn pick-close split-close" data-action="close-person">${X_ICON_SMALL}Close</button></span></div>`
+    : `<div class="detail-top">${backButton('#/people', 'Back')}
       <span class="pick-links"><button type="button" class="text-btn" data-action="edit-person" data-id="${pid}">Edit</button></span></div>`;
   return `
     ${top}
