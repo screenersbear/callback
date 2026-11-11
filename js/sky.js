@@ -82,10 +82,7 @@ const SUN_EDGE = 0.05;
 // Where the day is: the sun's way across (0 at sunrise, 1 at sunset), how
 // golden it is, how much it's night (0 by day, 1 an hour after sunset), and
 // how much the stars are out (11-10: only once the sun is fully gone, and
-// gone again before it shows in the morning), and how late it is: late goes
-// from 0 to 1 in half an hour around 9 PM, so the app doesn't sit in the
-// muddy blues between gray and navy (11-10), deep on from there to 1 by
-// about midnight, and both go back down before the morning light.
+// gone again before it shows in the morning).
 export function skyNow() {
   const d = now();
   const m = d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
@@ -94,10 +91,6 @@ export function skyNow() {
   const morning = 0.6 * smooth(rise - 20, rise, m) * (1 - smooth(rise + 15, rise + 55, m));
   const night = Math.max(smooth(set + 5, set + 60, m), 1 - smooth(rise - 50, rise, m));
   const edge = SUN_EDGE * (set - rise);
-  // The small hours carry on from last night's evening, across midnight.
-  const small = m < rise;
-  const overnight = (a, b, c, d) => smooth(a, b, small ? m + 1440 : m) * (1 - smooth(c, d, small ? m : m - 1440));
-  const lateFrom = Math.max(20 * 60, set + 60);
   return {
     f: (m - rise) / (set - rise),
     // The page warms in golden hour and lets go of it as the light goes.
@@ -105,8 +98,6 @@ export function skyNow() {
     // The sun itself stays orange all the way down.
     sunGold: Math.max(evening, morning),
     night,
-    late: overnight(lateFrom + 45, lateFrom + 75, rise - 125, rise - 95),
-    deep: overnight(lateFrom + 150, lateFrom + 240, rise - 260, rise - 170),
     stars: night * Math.max(smooth(set + edge, set + edge + 20, m), 1 - smooth(rise - edge - 20, rise - edge, m)),
     rise,
     set,
@@ -123,32 +114,19 @@ function tint() {
   const s = skyNow();
   const golden = isDark() ? 0 : r2(s.golden);
   const night = isDark() ? 0 : r2(s.night);
-  const late = isDark() ? 0 : r2(s.late);
-  const deep = isDark() ? 0 : r2(s.deep);
   const on = golden > 0 || night > 0;
   root.classList.toggle('sky-tint', on);
-  // Past this much navy, light words read better than dark ones.
-  root.classList.toggle('sky-late-text', late >= 0.54);
-  // In the middle blues neither reads strongly, so nothing is dimmed then.
-  root.classList.toggle('sky-mid-text', late >= 0.2 && late < 0.7);
   if (on) {
     root.style.setProperty('--golden', golden);
     root.style.setProperty('--night', night);
-    root.style.setProperty('--late', late);
-    root.style.setProperty('--deep', deep);
     // The backgrounds as plain colors, worked out here. Left to the browser
     // as nested color-mix(), a phone that can't resolve one paints nothing
     // at all, and the page goes white (11-10, after changing the app's color).
-    const cloud = mixHex(mixHex('#ffffff', '#fff4e4', golden), '#d7dce2', night);
-    root.style.setProperty('--cloud', cloud);
-    root.style.setProperty('--bg', mixHex(mixHex(cloud, '#243361', late), '#1c2a4f', deep));
+    root.style.setProperty('--bg', mixHex(mixHex('#ffffff', '#fff4e4', golden), '#e2e6ea', night));
   } else {
     root.style.removeProperty('--golden');
     root.style.removeProperty('--night');
-    root.style.removeProperty('--late');
-    root.style.removeProperty('--deep');
     root.style.removeProperty('--bg');
-    root.style.removeProperty('--cloud');
   }
 }
 

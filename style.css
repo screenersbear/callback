@@ -2309,10 +2309,6 @@ html.mac-app .sheet-overlay, html.mac-app .toast { -webkit-app-region: no-drag; 
   :root:not([data-theme="light"]) .stat-box,
   :root:not([data-theme="light"]) .next-panel { box-shadow: inset 0 0 0 2px var(--ink); }
 }
-:root.sky-late-text .section-block h2.heading-navy,
-:root.sky-late-text .filter-toggle.is-on,
-:root.sky-late-text .stat-box,
-:root.sky-late-text .next-panel,
 :root[data-theme="dark"] .section-block h2.heading-navy,
 :root[data-theme="dark"] .filter-toggle.is-on,
 :root[data-theme="dark"] .stat-box,
@@ -2320,7 +2316,6 @@ html.mac-app .sheet-overlay, html.mac-app .toast { -webkit-app-region: no-drag; 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .small-btn.navy { border-color: var(--ink); }
 }
-:root.sky-late-text .small-btn.navy,
 :root[data-theme="dark"] .small-btn.navy { border-color: var(--ink); }
 
 /* What you sent or said: wraps to fit, with the idea offered underneath. */
@@ -2589,7 +2584,7 @@ html:has(.ring-wrap) { background: var(--bg); }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) { --b-0: #3dbb36; --b-1: #6ea6f5; --b-2: #ff8a3d; --b-3: #c79bf2; --b-4: #ff7fa8; --b-5: #ffd103; }
 }
-:root[data-theme="dark"], :root.sky-late-text { --b-0: #3dbb36; --b-1: #6ea6f5; --b-2: #ff8a3d; --b-3: #c79bf2; --b-4: #ff7fa8; --b-5: #ffd103; }
+:root[data-theme="dark"] { --b-0: #3dbb36; --b-1: #6ea6f5; --b-2: #ff8a3d; --b-3: #c79bf2; --b-4: #ff7fa8; --b-5: #ffd103; }
 .ring-wrap { position: relative; }
 .ring-key {
   position: absolute;
@@ -2721,11 +2716,11 @@ html.is-sideways .turn-back {
 /* ---------- The sky (11-10) ----------
    sky.js sets --golden and --night (0 to 1) and .sky-tint on the page, in
    the light look only: golden hour warms the page a touch, and after dark
-   it grays (a step darker since 11-10b), the green and yellow going
+   it goes a soft gray, the green and yellow going
    quieter. Every colour that uses the app's green comes through these, so
    it follows a changed green. */
 :root.sky-tint {
-  /* --bg and --cloud are set as plain colors by sky.js. */
+  /* --bg is set as a plain color by sky.js. */
   --surface: var(--bg);
   --navy: color-mix(in srgb, var(--green), #6c7a70 calc(var(--night, 0) * 60%));
   --ink: var(--navy);
@@ -2733,31 +2728,6 @@ html.is-sideways .turn-back {
   --overlay: color-mix(in srgb, var(--navy) 90%, transparent);
   --accent: color-mix(in srgb, #ffd103, #cbc6a8 calc(var(--night, 0) * 55%));
 }
-/* Late at night the whole app goes navy, then a deeper navy (11-10). sky.js
-   puts the navy in --bg and keeps the night gray in --cloud, for Today's
-   clouds. It sets --late and --deep (0 to 1), and .sky-late-text once the
-   navy is dark enough that light words read better than dark ones. Then the
-   words, lines and fields follow, as they do in the dark look. */
-:root.sky-late-text {
-  --text: #eef1f6;
-  --text-dim: rgba(238, 241, 246, 0.78);
-  --line: rgba(255, 255, 255, 0.18);
-  --field: var(--bg);
-  /* Bars and box lines lift off the navy, in whichever color the app is. */
-  --navy: color-mix(in srgb, var(--green), #ffffff 20%);
-  --accent: #f2cc2e;
-  --overlay: rgba(12, 20, 44, 0.86);
-  --danger: #ff8a80;
-  --w-client: #3dbb36; --w-active: #ffd103; --w-warm: #ff8a3d; --w-cold: #6ea6f5; --w-parked: #8d99a8; --w-none: #7d8aa0;
-  color-scheme: dark;
-}
-:root.sky-mid-text { --text-dim: var(--text); --danger: var(--text); }
-:root.sky-tint .mind { --bg: var(--cloud); }
-.sky-late-text .dash.is-mind { --accent: color-mix(in srgb, #ffd103, #cbc6a8 55%); }
-/* Yellow words need the full color behind them. */
-.sky-late-text :is(.next-panel, .sheet-header) { background: var(--green); }
-.sky-late-text .mind { --text: #313d45; --text-dim: rgba(49, 61, 69, 0.72); color: color-mix(in srgb, var(--green), #ffffff 62%); }
-
 /* ---------- Wrap project (11-10) ---------- */
 /* Wrap project, right after the On a project badge (11-10). */
 .warmth-pair { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
@@ -2822,7 +2792,6 @@ html.is-sideways .turn-back {
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .news-list > .fold:nth-child(odd) > .fold-head { box-shadow: inset 0 0 0 2px var(--ink); }
 }
-:root.sky-late-text .news-list > .fold:nth-child(odd) > .fold-head,
 :root[data-theme="dark"] .news-list > .fold:nth-child(odd) > .fold-head { box-shadow: inset 0 0 0 2px var(--ink); }
 /* Waiting on a reply, on People: a little drawn "!" after the name (11-10). */
 .reply-flag { display: inline-block; width: 11px; height: 22px; margin-left: 4px; vertical-align: -3px; color: var(--text); }
@@ -2833,7 +2802,6 @@ html.is-sideways .turn-back {
 /* The Dream list link's star, in the night sky's yellow (11-10). */
 .dream-sky-star { color: #dca800; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .dream-sky-star { color: #e9c548; } }
-:root.sky-late-text .dream-sky-star,
 :root[data-theme="dark"] .dream-sky-star { color: #e9c548; }
 
 /* ---------- The buddy's face menu, the welcome and the tour (11-10) ---------- */
