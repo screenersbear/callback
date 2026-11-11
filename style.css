@@ -2743,6 +2743,9 @@ html.is-sideways .turn-back {
   --text-dim: rgba(238, 241, 246, 0.78);
   --line: rgba(255, 255, 255, 0.18);
   --field: var(--bg);
+  /* Bars and box lines lift off the navy, in whichever color the app is. */
+  --navy: color-mix(in srgb, var(--green), #ffffff 20%);
+  --accent: #f2cc2e;
   --overlay: rgba(12, 20, 44, 0.86);
   --danger: #ff8a80;
   --w-client: #3dbb36; --w-active: #ffd103; --w-warm: #ff8a3d; --w-cold: #6ea6f5; --w-parked: #8d99a8; --w-none: #7d8aa0;
@@ -2750,6 +2753,9 @@ html.is-sideways .turn-back {
 }
 :root.sky-mid-text { --text-dim: var(--text); --danger: var(--text); }
 :root.sky-tint .mind { --bg: var(--cloud); }
+.sky-late-text .dash.is-mind { --accent: color-mix(in srgb, #ffd103, #cbc6a8 55%); }
+/* Yellow words need the full color behind them. */
+.sky-late-text :is(.next-panel, .sheet-header) { background: var(--green); }
 .sky-late-text .mind { --text: #313d45; --text-dim: rgba(49, 61, 69, 0.72); color: color-mix(in srgb, var(--green), #ffffff 62%); }
 
 /* ---------- Wrap project (11-10) ---------- */

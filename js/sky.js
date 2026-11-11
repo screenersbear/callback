@@ -83,7 +83,8 @@ const SUN_EDGE = 0.05;
 // golden it is, how much it's night (0 by day, 1 an hour after sunset), and
 // how much the stars are out (11-10: only once the sun is fully gone, and
 // gone again before it shows in the morning), and how late it is: late goes
-// from 0 once night is full to 1 by about 10 PM, deep on from there to 1 by
+// from 0 to 1 in half an hour around 9 PM, so the app doesn't sit in the
+// muddy blues between gray and navy (11-10), deep on from there to 1 by
 // about midnight, and both go back down before the morning light.
 export function skyNow() {
   const d = now();
@@ -104,7 +105,7 @@ export function skyNow() {
     // The sun itself stays orange all the way down.
     sunGold: Math.max(evening, morning),
     night,
-    late: overnight(lateFrom, lateFrom + 120, rise - 170, rise - 50),
+    late: overnight(lateFrom + 45, lateFrom + 75, rise - 125, rise - 95),
     deep: overnight(lateFrom + 150, lateFrom + 240, rise - 260, rise - 170),
     stars: night * Math.max(smooth(set + edge, set + edge + 20, m), 1 - smooth(rise - edge - 20, rise - edge, m)),
     rise,
@@ -140,7 +141,7 @@ function tint() {
     // at all, and the page goes white (11-10, after changing the app's color).
     const cloud = mixHex(mixHex('#ffffff', '#fff4e4', golden), '#d7dce2', night);
     root.style.setProperty('--cloud', cloud);
-    root.style.setProperty('--bg', mixHex(mixHex(cloud, '#2f4270', late), '#1c2a4f', deep));
+    root.style.setProperty('--bg', mixHex(mixHex(cloud, '#243361', late), '#1c2a4f', deep));
   } else {
     root.style.removeProperty('--golden');
     root.style.removeProperty('--night');
