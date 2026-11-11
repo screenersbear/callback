@@ -803,7 +803,7 @@ function buddySheet() {
   const s = openSheet({
     title: 'Your buddy',
     className: 'buddy-sheet',
-    body: `<p class="hint">Pick how the face on Today looks.</p><div class="buddy-row">${BUDDIES.map(pick).join('')}</div>${greenRowHTML("And the app's color.")}`,
+    body: `<div class="buddy-row">${BUDDIES.map(pick).join('')}</div>${greenRowHTML("The app's color.")}`,
   });
   s.body.addEventListener('click', (e) => {
     const g = e.target.closest('[data-green]');
@@ -1275,7 +1275,7 @@ async function askWaitingReply(p) {
     options: [
       { key: 'yes', label: 'Replied' },
       { key: 'no', label: 'No reply' },
-      { key: 'later', label: 'Not yet', detail: 'Callback asks again in two days.' },
+      { key: 'later', label: 'Not yet' },
     ],
   });
   if (!key) return;
@@ -1348,7 +1348,6 @@ function peopleListHTML() {
   if (!S.people.length) {
     return `<div class="empty">
       <p class="empty-title">No one here yet.</p>
-      <p>Add the casting directors, bookers, editors and clients you want to stay close to. Callback will tell you when to reach out.</p>
       <button type="button" class="hero-cta" data-action="add-person">Add your first person</button>
       <button type="button" class="btn secondary wide" data-action="import-contacts">Add from your contacts</button>
     </div>`;
@@ -1593,7 +1592,7 @@ function circleInside(c) {
     backLabel: 'All circles',
     details: `#/circle/${cid}`,
     people: membersOf(c.id),
-    empty: `<div class="empty"><p class="empty-title">Nobody in ${esc(c.name)} yet.</p><p>Add people here, or from anyone's page.</p>
+    empty: `<div class="empty"><p class="empty-title">Nobody in ${esc(c.name)} yet.</p>
       <button type="button" class="hero-cta" data-action="circle-add-people" data-id="${cid}">+ Add people</button></div>`,
   });
 }
@@ -1777,7 +1776,7 @@ function renderPerson(id, { panel = false } = {}) {
     </section>` : stage === 'justMet' ? `<section class="next-panel${overdue ? ' is-overdue' : ''}">
       <p class="next-label">Just met. Follow up by</p>
       <p class="next-date">${esc(fmtDate(deadline))}</p>
-      <p class="next-rel">${overdue ? 'Follow-up is late' : esc(cap(relDay(deadline, today)))} <span class="dot">·</span> A quick note while it's fresh</p>
+      <p class="next-rel">${overdue ? 'Follow-up is late' : esc(cap(relDay(deadline, today)))}</p>
     </section>` : `<section class="next-panel${overdue ? ' is-overdue' : ''}">
       <p class="next-label">${esc(nextLabelText(p.warmth === 'parked' ? 'Comes back' : light ? 'Next light touch' : stage ? 'First touchpoint' : 'Next touchpoint', shownNext, today))}</p>
       <p class="next-date">${esc(fmtDate(shownNext))}</p>
@@ -2103,10 +2102,9 @@ function renderDreams() {
     <div class="detail-top">${backButton('#/people', 'People')}</div>
     <header class="topbar"><h1>Dream list</h1>
       <button type="button" class="icon-btn" data-action="add-person" data-dream="1" aria-label="Add to dream list">+</button></header>
-    <p class="hint">People you'd love to work with someday. They don't get reminders until you first reach out. When someone you know could introduce you, set it on their page under "Could introduce me to" and the path shows here.</p>
     ${dreams.length
       ? `<div class="card-list">${dreams.map(card).join('')}</div>`
-      : `<div class="empty"><p class="empty-title">Nobody here yet.</p><p>Add the actors, performers and cultural figures you'd love to photograph. A name is enough to start.</p>
+      : `<div class="empty"><p class="empty-title">Nobody here yet.</p>
           <button type="button" class="hero-cta" data-action="add-person" data-dream="1">Add to dream list</button></div>`}`;
 }
 
@@ -2746,11 +2744,11 @@ async function notYetSheet(l) {
     extra: `<p class="sheet-person">${esc(p.name)}</p><p class="keep-quote">${esc(l.description)}</p>`,
     options: [
       { key: 'week', label: 'Give it another week', detail: `${mine ? 'Due' : 'Expected'} ${fmtDate(week)} instead.` },
-      { key: 'date', label: 'Pick a new date', detail: 'For when you know.' },
+      { key: 'date', label: 'Pick a new date' },
       mine
-        ? { key: 'late', label: `Tell ${first} it's running late`, detail: 'Logs that you let them know, and gives it another week.' }
-        : { key: 'nudge', label: `Nudge ${first}`, detail: 'Logs a follow-up, and gives it another week.' },
-      { key: 'go', label: 'Let it go', detail: 'Off your list, filed under Done as let go. Nothing logged.' },
+        ? { key: 'late', label: `Tell ${first} it's running late` }
+        : { key: 'nudge', label: `Nudge ${first}` },
+      { key: 'go', label: 'Let it go' },
     ],
   });
   const fresh = S.loops.find((x) => x.id === l.id);
@@ -2827,7 +2825,6 @@ function renderOrgs(id) {
   if (!S.orgs.length) {
     body = `<div class="empty">
       <p class="empty-title">No organizations yet.</p>
-      <p>Organizations group people by where they work: agencies, brands, publications, studios. Type one on a person and it's added here for you, or add one now.</p>
       <button type="button" class="hero-cta" data-action="add-org">Add an organization</button>
     </div>`;
   } else if (!list.length) {
@@ -2905,7 +2902,6 @@ function renderCircles(id) {
   if (!S.circles.length) {
     body = `<div class="empty">
       <p class="empty-title">No circles yet.</p>
-      <p>Circles are your own groups of people, across organizations, and someone can be in more than one. Try starting with Actors or Models.</p>
       <button type="button" class="hero-cta" data-action="add-circle">+ New circle</button>
     </div>`;
   } else {
@@ -2970,7 +2966,7 @@ function renderCircle(id) {
       ? sortPeople([...shown], ui.sort, ui.reverse).map(row).join('')
       : members.length
         ? `<p class="hint">Nobody in ${esc(c.name)} is a light touch.</p>`
-        : `<p class="hint">Nobody in ${esc(c.name)} yet. Add people here, or from anyone's page.</p>`}`;
+        : `<p class="hint">Nobody in ${esc(c.name)} yet.</p>`}`;
   return `
     <div class="detail-top">${backButton('#/circles', 'Back')}
       <button type="button" class="text-btn" data-action="edit-circle" data-id="${cid}">Edit</button></div>
@@ -3071,7 +3067,7 @@ function circlePicker({ title = 'Circles', selected = [] }) {
       title,
       className: 'sheet-small has-footer',
       body: `
-        <p class="hint" data-empty${S.circles.length ? ' hidden' : ''}>No circles yet. Start one below, like Actors or Models.</p>
+        <p class="hint" data-empty${S.circles.length ? ' hidden' : ''}>No circles yet.</p>
         <div class="pick-list" data-list${S.circles.length ? '' : ' hidden'}>${S.circles.map(row).join('')}</div>
         <form class="new-circle" novalidate>
           <input name="name" class="search" maxlength="60" autocomplete="off" placeholder="New circle" aria-label="New circle name">
@@ -3227,9 +3223,8 @@ function statContent(kind) {
     body = `${weekLine(`${w.regular.length} of ${g.touchpoints}`)}
       ${w.regular.length
         ? `<div class="log-list">${sortTouchpoints(w.regular).map(logRow).join('')}</div>`
-        : `<p class="hint">${w.light.length ? 'No touchpoints yet this week, only light touches.' : 'Nothing logged yet this week. The To reach out box shows who\'s due.'}</p>`}
+        : `<p class="hint">${w.light.length ? 'No touchpoints yet this week, only light touches.' : 'Nothing logged yet this week.'}</p>`}
       ${w.light.length ? `<p class="filter-label stat-group">Light touches [${w.light.length}]</p>
-        <p class="hint stat-note">They count on their own, apart from the goal.</p>
         <div class="log-list">${sortTouchpoints(w.light).map(logRow).join('')}</div>` : ''}
       ${weekLink}`;
   } else if (kind === 'replies') {
@@ -3240,7 +3235,7 @@ function statContent(kind) {
     body = `${weekLine(plural(replies.length, 'reply', 'replies'))}
       ${replies.length
         ? `<div class="log-list">${replies.map(logRow).join('')}</div>`
-        : '<p class="hint">No replies yet this week. When someone writes back, mark that touchpoint as Replied on their page.</p>'}
+        : '<p class="hint">No replies yet this week.</p>'}
       ${weekLink}`;
   } else {
     const added = [...w.added].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -3287,7 +3282,7 @@ function renderWeek() {
   // once there's more than one. The latest month starts open.
   const pastHTML = pastWeeks.length
     ? monthFolds('past', pastWeeks.map((pw) => ({ date: pw, html: pastCard(pw) })), { open: 'first' })
-    : '<p class="hint">Your past weeks will collect here, with what you logged and what you wrote about them.</p>';
+    : '<p class="hint">No past weeks yet.</p>';
 
   return `
     <header class="topbar"><h1>Weekly review</h1></header>
@@ -3299,13 +3294,13 @@ function renderWeek() {
     <div class="goals">
       ${goalBar('Touchpoints', w.regular.length, g.touchpoints)}
       ${goalBar('New people', w.added.length, g.newPeople)}
-      <p class="goals-note">${metBoth ? 'Both goals met. Lovely week.' : 'Goals reset every Monday. Change them in Settings.'}</p>
+      ${metBoth ? '<p class="goals-note">Both goals met. Lovely week.</p>' : ''}
     </div>
     <section class="section-block">
       <h2 class="heading-yellow static"><label for="pointNew">What worked this week?</label></h2>
       ${pointsEditorHTML(ws, 'pointNew')}
     </section>`,
-    sectionBlock('week-logged', 'Logged this week', w.tps.length, logged || '<p class="hint">Nothing logged yet this week. Today has a list of who to reach out to.</p>', 'navy'),
+    sectionBlock('week-logged', 'Logged this week', w.tps.length, logged || '<p class="hint">Nothing logged yet this week.</p>', 'navy'),
     sectionBlock('week-past', 'Past weeks', pastWeeks.length || null, pastHTML, 'yellow')])}
     </div>
     </div>`;
@@ -3332,10 +3327,9 @@ function renderNews() {
   };
   return `
     <header class="topbar"><h1>Their news</h1></header>
-    <p class="hint">Upcoming dates worth reaching out about, soonest first: premieres, launches, new agencies, birthdays. Tap one to open the person.</p>
     <div class="card-list news-list">${items.length
       ? monthFolds('news', items.map((n) => ({ date: n.date, html: row(n) })), { open: 'all' })
-      : '<p class="hint">Nothing coming up yet. Add a date on someone\'s page, under Their news.</p>'}</div>`;
+      : '<p class="hint">Nothing coming up yet.</p>'}</div>`;
 }
 
 // A group in a list (a year, a month) that folds away with a tap on its
@@ -3503,10 +3497,9 @@ function isStandalone() {
 }
 
 function installHTML() {
-  if (isStandalone()) return '<p>Callback is installed on this device. It works offline, and your data stays here.</p>';
+  if (isStandalone()) return '<p>Callback is installed on this device.</p>';
   if (S.installPrompt) {
-    return `<p>Install Callback to open it from your home screen or dock, like any other app. It works offline.</p>
-      <button type="button" class="primary small-btn" data-action="install">Install Callback</button>`;
+    return `<button type="button" class="primary small-btn" data-action="install">Install Callback</button>`;
   }
   if (isIOS()) return '<p>To install on iPhone or iPad: open Callback in Safari, tap the Share button, then Add to Home Screen.</p>';
   return '<p>To install, use your browser menu and pick Install or Add to Home Screen. In Chrome and Edge it is the install icon in the address bar.</p>';
@@ -3521,12 +3514,11 @@ function renderSettings(inSheet = false) {
     ${inSheet ? '' : '<header class="topbar"><h1>Settings</h1></header>'}
 
     ${sectionBlock('set-cadence', 'Cadence', null, `
-      <p class="hint">How often Callback suggests reaching out, by warmth. Logging a touchpoint schedules the next one using these.</p>
       <div class="set-group">
-        <p class="set-group-title">${warmthBadge('cold')} A short sequence of three notes</p>
+        <p class="set-group-title">${warmthBadge('cold')}</p>
         ${numField('cadence.coldFollowUp', c.coldFollowUp, 'Follow up', 'Days after the first note')}
         ${numField('cadence.coldLastTry', c.coldLastTry, 'Last try', 'Days after the follow-up')}
-        ${numField('cadence.coldWait', c.coldWait, 'Wait for a reply', 'Then Callback asks about parking them')}
+        ${numField('cadence.coldWait', c.coldWait, 'Wait for a reply', 'Days after the last try')}
       </div>
       <div class="set-group">
         ${numField('cadence.warm', c.warm, 'Warm', 'Days between touchpoints')}
@@ -3535,11 +3527,11 @@ function renderSettings(inSheet = false) {
         ${numField('cadence.parked', c.parked, 'Parked', 'Days before they come back')}
       </div>
       <div class="set-group">
-        <p class="set-group-title">${lightBadge()} Weak ties, whatever their warmth</p>
+        <p class="set-group-title">${lightBadge()}</p>
         ${numField('cadence.lightTouch', c.lightTouch, 'Light touch', 'Days between touchpoints')}
       </div>
       <button type="button" class="secondary small-btn" data-action="recalc-all">Recalculate everyone's next date</button>
-      <p class="hint">Changes apply the next time you log a touchpoint. Recalculate to apply them to everyone now.</p>`, 'yellow')}
+`, 'yellow')}
 
     ${sectionBlock('set-goals', 'Weekly goals', null, `
       ${numField('goals.touchpoints', g.touchpoints, 'Touchpoints')}
@@ -3556,9 +3548,6 @@ function renderSettings(inSheet = false) {
       ${greenRowHTML("The app's color.")}`, 'navy')}
 
     ${sectionBlock('set-data', 'Your data', null, `
-      ${S.meta.sync
-        ? "<p>Everything lives on this device and syncs with your private GitHub repository, which keeps every version. You can still export a backup any time.</p>"
-        : "<p>Everything lives on this device, in this browser. Nothing is sent anywhere unless you turn on sync below. Export a backup now and then so it's safe, and to move to another device.</p>"}
       <p class="set-fact">Last backup: <b>${S.meta.lastExportAt ? esc(fmtTimestamp(S.meta.lastExportAt)) : 'never'}</b></p>
       <div class="button-stack">
         <button type="button" class="primary small-btn" data-action="export-json">Export backup (JSON)</button>
@@ -3568,8 +3557,7 @@ function renderSettings(inSheet = false) {
       ${syncSettingsHTML()}`, 'yellow')}
 
     ${sectionBlock('set-cal', 'Calendar', null, `
-      <p>Download your next 90 days of touchpoints as a calendar file, one all-day event per person. ${events.length ? `Right now that's ${plural(events.length, 'event')}.` : 'Nothing is scheduled in the next 90 days yet.'}</p>
-      <p class="tip"><b>Tip:</b> import it into its own calendar named Callback. When you want fresh dates, delete that calendar, make it again, and import the new file. In Google Calendar on a computer: Settings, Add calendar, Create new calendar, then Import and pick Callback.</p>
+      <p>${events.length ? `${plural(events.length, 'touchpoint')} in the next 90 days.` : 'Nothing scheduled in the next 90 days.'}</p>
       <button type="button" class="primary small-btn" data-action="export-ics"${events.length ? '' : ' disabled'}>Download calendar file (.ics)</button>`, 'navy')}
 
     ${sectionBlock('set-install', 'Install', null, installHTML(), 'yellow')}
@@ -3593,7 +3581,6 @@ function syncSettingsHTML() {
   const c = S.meta.sync;
   if (!c) {
     return `<h3 class="set-sub">Sync between devices</h3>
-      <p>Keep your phone and computer in step through a private GitHub repository of your own. Each device keeps working offline and catches up when it's back online.</p>
       <button type="button" class="secondary small-btn" data-action="sync-setup">Set up sync</button>`;
   }
   return `<h3 class="set-sub">Sync between devices</h3>
@@ -3622,7 +3609,6 @@ function syncSheet() {
   const s = openSheet({
     title: c ? 'Change sync key' : 'Set up sync',
     body: `<form class="form" novalidate>
-      <p class="hint">Callback keeps one file, callback.json, in a private GitHub repository of yours. Every device you turn this on for reads and writes it. If two devices already have people, they're combined and nothing is deleted.</p>
       <details class="paste-box"${c ? '' : ' open'}>
         <summary>How to make the repository and key</summary>
         <ol class="field-hint sync-steps">
@@ -3638,7 +3624,6 @@ function syncSheet() {
       <p class="field-error" data-error="repo" hidden>Write it as owner/name, like your-name/callback-data.</p>
       <label class="field"><span class="field-label">Key</span>
         <input name="token" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="github_pat_..."></label>
-      <p class="field-hint">Kept on this device only. It's never in a backup or in the synced file.</p>
       <p class="field-error" data-error="token" hidden>Paste the key from GitHub.</p>
       <p class="field-error" data-error="sync" hidden></p>
       <button type="submit" class="modal-cta primary" data-save>${c ? 'Save and sync' : 'Turn on sync'}</button>
@@ -3884,11 +3869,10 @@ function ideasSettingsHTML() {
   const own = S.ideas.filter((r) => r.source === 'own' && !r.hidden).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const removed = S.ideas.filter((r) => r.hidden).length;
   return `
-    <p class="hint">Callback mixes your own ideas in with its suggestions for everyone, except lukewarm contacts, who only get give-first ideas. Remove any suggestion with the x on it.</p>
     <p class="set-group-title">Your suggestions (${own.length})</p>
     ${own.length
       ? `<ul class="own-ideas">${own.map((r) => `<li><span>${esc(r.text)}</span><button type="button" class="pd-remove" data-action="remove-own-idea" data-id="${esc(r.id)}" aria-label="Remove this suggestion for good">${X_ICON_SMALL}</button></li>`).join('')}</ul>`
-      : '<p class="hint">None yet. Ideas you type for someone can join them, or add one here.</p>'}
+      : '<p class="hint">None yet.</p>'}
     <div class="button-stack">
       <button type="button" class="primary small-btn" data-action="add-suggestion">+ Add a suggestion</button>
       <button type="button" class="secondary small-btn" data-action="restore-ideas"${removed ? '' : ' disabled'}>Bring back removed suggestions${removed ? ` (${removed})` : ''}</button>
@@ -4165,8 +4149,8 @@ const wideQuery = window.matchMedia('(min-width: 1100px)');
 // beside someone's page when they're opened.
 const SPLIT_LIST = { person: 'people', orgs: 'orgs', org: 'orgs', circles: 'circles', circle: 'circles' };
 const SPLIT_EMPTY = {
-  orgs: ['Pick an organization on the left.', 'Its page opens here, and the list stays put.'],
-  circles: ['Pick a circle on the left.', 'Its page opens here, and the list stays put.'],
+  orgs: ['Pick an organization on the left.'],
+  circles: ['Pick a circle on the left.'],
 };
 const splitList = (name) => (wideQuery.matches ? SPLIT_LIST[name] || null : null);
 
@@ -4182,8 +4166,7 @@ function splitHTML(r, list) {
   const rows = side.includes('row-card');
   return `<div class="split">
     <section class="split-list" data-list="${list}" aria-label="${esc(TITLES[list])}">${side}</section>
-    <section class="split-detail">${open ? ROUTES[inside || r.name](r.id) : `<div class="empty split-empty"><p class="empty-title">${title}</p><p>${text}</p>
-      <p class="field-hint">${rows ? `↑ and ↓ move through the list. ${inMacApp ? 'Help, Keyboard Shortcuts lists the rest.' : 'Press ? for all the shortcuts.'}` : inMacApp ? 'Help, Keyboard Shortcuts lists the shortcuts.' : 'Press ? for all the shortcuts.'}</p></div>`}</section>
+    <section class="split-detail">${open ? ROUTES[inside || r.name](r.id) : `<div class="empty split-empty"><p class="empty-title">${title}</p></div>`}</section>
   </div>`;
 }
 
@@ -4638,10 +4621,6 @@ async function endLightTouch(p) {
 // First touch Not yet: no touchpoint, and the first one two days out, while
 // meeting them is still fresh.
 const QUICK_FIRST_DAYS = 2;
-const FIRST_TOUCH_HINT = {
-  notYet: "Nothing is logged. The first touchpoint is in 2 days: follow them and send a quick note while it's fresh.",
-  followed: 'Logs today as Followed. The next light touch follows the light touch rhythm.',
-};
 
 async function quickAddPerson({ name, instagram, note, where, followed, circleIds, figure = 'person' }) {
   const today = todayStr();
@@ -4687,7 +4666,6 @@ async function quickAddPerson({ name, instagram, note, where, followed, circleId
 // For meeting a lot of people at once. The form stays open for the next
 // person and keeps the circle and where you met, since a batch shares them.
 function quickAddSheet() {
-  const c = S.settings.cadence;
   let circleIds = [];
   const added = [];
   const field = (name, label, attrs = '') =>
@@ -4696,7 +4674,6 @@ function quickAddSheet() {
     title: 'Quick add',
     className: 'quick-sheet',
     body: `<form class="form" novalidate>
-      <p class="hint">For meeting lots of people at once. Each one starts as a light touch: every ${span(c.lightTouch)}, with small gestures like reacting to a post.</p>
       ${field('name', 'Name', 'autocomplete="off" autocapitalize="words" placeholder="Who did you meet?" required')}
       <p class="field-error" data-error="name" hidden>Add a name first.</p>
       ${figurePickHTML('person')}
@@ -4705,13 +4682,11 @@ function quickAddSheet() {
       <div class="picker-row"><span class="field-label">Circle (optional)</span>
         <button type="button" class="picker-btn" data-pick="circles"></button></div>
       ${field('where', 'Where we met (optional)', 'autocomplete="off" maxlength="80" placeholder="Agency party"')}
-      <p class="field-hint">The circle and where you met stay filled in for the next person.</p>
       <fieldset class="field"><legend class="field-label">First touch</legend>
         <div class="seg">
           <label class="seg-option"><input type="radio" name="firstTouch" value="notYet" checked><span>Not yet</span></label>
           <label class="seg-option"><input type="radio" name="firstTouch" value="followed"><span>Already followed</span></label>
         </div>
-        <span class="field-hint" data-first-hint>${FIRST_TOUCH_HINT.notYet}</span>
       </fieldset>
       <p class="quick-count" data-count aria-live="polite" hidden></p>
       <button type="submit" class="modal-cta primary" data-save>Add</button>
@@ -4732,7 +4707,6 @@ function quickAddSheet() {
   form.querySelector('[data-save]').addEventListener('mousedown', (e) => e.preventDefault());
   const firstTouch = (value) => {
     form.querySelector(`[name="firstTouch"][value="${value}"]`).checked = true;
-    form.querySelector('[data-first-hint]').textContent = FIRST_TOUCH_HINT[value];
   };
   form.addEventListener('input', (e) => {
     if (e.target === input('name')) form.querySelector('[data-error="name"]').hidden = true;
@@ -4791,7 +4765,7 @@ function quickAddSheet() {
 async function offerFirstLog(id, name) {
   const ok = await confirmSheet({
     title: 'Log the touchpoint?',
-    message: `You've already reached out to ${esc(name)}. Log it now so Callback can plan the next one.`,
+    message: `You've already reached out to ${esc(name)}.`,
     confirmLabel: 'Log touchpoint',
     cancelLabel: 'Not now',
   });
@@ -4802,8 +4776,7 @@ async function offerFirstLog(id, name) {
 // How someone is drawn in the ring on People: picked when adding them.
 function figurePickHTML(value) {
   return `<fieldset class="field"><legend class="field-label">How they're drawn</legend>
-    <div class="seg fig-seg">${FIGURES.map(([k, label]) => `<label class="seg-option"><input type="radio" name="figure" value="${k}" aria-label="${esc(label)}"${value === k ? ' checked' : ''}><span>${figureSVG(k, 'fig-pic')}</span></label>`).join('')}</div>
-    <span class="field-hint">For the drawing of everyone on People, on a phone.</span></fieldset>`;
+    <div class="seg fig-seg">${FIGURES.map(([k, label]) => `<label class="seg-option"><input type="radio" name="figure" value="${k}" aria-label="${esc(label)}"${value === k ? ' checked' : ''}><span>${figureSVG(k, 'fig-pic')}</span></label>`).join('')}</div></fieldset>`;
 }
 
 // The Add person wizard: one page at a time, Back and Next, the last page's
@@ -4824,7 +4797,6 @@ function wireWizard(sheet, form) {
     const pg = pages[at];
     q('.wiz-step').textContent = `Step ${at + 1} of ${pages.length}`;
     q('.wiz-title').textContent = pg.dataset.title;
-    q('.wiz-hint').textContent = pg.dataset.hint || '';
     const last = at === pages.length - 1;
     back.hidden = at === 0;
     next.hidden = last;
@@ -4879,7 +4851,6 @@ function personForm(p, preset = {}) {
   // Adding from the dream list starts on Someday.
   const firstDefault = preset.dreamList ? 'someday' : DEFAULT_FIRST_CONTACT;
   const org = orgOf(v);
-  const c = S.settings.cadence;
   const field = (name, label, value, attrs = '') =>
     `<label class="field"><span class="field-label">${label}</span><input name="${name}" value="${esc(value || '')}" ${attrs}></label>`;
   const s = openSheet({
@@ -4889,14 +4860,13 @@ function personForm(p, preset = {}) {
     // (11-10, like the shoot wizard in Documenting Fictions); editing keeps
     // the whole form.
     body: isNew ? `<form class="form wiz" novalidate>
-      <div class="wiz-head" aria-live="polite"><p class="wiz-step"></p><h3 class="wiz-title"></h3><p class="wiz-hint"></p></div>
-      <section class="wiz-page" data-key="who" data-title="Who is it?" data-hint="A name is enough to start. Pasting a signature or contact fills in what Callback finds.">
+      <div class="wiz-head" aria-live="polite"><p class="wiz-step"></p><h3 class="wiz-title"></h3></div>
+      <section class="wiz-page" data-key="who" data-title="Who is it?">
       ${isNew ? `<details class="paste-box">
         <summary>Paste details from a signature or contact</summary>
         <div class="field"><textarea data-paste rows="5" aria-label="Pasted details" placeholder="Rosa Lind&#10;Booker | Ford Models&#10;M: +1 212 555 0101&#10;rosa@fordmodels.com"></textarea></div>
         ${navigator.clipboard && navigator.clipboard.readText ? '<button type="button" class="secondary small-btn" data-clip>Paste what I copied</button>' : ''}
         <p class="paste-result" data-paste-result aria-live="polite"></p>
-        <p class="field-hint">Paste an email signature, a copied contact, or text from a website or DM. Callback fills in what it finds, and you check it before saving.</p>
       </details>` : ''}
       ${field('name', 'Name', v.name, 'autocomplete="off" placeholder="Who is it?" required')}
       <p class="field-error" data-error="name" hidden>Add a name first.</p>
@@ -4905,56 +4875,51 @@ function personForm(p, preset = {}) {
       <datalist id="roleList">${ROLE_SUGGESTIONS.map((r) => `<option value="${esc(r)}">`).join('')}</datalist>
       <div class="field"><label class="field-label" for="orgField">Organization</label>
         <input id="orgField" name="org" value="${esc(org ? org.name : '')}" autocomplete="off" placeholder="Agency, brand, publication"${S.orgs.length ? ' class="has-suggest" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="orgSuggest"' : ''}>
-        <div class="suggest" id="orgSuggest" role="listbox" aria-label="Your organizations" hidden></div>
-        <span class="field-hint">Pick one you've added, or type a new name to add it.${org && !isNew ? ' Changing it keeps a note of where they were before.' : ''}</span></div>
+        <div class="suggest" id="orgSuggest" role="listbox" aria-label="Your organizations" hidden></div></div>
       </section>
-      <section class="wiz-page" data-key="know" data-title="How you know them" data-hint="Tick any that fit, and add them to your circles if you like.">
+      <section class="wiz-page" data-key="know" data-title="How you know them">
       <fieldset class="field"><legend class="field-label">Relationship (tick any that fit)</legend>
         <div class="warmth-options">${RELATIONSHIP_TYPES.map((r) => `<label class="warmth-option">
           <input type="checkbox" name="relationshipTypes" value="${r.key}"${relTypesOf(v).includes(r.key) ? ' checked' : ''}>
-          <span class="warmth-option-body">${relLabel(r.key)}<span class="warmth-option-blurb">${esc(r.blurb)}</span></span>
+          <span class="warmth-option-body">${relLabel(r.key)}</span>
         </label>`).join('')}</div>
         <p class="field-error" data-error="rel" hidden>Tick at least one.</p></fieldset>
       <div class="picker-row"><span class="field-label">Circles</span>
-        <button type="button" class="picker-btn" data-pick="circles"></button>
-        <span class="field-hint">Your own groups, like Actors or Models. Someone can be in more than one.</span></div>
+        <button type="button" class="picker-btn" data-pick="circles"></button></div>
       </section>
-      <section class="wiz-page" data-key="warm" data-title="How warm" data-hint="Where things stand with them right now. It sets how often Callback brings them up.">
+      <section class="wiz-page" data-key="warm" data-title="How warm">
       <fieldset class="field"><legend class="field-label">Warmth</legend>
         <div class="warmth-options">${WARMTH.map((w) => `<label class="warmth-option">
           <input type="radio" name="warmth" value="${w}"${v.warmth === w ? ' checked' : ''}>
-          <span class="warmth-option-body">${warmthBadge(w)}<span class="warmth-option-blurb">${esc(WARMTH_INFO[w].blurb)}</span></span>
+          <span class="warmth-option-body">${warmthBadge(w)}</span>
         </label>`).join('')}</div></fieldset>
       <div class="field">
         <label class="check"><input type="checkbox" name="lightTouch"${v.lightTouch ? ' checked' : ''}> ${LIGHT_ICON} Light touch</label>
-        <span class="field-hint">For weak ties: every ${span(c.lightTouch)}, small gestures only, in a quiet spot at the bottom of Today.</span>
       </div>
       </section>
-      <section class="wiz-page" data-key="touch" data-title="Touchpoints" data-hint="When to first reach out, then how often after that.">
+      <section class="wiz-page" data-key="touch" data-title="Touchpoints">
       ${isNew ? `<fieldset class="field"><legend class="field-label">When should you first reach out?</legend>
         <div class="warmth-options first-options">${FIRST_CONTACT_OPTIONS.map((o) => `<label class="warmth-option">
           <input type="radio" name="firstContact" value="${o.key}"${firstDefault === o.key ? ' checked' : ''}>
-          <span class="warmth-option-body"><span class="option-name">${esc(o.label)}</span><span class="warmth-option-blurb">${esc(o.blurb)}</span></span>
+          <span class="warmth-option-body"><span class="option-name">${esc(o.label)}</span></span>
         </label>`).join('')}</div>
         <label class="field first-date"${firstDefault === 'pickDate' ? '' : ' hidden'}><span class="field-label">Date of the first touchpoint</span>
           <input type="date" name="firstDate" min="${todayStr()}"></label>
         <p class="field-error" data-error="firstDate" hidden>Pick a date for the first touchpoint.</p>
       </fieldset>` : `<label class="field"><span class="field-label">Next touchpoint</span>
-        <input type="date" name="next" value="${esc(v.nextTouchpointDate || '')}">
-        <span class="field-hint">Logging a touchpoint sets this for you.</span></label>`}
+        <input type="date" name="next" value="${esc(v.nextTouchpointDate || '')}"></label>`}
       ${rhythmPickerHTML(v, 'Touchpoints')}
       </section>
-      <section class="wiz-page" data-key="contact" data-title="Contact details" data-hint="Whatever you have. The rest can go in later, from their page.">
+      <section class="wiz-page" data-key="contact" data-title="Contact details">
       ${field('email', 'Email', v.email, 'type="email" autocomplete="off" inputmode="email"')}
       ${field('phone', 'Phone', v.phone, 'type="tel" autocomplete="off"')}
       ${accountsFieldHTML(v)}
       ${field('website', 'Website', v.website, 'autocomplete="off" inputmode="url" placeholder="example.com"')}
       </section>
-      <section class="wiz-page" data-key="met" data-title="How you met" data-hint="Who introduced you, who they could introduce you to, and anything worth remembering.">
+      <section class="wiz-page" data-key="met" data-title="How you met">
       <label class="field"><span class="field-label">How we met</span><textarea name="howWeMet" rows="2" placeholder="Introduced by Sam at the Rialto screening">${esc(v.howWeMet || '')}</textarea></label>
       <fieldset class="field connections-field"><legend class="field-label">Dream list and introductions</legend>
         <label class="check"><input type="checkbox" name="dreamList"${v.dreamList ? ' checked' : ''}> ${DREAM_STAR} On my dream list</label>
-        <span class="field-hint">Someone you'd love to work with someday. No reminders until you first reach out, and a name is enough.</span>
         <div class="picker-row"><span class="field-label">Introduced by</span>
           <button type="button" class="picker-btn" data-pick="by"></button></div>
         <div class="picker-row"><span class="field-label">Could introduce me to</span>
@@ -4978,40 +4943,35 @@ function personForm(p, preset = {}) {
       <datalist id="roleList">${ROLE_SUGGESTIONS.map((r) => `<option value="${esc(r)}">`).join('')}</datalist>
       <div class="field"><label class="field-label" for="orgField">Organization</label>
         <input id="orgField" name="org" value="${esc(org ? org.name : '')}" autocomplete="off" placeholder="Agency, brand, publication"${S.orgs.length ? ' class="has-suggest" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="orgSuggest"' : ''}>
-        <div class="suggest" id="orgSuggest" role="listbox" aria-label="Your organizations" hidden></div>
-        <span class="field-hint">Pick one you've added, or type a new name to add it.${org && !isNew ? ' Changing it keeps a note of where they were before.' : ''}</span></div>
+        <div class="suggest" id="orgSuggest" role="listbox" aria-label="Your organizations" hidden></div></div>
       <div class="picker-row"><span class="field-label">Circles</span>
-        <button type="button" class="picker-btn" data-pick="circles"></button>
-        <span class="field-hint">Your own groups, like Actors or Models. Someone can be in more than one.</span></div>
+        <button type="button" class="picker-btn" data-pick="circles"></button></div>
       <fieldset class="field"><legend class="field-label">Relationship (tick any that fit)</legend>
         <div class="warmth-options">${RELATIONSHIP_TYPES.map((r) => `<label class="warmth-option">
           <input type="checkbox" name="relationshipTypes" value="${r.key}"${relTypesOf(v).includes(r.key) ? ' checked' : ''}>
-          <span class="warmth-option-body">${relLabel(r.key)}<span class="warmth-option-blurb">${esc(r.blurb)}</span></span>
+          <span class="warmth-option-body">${relLabel(r.key)}</span>
         </label>`).join('')}</div>
         <p class="field-error" data-error="rel" hidden>Tick at least one.</p></fieldset>
       <fieldset class="field"><legend class="field-label">Warmth</legend>
         <div class="warmth-options">${WARMTH.map((w) => `<label class="warmth-option">
           <input type="radio" name="warmth" value="${w}"${v.warmth === w ? ' checked' : ''}>
-          <span class="warmth-option-body">${warmthBadge(w)}<span class="warmth-option-blurb">${esc(WARMTH_INFO[w].blurb)}</span></span>
+          <span class="warmth-option-body">${warmthBadge(w)}</span>
         </label>`).join('')}</div></fieldset>
       <div class="field">
         <label class="check"><input type="checkbox" name="lightTouch"${v.lightTouch ? ' checked' : ''}> ${LIGHT_ICON} Light touch</label>
-        <span class="field-hint">For weak ties: every ${span(c.lightTouch)}, small gestures only, in a quiet spot at the bottom of Today.</span>
       </div>
       ${isNew ? `<fieldset class="field"><legend class="field-label">When should you first reach out?</legend>
         <div class="warmth-options first-options">${FIRST_CONTACT_OPTIONS.map((o) => `<label class="warmth-option">
           <input type="radio" name="firstContact" value="${o.key}"${firstDefault === o.key ? ' checked' : ''}>
-          <span class="warmth-option-body"><span class="option-name">${esc(o.label)}</span><span class="warmth-option-blurb">${esc(o.blurb)}</span></span>
+          <span class="warmth-option-body"><span class="option-name">${esc(o.label)}</span></span>
         </label>`).join('')}</div>
         <label class="field first-date"${firstDefault === 'pickDate' ? '' : ' hidden'}><span class="field-label">Date of the first touchpoint</span>
           <input type="date" name="firstDate" min="${todayStr()}"></label>
         <p class="field-error" data-error="firstDate" hidden>Pick a date for the first touchpoint.</p>
       </fieldset>` : `<label class="field"><span class="field-label">Next touchpoint</span>
-        <input type="date" name="next" value="${esc(v.nextTouchpointDate || '')}">
-        <span class="field-hint">Logging a touchpoint sets this for you.</span></label>`}
+        <input type="date" name="next" value="${esc(v.nextTouchpointDate || '')}"></label>`}
       <fieldset class="field connections-field"><legend class="field-label">Dream list and introductions</legend>
         <label class="check"><input type="checkbox" name="dreamList"${v.dreamList ? ' checked' : ''}> ${DREAM_STAR} On my dream list</label>
-        <span class="field-hint">Someone you'd love to work with someday. No reminders until you first reach out, and a name is enough.</span>
         <div class="picker-row"><span class="field-label">Introduced by</span>
           <button type="button" class="picker-btn" data-pick="by"></button></div>
         <div class="picker-row"><span class="field-label">Could introduce me to</span>
@@ -5713,13 +5673,10 @@ async function snoozeSheet(p) {
   const news = upcomingNews(p, today);
   const key = await choiceSheet({
     title: `Snooze ${p.name}`,
-    message: news.length
-      ? 'They leave Today until the new date. Their news is often the best moment to reach out.'
-      : 'They leave Today until the new date.',
     options: [
       ...news.map((n) => newsChoice(n, today)),
       ...SNOOZE_OPTIONS.map((o) => ({ key: o.key, label: o.label, detail: fmtDate(o.apply(today)) })),
-      { key: 'pick', label: 'Pick a date', detail: 'Choose any day' },
+      { key: 'pick', label: 'Pick a date' },
     ],
   });
   if (!key) return;
@@ -5758,8 +5715,7 @@ function figureSheet(p) {
   const s = openSheet({
     title: "How they're drawn",
     className: 'sheet-small fig-sheet',
-    body: `<p class="hint">How ${esc(firstName(p))} looks on People and in circles.</p>
-      <div class="buddy-row fig-row">${FIGURES.map(([k, label]) => `<button type="button" class="buddy-option${k === cur ? ' is-on' : ''}" data-fig="${k}" aria-pressed="${k === cur}" aria-label="${esc(label)}">${figureSVG(k, 'fig-choice-pic', 170)}</button>`).join('')}</div>`,
+    body: `      <div class="buddy-row fig-row">${FIGURES.map(([k, label]) => `<button type="button" class="buddy-option${k === cur ? ' is-on' : ''}" data-fig="${k}" aria-pressed="${k === cur}" aria-label="${esc(label)}">${figureSVG(k, 'fig-choice-pic', 170)}</button>`).join('')}</div>`,
   });
   s.body.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-fig]');
@@ -5780,10 +5736,10 @@ function relationshipPicker(p) {
     const s = openSheet({
       title: "What's this relationship?",
       className: 'sheet-small has-footer',
-      body: `<p class="sheet-message">Tick any that fit. This shapes the touchpoint ideas; how often you reach out still follows their warmth.</p>
+      body: `
         <div class="warmth-options">${RELATIONSHIP_TYPES.map((r) => `<label class="warmth-option">
           <input type="checkbox" value="${r.key}"${now.includes(r.key) ? ' checked' : ''}>
-          <span class="warmth-option-body">${relLabel(r.key)}<span class="warmth-option-blurb">${esc(r.blurb)}</span></span>
+          <span class="warmth-option-body">${relLabel(r.key)}</span>
         </label>`).join('')}</div>
         <p class="field-error" data-error="rel" hidden>Tick at least one.</p>
         <div class="sheet-footer"><button type="button" class="modal-cta primary" data-done>Done</button></div>`,
@@ -5819,11 +5775,10 @@ async function warmthSheet(p) {
   if (!p) return;
   const key = await choiceSheet({
     title: `How well do you know ${firstName(p)}?`,
-    message: 'Callback works out the next touchpoint from their latest one.',
     options: [
-      ...WARMTH.map((w) => ({ key: w, label: WARMTH_INFO[w].label, detail: WARMTH_INFO[w].blurb, icon: warmthIcon(w), current: p.warmth === w })),
+      ...WARMTH.map((w) => ({ key: w, label: WARMTH_INFO[w].label, icon: warmthIcon(w), current: p.warmth === w })),
       // A project just finished: wrap it instead (back to Warm, with a follow-up).
-      { key: 'wrap', label: 'Wrap a project', detail: 'A project just finished. Back to Warm, with a thank-you and a check-in.', icon: WRAP_ICON },
+      { key: 'wrap', label: 'Wrap a project', icon: WRAP_ICON },
     ],
   });
   if (key === 'wrap') wrapSheet(S.personById.get(p.id) || p);
@@ -6037,10 +5992,10 @@ async function askReply(t) {
   let day = today;
   const interest = await choiceSheet({
     title: 'How did they seem?',
-    message: `In ${p ? esc(firstName(p)) : 'their'}${p ? "'s" : ''} reply. This shapes the touchpoint ideas.`,
+    message: `In ${p ? esc(firstName(p)) : 'their'}${p ? "'s" : ''} reply.`,
     extra: replyWhenHTML(t, today),
     onOpen: (s) => wireReplyWhen(s.body, t, today, (d) => { day = d; }),
-    options: INTEREST_LEVELS.map((i) => ({ key: i.key, label: i.label, detail: i.blurb, icon: interestIcon(i.key), current: t.interest === i.key })),
+    options: INTEREST_LEVELS.map((i) => ({ key: i.key, label: i.label, icon: interestIcon(i.key), current: t.interest === i.key })),
   });
   return { interest, day };
 }
@@ -6183,15 +6138,13 @@ function contactsSheet() {
     title: 'Add from your contacts',
     className: 'sheet-small',
     body: `
-      ${picker ? `<p class="sheet-message">Pick people straight from your phone's contacts.</p>
-        <button type="button" class="modal-cta primary" data-pick>Choose from contacts</button>
+      ${picker ? `<button type="button" class="modal-cta primary" data-pick>Choose from contacts</button>
         <p class="or-line">Or use a contacts file</p>` : ''}
       <p class="sheet-message">${ios
         ? "iPhone doesn't let web apps open Contacts directly, but Contacts can hand Callback a copy in a few taps:"
         : 'Your contacts app can save a copy of your contacts for Callback to read:'}</p>
       <ol class="steps">${steps}</ol>
-      <button type="button" class="${picker ? 'secondary small-btn' : 'modal-cta primary'}" data-file>Choose a contacts file</button>
-      <p class="hint">Nothing is added until you tick who you want.</p>`,
+      <button type="button" class="${picker ? 'secondary small-btn' : 'modal-cta primary'}" data-file>Choose a contacts file</button>`,
   });
 
   s.body.addEventListener('click', async (e) => {
@@ -6242,7 +6195,6 @@ function contactChooser(list, { preselect }) {
     });
   const chosen = new Set(preselect ? items.map((x, i) => (x.dup ? -1 : i)).filter((i) => i >= 0) : []);
   const dups = items.filter((x) => x.dup).length;
-  const perDay = Math.max(1, Math.ceil(S.settings.goals.touchpoints / 5));
   let warmth = 'warm';
   let rel = DEFAULT_RELATIONSHIP;
 
@@ -6263,9 +6215,9 @@ function contactChooser(list, { preselect }) {
     body: `
       <p class="sheet-message">${plural(items.length, 'contact')}${dups ? `, ${dups} already in Callback` : ''}. Tick the people you want to keep in touch with, or nobody.</p>
       <label class="field"><span class="field-label">Warmth for everyone you add</span>
-        <select data-warmth>${WARMTH.map((w) => `<option value="${w}"${w === warmth ? ' selected' : ''}>${esc(WARMTH_INFO[w].label)}: ${esc(WARMTH_INFO[w].blurb)}</option>`).join('')}</select></label>
+        <select data-warmth>${WARMTH.map((w) => `<option value="${w}"${w === warmth ? ' selected' : ''}>${esc(WARMTH_INFO[w].label)}</option>`).join('')}</select></label>
       <label class="field"><span class="field-label">Relationship for everyone you add</span>
-        <select data-rel>${RELATIONSHIP_TYPES.map((r) => `<option value="${r.key}"${r.key === rel ? ' selected' : ''}>${esc(r.label)}: ${esc(r.blurb)}</option>`).join('')}</select></label>
+        <select data-rel>${RELATIONSHIP_TYPES.map((r) => `<option value="${r.key}"${r.key === rel ? ' selected' : ''}>${esc(r.label)}</option>`).join('')}</select></label>
       ${items.length > 8 ? '<input type="search" class="search pick-search" data-q placeholder="Search contacts" autocomplete="off" aria-label="Search contacts">' : ''}
       <div class="pick-tools">
         <button type="button" class="text-btn" data-all>Tick all shown</button>
@@ -6273,7 +6225,6 @@ function contactChooser(list, { preselect }) {
       </div>
       <div class="pick-list">${items.map(row).join('')}</div>
       <div class="sheet-footer">
-        <p class="field-hint">Their first touchpoints are spread across the coming weekdays, about ${perDay} a day.</p>
         <button type="button" class="modal-cta primary" data-go></button>
       </div>`,
   });
@@ -7378,7 +7329,7 @@ function shortcutsSheet() {
     title: 'Keyboard shortcuts',
     className: 'sheet-small',
     body: `<dl class="shortcut-list">${rows.map(([k, what]) => `<dt><kbd>${esc(k)}</kbd></dt><dd>${esc(what)}</dd>`).join('')}</dl>
-      ${mac ? '' : '<p class="field-hint">They work when you are not typing in a box.</p>'}`,
+`,
   });
 }
 
