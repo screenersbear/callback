@@ -33,7 +33,9 @@ let viewHeight = window.innerHeight;
 function fitViewport() {
   if (!vv) return;
   const typing = typingIn(document.activeElement);
-  const kb = Math.max(0, Math.round(html.clientHeight - vv.height));
+  // A phone held sideways has the page turned back upright (upright.js):
+  // the keyboard comes up along its side then, so nothing makes room.
+  const kb = html.classList.contains('is-turned') ? 0 : Math.max(0, Math.round(html.clientHeight - vv.height));
   const up = kb > 120 && typing;
   if (!typing && vv.scale < 1.01) leftoverTop = Math.max(0, vv.offsetTop);
   viewTop = up ? Math.max(0, vv.offsetTop - leftoverTop) : 0;

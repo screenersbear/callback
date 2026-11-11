@@ -29,26 +29,9 @@
       document.querySelector('meta[name="theme-color"]').setAttribute('content', g);
     }
   } catch (e) {}
-  // A phone stays upright. The manifest asks for portrait, which Android
-  // keeps to; an iPhone turns web apps anyway, so a phone held sideways gets
-  // a note over the page until it's turned back. Read from the phone's own
-  // turn, not the window's shape, which an open keyboard can squash.
-  (function () {
-    var root = document.documentElement;
-    var coarse = window.matchMedia && window.matchMedia('(pointer: coarse)');
-    function check() {
-      var o = screen.orientation && screen.orientation.type;
-      var side = o ? o.indexOf('landscape') === 0 : Math.abs(window.orientation || 0) === 90;
-      var phone = Math.min(screen.width, screen.height) < 500 && !!(coarse && coarse.matches);
-      root.classList.toggle('is-sideways', side && phone);
-    }
-    check();
-    if (screen.orientation && screen.orientation.addEventListener) screen.orientation.addEventListener('change', check);
-    window.addEventListener('orientationchange', check);
-    window.addEventListener('resize', check);
-  })();
 </script>
 <link rel="stylesheet" href="style.css" />
+<script src="js/upright.js"></script>
 </head>
 <body>
 
@@ -84,12 +67,6 @@
 </nav>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
-
-<div class="turn-back">
-  <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22.1 9.8c6.5-.4 13.1-.3 19.6.1 1.4.1 2.4 1.1 2.4 2.5.4 12.9.3 25.7-.1 38.6-.1 1.4-1 2.4-2.4 2.5-6.5.4-13.1.4-19.6 0-1.4-.1-2.4-1.1-2.4-2.5-.3-12.9-.3-25.8.1-38.7.1-1.4 1.1-2.4 2.4-2.5"/><path d="M29 15.4c2-.1 4-.1 6 .1M30.4 48.6h3.2"/><path d="M50.2 21.8c4.4 5 5 12.3 1.4 17.9"/><path d="M48.4 37.1l3.2 3 2.9-3.9"/></svg>
-  <p class="turn-back-title">Turn your phone upright</p>
-  <p class="turn-back-text">Callback only goes this way up.</p>
-</div>
 
 <noscript><p class="noscript">Callback needs JavaScript turned on.</p></noscript>
 <script type="module" src="js/app.js"></script>
