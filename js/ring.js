@@ -18,6 +18,8 @@ const GAP = 0.6; // from one person to the next, in their heights
 const AROUND = 14; // the ring's length, in heights
 const EYE = 3; // the camera's distance from the front of the ring, in heights
 const ARM = 0.4; // an arm's length, in its owner's height
+const TURN_BAND = 0.25; // how far round the ring a figure takes to turn side-on
+const SIDE_ON = 0.45; // a figure's width side-on, against facing you
 const FRONT = 0.56; // the biggest figure at the front, in stage heights
 const BACK = 0.36; // where the far side's feet are, in stage heights from the top
 const FEET = 34; // room under the front row's feet for their names, in pixels
@@ -214,13 +216,15 @@ const armRoots = (kind) => bodyOf(kind, 200).root;
 
 // The whole line on the page: `put` takes the figure's own heights to the
 // page; `hands` are where its hands are on the page (or null to hang
-// down); `hp` is its height there. (`fine` is left from before: the
-// height decides.)
-function bodyLine(kind, fine, put, hands, hp) {
+// down); `hp` is its height there; `inset` pulls the arms' roots in toward
+// the middle, for someone standing side-on. (`fine` is left from before:
+// the height decides.)
+function bodyLine(kind, fine, put, hands, hp, inset = 1) {
   const b = bodyOf(kind, hp);
-  const sh = b.sh.map(put);
-  const pit = b.pit.map(put);
-  const root = b.root.map(put);
+  const inward = ([x, y]) => put([x * inset, y]);
+  const sh = b.sh.map(inward);
+  const pit = b.pit.map(inward);
+  const root = b.root.map(inward);
   const hand = [0, 1].map((j) => hands[j] || [root[j][0] + (j ? 1 : -1) * 0.1 * hp, root[j][1] + 0.36 * hp]);
   const n = hp > 70 ? 15 : 7;
   const q = (a, c, sag, t) => {
@@ -498,7 +502,7 @@ export function ringStep(seconds = 0, set = {}) {
 
 export function ringInfo() {
   const front = nearestFront();
-  return { real: st.real, line: st.line, ghosts: st.items.length - st.real, len: st.len, ring: st.ring, scroll: st.scroll, vel: st.vel, lean: st.lean, front: front && front.id, hits: st.hits.map((h) => ({ id: h.id, x: Math.round((h.x0 + h.x1) / 2), y: Math.round(h.y1), s: Math.round(h.s * 100) / 100 })) };
+  return { arms: (st.on || []).map((o) => ({ i: o.i, x: o.p.x, hp: o.hp, sh: o.sh, hands: o.hands })), real: st.real, line: st.line, ghosts: st.items.length - st.real, len: st.len, ring: st.ring, scroll: st.scroll, vel: st.vel, lean: st.lean, front: front && front.id, hits: st.hits.map((h) => ({ id: h.id, x: Math.round((h.x0 + h.x1) / 2), y: Math.round(h.y1), s: Math.round(h.s * 100) / 100 })) };
 }
 
 function wrap(d) {
@@ -660,11 +664,12 @@ function handBetween(a, la, b, lb) {
   const along = clamp((d * d + la * la - lb * lb) / (2 * d), 0, Math.min(d, la));
   const ux = dx / d;
   const uy = dy / d;
-  // Elbows down: of the two ways the arms can bend, the lower one. With
-  // one standing right behind the other there's no lower one, so the
-  // arms straighten there instead of flicking from side to side.
-  const off = Math.sqrt(Math.max(0, la * la - along * along)) * Math.min(1, Math.abs(ux) / 0.3) * (ux < 0 ? -1 : 1);
-  return [a[0] + ux * along - uy * off, a[1] + uy * along + ux * off];
+  // Elbows down: of the two ways the arms can bend, the lower one. As one
+  // comes to stand right behind the other there's no lower one, so the
+  // hands ease to hanging straight down instead of flicking across (11-10).
+  const off = Math.sqrt(Math.max(0, la * la - along * along));
+  const apart = Math.min(1, Math.abs(dx) / (0.3 * (la + lb)));
+  return [a[0] + ux * along - uy * off * apart * (ux < 0 ? -1 : 1), a[1] + uy * along + off * (1 - apart + apart * Math.abs(ux))];
 }
 
 // Inside an organization: two or three windows floating on the far wall,
@@ -729,6 +734,9 @@ function draw() {
   const sway = reduced.matches ? 0 : 0.03 * Math.sin(st.t * 1.25);
   const sBack = EYE / (EYE + (2 * st.ring) / TAU);
   const half = st.ring / 2;
+  // Where the ring's edge is as you see it: nearer than that, the next
+  // person round is to the right; further, to the left.
+  const turnAt = (st.ring / TAU) / (EYE + st.ring / TAU);
 
   // Everyone in the ring that can be seen, where they stand and lean.
   const on = [];
@@ -742,8 +750,16 @@ function draw() {
     const fade = st.ring < st.len ? clamp((half - Math.abs(d)) / (half * 0.18), 0, 1) : 1;
     const lean = clamp(sway + st.lean * Math.cos(p.ph), -0.4, 0.4);
     const kind = it.figure || 'person';
-    const put = ([fx, fy]) => [p.x + (fx + lean * fy * (0.55 + 0.45 * fy)) * hp, p.y - fy * hp];
-    on.push({ it, i, d, p, hp, fade, kind, put, sh: armRoots(kind).map(put), hands: [null, null] });
+    // They face into the ring. Round the sides they turn: thinner side-on,
+    // their shoulders coming together, and past that the next person is on
+    // their other hand (11-10).
+    const turn = st.line ? 1 : clamp((Math.cos(p.ph) - turnAt) / TURN_BAND, -1, 1);
+    const open = Math.abs(turn);
+    const thin = mix(SIDE_ON, 1, open);
+    const headWide = mix(0.82, 1, open); // a head hardly narrows side-on
+    const put = ([fx, fy]) => [p.x + (fx * mix(thin, headWide, clamp((fy - 0.78) / 0.06, 0, 1)) + lean * fy * (0.55 + 0.45 * fy)) * hp, p.y - fy * hp];
+    const inset = open / thin;
+    on.push({ it, i, d, p, hp, fade, kind, put, inset, next: turn < 0 ? 0 : 1, sh: armRoots(kind).map(([x, y]) => put([x * inset, y])), hands: [null, null] });
   });
   const byIndex = new Map(on.map((o) => [o.i, o]));
   const n = st.items.length;
@@ -752,10 +768,11 @@ function draw() {
   for (const o of on) {
     const nb = byIndex.get((o.i + 1) % n);
     if (!nb || (st.ring < st.len && nb.d < o.d) || (st.line && o.i === n - 1)) continue;
-    const hand = handBetween(o.sh[1], ARM * o.hp, nb.sh[0], ARM * nb.hp);
-    o.hands[1] = hand;
-    nb.hands[0] = hand;
+    const hand = handBetween(o.sh[o.next], ARM * o.hp, nb.sh[1 - nb.next], ARM * nb.hp);
+    o.hands[o.next] = hand;
+    nb.hands[1 - nb.next] = hand;
   }
+  st.on = on;
 
   on.sort((a, b) => a.p.s - b.p.s);
   ctx.lineCap = 'round';
@@ -763,7 +780,7 @@ function draw() {
   for (const o of on) {
     const { it, p, hp } = o;
     const path = new Path2D();
-    trace(path, shake(bodyLine(o.kind, hp > 70, o.put, o.hands, hp), it.seed, clamp(0.006 * hp, 0.25, 1.4)));
+    trace(path, shake(bodyLine(o.kind, hp > 70, o.put, o.hands, hp, o.inset), it.seed, clamp(0.006 * hp, 0.25, 1.4)));
     const sash = bodySash(o.kind, o.put, hp);
     if (sash) trace(path, shake(sash, it.seed + 3, clamp(0.005 * hp, 0.2, 1)));
     const near = sBack < 1 ? clamp((p.s - sBack) / (1 - sBack), 0, 1) : 1;
