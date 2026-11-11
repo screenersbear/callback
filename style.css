@@ -2584,6 +2584,12 @@ html:has(.ring-wrap) { background: var(--bg); }
   :root:not([data-theme="light"]) { --w-client: #3dbb36; --w-active: #ffd103; --w-warm: #ff8a3d; --w-cold: #6ea6f5; --w-parked: #7f8b92; --w-none: #6c7880; }
 }
 :root[data-theme="dark"] { --w-client: #3dbb36; --w-active: #ffd103; --w-warm: #ff8a3d; --w-cold: #6ea6f5; --w-parked: #7f8b92; --w-none: #6c7880; }
+/* The buildings on Organizations, each in its own (11-10). */
+:root { --b-0: #12850f; --b-1: #2563c4; --b-2: #c8500f; --b-3: #8a3fb0; --b-4: #c2255c; --b-5: #8f6b00; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --b-0: #3dbb36; --b-1: #6ea6f5; --b-2: #ff8a3d; --b-3: #c79bf2; --b-4: #ff7fa8; --b-5: #ffd103; }
+}
+:root[data-theme="dark"], :root.sky-late-text { --b-0: #3dbb36; --b-1: #6ea6f5; --b-2: #ff8a3d; --b-3: #c79bf2; --b-4: #ff7fa8; --b-5: #ffd103; }
 .ring-wrap { position: relative; }
 .ring-key {
   position: absolute;

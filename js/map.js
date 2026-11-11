@@ -18,6 +18,7 @@ const LENS = 1.7; // the lens, in screen widths: the perspective
 const NEAR = 0.05; // nothing nearer the eye than this is drawn
 const GAP = 0.8; // between people in a little ring, in their heights
 const ARM = 0.4; // an arm's length, in its owner's height
+const HOUSE_COLOURS = 6; // the buildings' colours: --b-0 on, in style.css
 const MOST = 40; // the most people drawn round one circle
 const LABEL_W = 150; // the widest a name gets, in pixels
 const FLY = 0.72; // seconds to fly in
@@ -187,6 +188,19 @@ function buildingItem(o) {
   };
 }
 
+// Each building its own colour, picked from its id so it stays the same,
+// and moved along if one of the buildings next to it already has it (11-10).
+function paintBuildings(items) {
+  const done = [];
+  for (const it of items) {
+    const near = done.slice().sort((a, b) => Math.hypot(a.x - it.x, a.z - it.z) - Math.hypot(b.x - it.x, b.z - it.z)).slice(0, 4).map((o) => o.colour);
+    let c = Math.abs(Math.floor(it.seed)) % HOUSE_COLOURS;
+    for (let i = 0; i < HOUSE_COLOURS && near.includes(c); i++) c = (c + 1) % HOUSE_COLOURS;
+    it.colour = c;
+    done.push(it);
+  }
+}
+
 // Lay them out from the middle in a loose spiral, the first in the middle,
 // each in the first free spot it comes to. Each keeps room in front for
 // its name, and behind for what stands up off the ground. Names shrink
@@ -317,6 +331,7 @@ function update(kind, list, key) {
   if (fresh) {
     st.items = list.map((x) => (kind === 'orgs' ? buildingItem(x) : ringItem(x)));
     st.box = layout(st.items, startK());
+    if (kind === 'orgs') paintBuildings(st.items);
     st.key = key;
   }
   const kept = st.cams[kind];
@@ -735,7 +750,8 @@ function draw() {
   const far = (zc) => clamp(1.3 - 0.3 * (zc / cam.D), 0.5, 1);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  const pen = { ctx, ink, paper, dark, colours, L, far };
+  const houses = Array.from({ length: HOUSE_COLOURS }, (_, i) => cs.getPropertyValue(`--b-${i}`).trim() || ink);
+  const pen = { ctx, ink, paper, dark, colours, houses, L, far };
   // Where each is, and whether it's on the screen at all.
   const where = new Map();
   for (const it of st.items) {
@@ -1032,7 +1048,7 @@ const winCols = (len) => clamp(Math.round(len / 0.32), 2, 5);
 const winSpan = (c, cols) => [(c + 0.22) / cols, (c + 0.78) / cols];
 
 function drawBuilding(pen, it, zc) {
-  const { ctx, ink, paper, L: lensOf } = pen;
+  const { ctx, ink, paper, houses, L: lensOf } = pen;
   const { L, R, T } = faces(it);
   const { H } = it;
   const strokes = [];
@@ -1149,7 +1165,7 @@ function drawBuilding(pen, it, zc) {
     ctx.lineWidth = s.w + 2.6;
     ctx.stroke(s.path);
   }
-  ctx.strokeStyle = ink;
+  ctx.strokeStyle = houses[it.colour] || ink;
   const thick = clamp(K / 40, 0.85, 1.8);
   for (const s of paths) {
     ctx.lineWidth = s.w * thick;
@@ -1173,7 +1189,7 @@ function drawWindowFill(pen, it, p) {
   ctx.fillStyle = paper;
   ctx.fill(inside);
   ctx.globalAlpha = 1;
-  ctx.strokeStyle = ink;
+  ctx.strokeStyle = pen.houses[it.colour] || ink;
   ctx.lineWidth = 2 + 10 * p;
   ctx.stroke(inside);
   // Its panes, as the window comes up to the glass.
