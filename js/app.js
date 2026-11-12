@@ -160,6 +160,8 @@ function tpLoop(tp) {
 const isLetGo = (l) => l.status === 'closed' && l.outcome === 'letGo';
 const keptLoopOf = (tp) => loopsOf(tp.personId).find((l) => l.status === 'closed' && l.keptBy === tp.id) || null;
 const OPEN_AGAIN = { status: 'open', closedAt: null, outcome: null, keptBy: null };
+// Typed notes stay one line.
+const oneLine = (v) => String(v || '').replace(/\s*\n+\s*/g, ' ').trim();
 // A touchpoint's words: the promise it kept comes first.
 function tpNote(t) {
   const k = keptLoopOf(t);
@@ -2810,6 +2812,7 @@ function tlPromise(t) {
   const shut = m && m.status === 'closed';
   return `${k ? `<p class="tl-kept">${CHECK}<span><b>Kept the promise:</b> ${esc(k.description)}</span></p>` : ''}
     ${t.note ? `<p class="tl-note">${esc(t.note)}</p>` : ''}
+    ${t.replyNote && t.responded === 'yes' ? `<p class="tl-note"><b>Their reply:</b> ${esc(t.replyNote)}</p>` : ''}
     ${m ? `<label class="tl-promise${shut ? ' is-shut' : ''}"><input type="checkbox" class="loop-box" data-loop-toggle="${esc(m.id)}"${shut ? ' checked' : ''} aria-label="${shut ? 'Open again' : m.direction === 'iOwe' ? 'Promise kept' : 'Got it'}: ${esc(m.description)}"><span><b>${esc(promiseWord(m))}</b> ${esc(m.description)}</span></label>` : ''}`;
 }
 
@@ -3179,7 +3182,7 @@ function logRow(t) {
   const p = S.personById.get(t.personId);
   return `<div class="log-row">
     <a class="log-row-main" href="#/person/${esc(t.personId)}/${esc(t.id)}"><span class="log-row-date">${esc(fmtDate(t.date))}</span>
-      <b>${esc(p ? p.name : 'Someone')}</b> <span class="dot">·</span> ${esc(touchTypeLabel(t.type))}${t.lightTouch ? ' <span class="dot">·</span> Light touch' : ''}${tpNote(t) ? `<span class="log-row-note">${esc(tpNote(t))}</span>` : ''}</a>
+      <b>${esc(p ? p.name : 'Someone')}</b> <span class="dot">·</span> ${esc(touchTypeLabel(t.type))}${t.lightTouch ? ' <span class="dot">·</span> Light touch' : ''}${tpNote(t) ? `<span class="log-row-note">${esc(tpNote(t))}</span>` : ''}${t.replyNote && t.responded === 'yes' ? `<span class="log-row-note">Their reply: ${esc(t.replyNote)}</span>` : ''}</a>
     <span class="log-row-side">${t.type === 'project_wrapped' ? '' : `<button type="button" class="resp resp-${esc(t.responded || 'pending')}" data-action="set-response" data-id="${esc(t.id)}" aria-label="Reply status: ${esc(respondedLabel(t.responded))}. Change">${esc(respondedLabel(t.responded))}</button>`}
       <button type="button" class="text-btn" data-action="edit-tp" data-id="${esc(t.id)}">Edit</button></span>
   </div>`;
@@ -3727,7 +3730,7 @@ const FIELD_NAMES = {
     pastOrganizations: 'Previously', postProjectCheckIn: 'Check-in after a project',
     'postProjectCheckIn.date': 'Check-in after a project', 'postProjectCheckIn.projectName': 'Project',
   },
-  touchpoints: { date: 'Date', type: 'Type', note: 'Note', direction: 'Who reached out', responded: 'Reply', lightTouch: 'Light touch' },
+  touchpoints: { date: 'Date', type: 'Type', note: 'Note', direction: 'Who reached out', responded: 'Reply', replyNote: 'Their reply', lightTouch: 'Light touch' },
   organizations: { name: 'Name', type: 'Type', website: 'Website', notes: 'Notes' },
   circles: { name: 'Name', description: 'Description' },
   news: { description: 'What', date: 'Date', repeatsYearly: 'Every year' },
@@ -5260,12 +5263,14 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose, k
       <fieldset class="field"><legend class="field-label">Did they reply?</legend>
         <div class="seg">${RESPONDED.map((r) => `<label class="seg-option"><input type="radio" name="responded" value="${r.key}"${(v.responded || 'pending') === r.key ? ' checked' : ''}><span>${esc(r.label)}</span></label>`).join('')}</div>
       </fieldset>
-      <label class="field" data-reply-day-field${v.responded === 'yes' ? '' : ' hidden'}><span class="field-label">When did they reply?</span>
+      <label class="field" data-replied-only${v.responded === 'yes' ? '' : ' hidden'}><span class="field-label">When did they reply?</span>
         <input type="date" name="replyDay" value="${esc(replyDefault)}" min="${esc(v.date)}" max="${today}"></label>
-      ${kept ? '' : `<fieldset class="field"><legend class="field-label">How did they seem? (optional)</legend>
+      <label class="field" data-replied-only${v.responded === 'yes' ? '' : ' hidden'}><span class="field-label">How did they respond? (optional)</span>
+        <textarea name="replyNote" class="log-note" rows="1" maxlength="280" enterkeyhint="done" placeholder="Loved it, but busy until spring">${esc(v.replyNote || '')}</textarea></label>
+      <fieldset class="field"><legend class="field-label">How did they seem? (optional)</legend>
         <input type="hidden" name="interest" value="${esc(v.interest || '')}">
         <div class="interest-picks">${INTEREST_LEVELS.map((i) => `<button type="button" class="interest-pick${v.interest === i.key ? ' is-on' : ''}" data-interest="${i.key}" aria-pressed="${v.interest === i.key}">${interestIcon(i.key)}<span>${esc(i.label)}</span></button>`).join('')}</div>
-      </fieldset>`}
+      </fieldset>
       ${kept && !made ? '' : `<div class="field promise-field">
         <label class="field"><span class="field-label">Anything promised? (optional)</span>
           <input name="promise" maxlength="140" autocomplete="off" value="${esc(made ? made.description : '')}" placeholder="Send her a print of the window frame"></label>
@@ -5282,13 +5287,15 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose, k
   });
   const form = s.body.querySelector('form');
   const noteField = form.querySelector('[name="note"]');
-  fitHeight(noteField);
-  noteField.addEventListener('keydown', (e) => {
-    // It wraps to fit, but stays one line of text: Enter just closes the keyboard.
-    if (e.key === 'Enter' && !e.isComposing) {
-      e.preventDefault();
-      noteField.blur();
-    }
+  // Both notes wrap to fit, but stay one line of text: Enter just closes the keyboard.
+  form.querySelectorAll('.log-note').forEach((f) => {
+    fitHeight(f);
+    f.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.isComposing) {
+        e.preventDefault();
+        f.blur();
+      }
+    });
   });
   // Idea, in the list of ways you reached out (11-11): picking it puts the
   // idea in the note (unless you've typed your own), and Another idea swaps it.
@@ -5323,13 +5330,15 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose, k
       x.setAttribute('aria-pressed', String(on));
     });
   });
-  // "When did they reply?" shows only with Replied picked, and can't be
-  // before the touchpoint itself.
+  // "When did they reply?" and "How did they respond?" show only with
+  // Replied picked, and the reply can't be before the touchpoint itself.
   const replyField = form.querySelector('[name="replyDay"]');
   const dateField = form.querySelector('[name="date"]');
   let replyTouched = editing;
   form.querySelectorAll('[name="responded"]').forEach((r) => r.addEventListener('change', () => {
-    form.querySelector('[data-reply-day-field]').hidden = form.querySelector('[name="responded"]:checked').value !== 'yes';
+    const yes = form.querySelector('[name="responded"]:checked').value === 'yes';
+    form.querySelectorAll('[data-replied-only]').forEach((el) => { el.hidden = !yes; });
+    if (yes) fitHeight(form.querySelector('[name="replyNote"]'));
   }));
   replyField.addEventListener('change', () => { replyTouched = true; });
   dateField.addEventListener('change', () => {
@@ -5366,10 +5375,11 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose, k
       personId: p.id,
       type,
       date,
-      note: String(fd.get('note') || '').replace(/\s*\n+\s*/g, ' ').trim(),
+      note: oneLine(fd.get('note')),
       responded,
       respondedAt,
-      interest: form.querySelector('[name="interest"]') ? String(fd.get('interest') || '') || null : (touchpoint && touchpoint.interest) || null,
+      replyNote: responded === 'yes' ? oneLine(fd.get('replyNote')) || null : null,
+      interest: String(fd.get('interest') || '') || null,
       lightTouch: touchpoint ? !!touchpoint.lightTouch : !!p.lightTouch,
     });
     const all = sortTouchpoints([...before.filter((t) => t.id !== tp.id), tp]);
@@ -6013,27 +6023,41 @@ function wireReplyWhen(root, t, today, onDay) {
   });
 }
 
-// A reply came in: when, and how did they seem? How they seemed goes on the
-// touchpoint and becomes the person's current interest, since a reply is the
-// freshest sign. Closing the popup skips the interest but keeps the day.
+// A reply came in: when, how they responded, and how did they seem? How
+// they seemed goes on the touchpoint and becomes the person's current
+// interest, since a reply is the freshest sign. Closing the popup skips the
+// interest but keeps the day and anything typed.
 async function askReply(t) {
   const p = S.personById.get(t.personId);
   const today = todayStr();
   let day = today;
+  let box = null;
   const interest = await choiceSheet({
-    title: 'How did they seem?',
-    message: `In ${p ? esc(firstName(p)) : 'their'}${p ? "'s" : ''} reply.`,
-    extra: replyWhenHTML(t, today),
-    onOpen: (s) => wireReplyWhen(s.body, t, today, (d) => { day = d; }),
+    title: p ? `${firstName(p)}'s reply` : 'Their reply',
+    extra: `${replyWhenHTML(t, today)}
+      <label class="field reply-note-field"><span class="field-label">How did they respond? (optional)</span>
+        <textarea class="log-note" rows="1" maxlength="280" enterkeyhint="done" placeholder="Loved it, but busy until spring" data-reply-note>${esc(t.replyNote || '')}</textarea></label>
+      <p class="field-label reply-seem">How did they seem?</p>`,
+    onOpen: (s) => {
+      wireReplyWhen(s.body, t, today, (d) => { day = d; });
+      box = s.body.querySelector('[data-reply-note]');
+      fitHeight(box);
+      box.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.isComposing) {
+          e.preventDefault();
+          box.blur();
+        }
+      });
+    },
     options: INTEREST_LEVELS.map((i) => ({ key: i.key, label: i.label, icon: interestIcon(i.key), current: t.interest === i.key })),
   });
-  return { interest, day };
+  return { interest, day, note: box ? oneLine(box.value) : '' };
 }
 
 async function markResponse(t, key) {
-  const { interest, day } = key === 'yes' ? await askReply(t) : { interest: null, day: null };
+  const { interest, day, note } = key === 'yes' ? await askReply(t) : { interest: null, day: null, note: '' };
   const respondedAt = key === 'yes' ? replyISO(day) : null;
-  const saved = await db.saveTouchpoint({ ...t, responded: key, respondedAt, ...(interest ? { interest } : {}) });
+  const saved = await db.saveTouchpoint({ ...t, responded: key, respondedAt, replyNote: note || null, ...(interest ? { interest } : {}) });
   const p0 = S.personById.get(t.personId);
   if (p0) {
     const before = tpsOf(p0.id);

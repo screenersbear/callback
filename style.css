@@ -2839,3 +2839,7 @@ html.is-turned .ring-canvas { touch-action: pan-x; }
   .tour-ring, .tour-card { transition: none; }
   .welcome, .buddy-menu, .dash.is-arriving > .stats-row { animation: none; }
 }
+
+/* The Replied popup: how they responded, then how they seemed (11-11). */
+.reply-note-field { margin: 0 0 14px; }
+.reply-seem { margin: 0 0 8px; }
