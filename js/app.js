@@ -61,7 +61,7 @@ const S = {
     folds: new Map(),
     scroll: new Map(),
     backTo: null,
-    people: { q: '', sort: 'contact', reverse: false, sortOpen: false, warmth: new Set(), rel: new Set(), interest: new Set(), circles: new Set(), loops: false, pending: false, dream: false, light: false, role: '', org: '', showParked: false, filtersOpen: false, view: readPeopleView() },
+    people: { q: '', sort: 'contact', reverse: false, sortOpen: false, warmth: new Set(), rel: new Set(), interest: new Set(), circles: new Set(), loops: false, pending: false, dream: false, light: false, role: '', org: '', filtersOpen: false, view: readPeopleView() },
     circle: { sort: 'contact', reverse: false, sortOpen: false, light: false },
     circlesReorder: false,
     orgsQ: '',
@@ -693,11 +693,12 @@ function thoughtSheet(key) {
     onClose: () => { if (S.ui.thought && S.ui.thought.s === s) S.ui.thought = null; },
   });
   S.ui.thought = { key, s };
+  // Their name opens their page; the rest of the card doesn't (11-11).
   s.body.addEventListener('click', (e) => {
-    const host = e.target.closest('[data-pick]');
-    if (!host || e.target.closest('button, a, input, textarea, select, label, [data-action]')) return;
-    if (String(window.getSelection() || '').trim()) return;
-    leaveTo(`#/person/${host.dataset.pick}${host.dataset.focus ? `/${host.dataset.focus}` : ''}`);
+    const link = e.target.closest('a[href^="#/person/"]');
+    if (!link) return;
+    e.preventDefault();
+    leaveTo(link.getAttribute('href'));
   });
 }
 
@@ -725,8 +726,9 @@ function thoughtPanelHTML(sec) {
   </aside>`;
 }
 
-// Tapping the buddy's face (11-10): Settings, Buddy and Help, over its head.
-// Tapping the face again, or anywhere else, puts them away.
+// Tapping the buddy's face (11-10): LOG TOUCHPOINT across the top (11-11),
+// Settings, Buddy and Help under it, over its head. Tapping the face again,
+// or anywhere else, puts them away.
 function faceMenu() {
   if (closeFaceMenu() || S.ui.welcome) return;
   const head = document.querySelector('.mind-head');
@@ -736,8 +738,9 @@ function faceMenu() {
   m.dataset.acts = '';
   m.setAttribute('role', 'menu');
   m.setAttribute('aria-label', 'Buddy');
-  m.innerHTML = [['face-settings', 'Settings'], ['face-buddy', 'Buddy'], ['face-help', 'Help']]
-    .map(([a, label]) => `<button type="button" class="hand-btn" role="menuitem" data-action="${a}"><span class="hand-btn-text">${label}</span>${statScrib(label)}</button>`).join('');
+  m.innerHTML = `<button type="button" class="hand-btn buddy-log" role="menuitem" data-action="face-log" aria-label="Log touchpoint"><span class="hand-btn-text">LOG TOUCHPOINT</span>${statScrib('Log touchpoint')}</button>
+    <div class="buddy-menu-row">${[['face-settings', 'Settings'], ['face-buddy', 'Buddy'], ['face-help', 'Help']]
+      .map(([a, label]) => `<button type="button" class="hand-btn" role="menuitem" data-action="${a}"><span class="hand-btn-text">${label}</span>${statScrib(label)}</button>`).join('')}</div>`;
   document.body.appendChild(m);
   placeFaceMenu();
   if (head.matches(':focus-visible')) m.querySelector('button').focus({ preventScroll: true });
@@ -1067,14 +1070,13 @@ function personCard(p, kind, news = null) {
   }
 
   const logBtn = `<button type="button" class="btn primary" data-action="log" data-id="${id}"${news ? ` data-news="${esc(news.id)}"` : ''}>Log touchpoint</button>`;
-  const openBtn = `<button type="button" class="btn secondary" data-action="open-person" data-id="${id}">Open</button>`;
+  // Logged right here; their name opens their page (11-11), so no Open.
   // Just met waits for the first touchpoint, not a date, so no snooze.
   const actions =
-    kind === 'resurfaced' ? openBtn
-      : kind === 'justMet' ? logBtn + openBtn
-      : `<button type="button" class="btn primary" data-action="log" data-id="${id}"${news ? ` data-news="${esc(news.id)}"` : ''}>Log touchpoint</button>
-         <button type="button" class="btn secondary" data-action="snooze" data-id="${id}">Snooze</button>
-         <button type="button" class="btn secondary" data-action="open-person" data-id="${id}">Open</button>`;
+    kind === 'resurfaced' ? ''
+      : kind === 'justMet' ? logBtn
+      : `${logBtn}
+         <button type="button" class="btn secondary" data-action="snooze" data-id="${id}">Snooze</button>`;
   const newsLine = news
     ? `<p class="news-line"><span class="news-when">Their news</span>${esc(news.description)}${news.date === today ? '' : ` <span class="dot">·</span> ${esc(relDay(news.date, today))}`}</p>`
     : '';
@@ -1089,7 +1091,7 @@ function personCard(p, kind, news = null) {
     ${newsLine}
     ${last && tpNote(last) ? `<p class="item-last"><span class="item-last-label">Last:</span> ${esc(tpNote(last))}</p>` : ''}
     ${prompt || idea}
-    <div class="item-actions">${actions}</div>
+    ${actions ? `<div class="item-actions">${actions}</div>` : ''}
   </article>`;
 }
 
@@ -1292,7 +1294,7 @@ function filteredPeople() {
   const f = S.ui.people;
   const today = todayStr();
   const q = f.q.trim().toLowerCase();
-  let list = S.people.filter((p) => f.showParked || p.warmth !== 'parked');
+  let list = S.people.slice();
   if (f.warmth.size) list = list.filter((p) => f.warmth.has(p.warmth));
   if (f.rel.size) list = list.filter((p) => relTypesOf(p).some((k) => f.rel.has(k)));
   if (f.interest.size) list = list.filter((p) => f.interest.has(p.interest));
@@ -1353,8 +1355,7 @@ function peopleListHTML() {
     </div>`;
   }
   const list = filteredPeople();
-  const parkedHidden = S.ui.people.showParked ? 0 : S.people.filter((p) => p.warmth === 'parked').length;
-  const count = `<p class="list-count">${plural(list.length, 'person', 'people')}${parkedHidden ? ` <span class="dot">·</span> ${parkedHidden} parked hidden` : ''}</p>`;
+  const count = `<p class="list-count">${plural(list.length, 'person', 'people')}</p>`;
   if (!list.length) {
     return `${count}<div class="empty"><p>Nobody matches that.</p>
       <button type="button" class="btn secondary" data-action="clear-filters">Clear search and filters</button></div>`;
@@ -1383,7 +1384,7 @@ function filtersHTML() {
     </div>
     <p class="filter-label">Warmth</p>
     <div class="filters">
-      ${WARMTH.filter((w) => w !== 'parked' || f.showParked)
+      ${WARMTH
         .map((w) => `<button type="button" class="chip${f.warmth.has(w) ? ' active' : ''}" data-action="filter-warmth" data-w="${w}" aria-pressed="${f.warmth.has(w)}">${warmthIcon(w)}${esc(WARMTH_INFO[w].label)}</button>`)
         .join('')}
     </div>
@@ -1419,6 +1420,18 @@ let ringPeople = [];
 
 // How big someone stands in the ring: the closer you are, the bigger.
 const RING_SIZE = { client: 1, active: 0.9, warm: 0.8, cold: 0.7, parked: 0.6 };
+
+// Beside the warmth choices (11-11): one of the People figures, swaying as
+// they do there, at the size and colour of the warmth picked.
+function warmthFigHTML(kind, w) {
+  return `<span class="warmth-fig is-${esc(w)}" style="--fig-s: ${RING_SIZE[w] || 0.8}" aria-hidden="true"><span class="warmth-fig-body">${figureSVG(kind, 'warmth-fig-pic')}</span></span>`;
+}
+function setWarmthFig(fig, w, kind = null) {
+  if (!fig) return;
+  fig.className = `warmth-fig is-${w}`;
+  fig.style.setProperty('--fig-s', RING_SIZE[w] || 0.8);
+  if (kind) fig.querySelector('.warmth-fig-body').innerHTML = figureSVG(kind, 'warmth-fig-pic');
+}
 function ringSize(p) {
   let s = RING_SIZE[p.warmth] ?? 0.75;
   if (p.lightTouch) s = Math.min(s, 0.72);
@@ -1447,11 +1460,7 @@ function ringHTML(list) {
     return `<div class="empty"><p>Nobody matches that.</p>
       <button type="button" class="btn secondary" data-action="clear-filters">Clear search and filters</button></div>`;
   }
-  // A key to the colours, for the warmths in the ring.
-  const KEY = ['client', 'active', 'warm', 'cold', 'parked'];
-  const here = KEY.filter((w) => list.some((p) => p.warmth === w));
-  return `<div class="ring-key" aria-hidden="true">${here.map((w) => `<span class="ring-key-item"><i class="ring-key-dot is-${w}"></i>${esc(WARMTH_INFO[w].label)}</span>`).join('')}</div>
-    <div class="ring-slot" data-ring-slot></div>
+  return `<div class="ring-slot" data-ring-slot></div>
     <ul class="visually-hidden">${list.map((p) => `<li><a href="#/person/${esc(p.id)}">${esc(p.name)}</a></li>`).join('')}</ul>`;
 }
 
@@ -1577,7 +1586,7 @@ function insideHTML({ title, back, backLabel, details, people, empty, inside }) 
   ringPeople = people;
   ringOpts = inside ? RING_INSIDE : RING_OPTS;
   return `
-    <header class="topbar"><h1>${esc(title)}</h1></header>
+    <header class="topbar"><h1 class="name-title">${esc(title)}</h1></header>
     <div class="people-hand"><div class="hand-row">
       <button type="button" class="hand-btn" data-action="map-out" data-to="${back}"><span class="hand-btn-text">${HAND_BACK}${esc(backLabel)}</span>${statScrib(backLabel)}</button>
       <a class="hand-btn hand-end" href="${details}"><span class="hand-btn-text">Details</span>${statScrib('Details')}</a>
@@ -1632,7 +1641,6 @@ function renderPeopleHand(f, n) {
       <div class="toolbar hand-tools">
         <button type="button" class="hand-tool" data-action="toggle-sort" aria-expanded="${f.sortOpen}">${esc(sortLabel(f))}</button>
         <button type="button" class="hand-tool${n ? ' is-on' : ''}" data-action="toggle-filters" aria-expanded="${f.filtersOpen}">Filter: ${n ? n : 'All'}</button>
-        <label class="check hand-check"><input type="checkbox" data-filter="parked"${f.showParked ? ' checked' : ''}> Show parked</label>
       </div>
       ${sortPanelHTML(f)}
       <div class="filters-panel" id="filtersPanel"${f.filtersOpen ? '' : ' hidden'}>${filtersHTML()}</div>
@@ -1658,7 +1666,6 @@ function renderPeople() {
     <div class="toolbar">
       <button type="button" class="filter-toggle" data-action="toggle-sort" aria-expanded="${f.sortOpen}">${esc(sortLabel(f))}</button>
       <button type="button" class="filter-toggle${n ? ' is-on' : ''}" data-action="toggle-filters" aria-expanded="${f.filtersOpen}">Filter: ${n ? n : 'All'}</button>
-      <label class="check"><input type="checkbox" data-filter="parked"${f.showParked ? ' checked' : ''}> Show parked</label>
     </div>
     ${sortPanelHTML(f)}
     <div class="filters-panel" id="filtersPanel"${f.filtersOpen ? '' : ' hidden'}>${filtersHTML()}</div>` : ''}
@@ -1750,6 +1757,9 @@ function renderPerson(id, { panel = false } = {}) {
           ${warmthBadge(p.warmth)}</button>`;
   const overdue = p.warmth !== 'parked' && !light && (stage === 'justMet' ? deadline < today : next < today);
   const sub = subLine(p, { link: true });
+  // Log touchpoint sits in the next-touchpoint box, Where you met under it,
+  // and the idea is offered when logging (11-11).
+  const logCta = `<button type="button" class="hero-cta log-cta" data-action="log" data-id="${pid}">Log touchpoint</button>`;
   const left = `
     <header class="person-head has-fig">
       <div class="person-side">
@@ -1763,20 +1773,19 @@ function renderPerson(id, { panel = false } = {}) {
           <span class="dream-badge wrap-badge">${WRAP_ICON}<span>Wrap project</span></span></button></span>` : ''}
         <button type="button" class="warmth-btn" data-action="change-rel" data-id="${pid}" aria-label="Change relationship, now ${esc(relWords(p))}">
           <span class="rel-set">${relLabels(p)}</span></button>
-        <button type="button" class="warmth-btn light-toggle${p.lightTouch ? ' is-on' : ''}" data-action="toggle-light" data-id="${pid}" aria-pressed="${p.lightTouch ? 'true' : 'false'}" aria-label="Light touch">
-          ${lightBadge()}</button>
       </div>
       <div class="person-circles">${circleChips(p, { link: true })}
         <button type="button" class="circle-change" data-action="change-circles" data-id="${pid}">${circlesOf(p).length ? 'Change circles' : '+ Add to a circle'}</button></div>
-      ${metLine(p)}
     </header>
     ${dreamOnly(p) ? `<section class="next-panel">
       <p class="next-label">On your dream list</p>
       <p class="next-date">No rhythm yet</p>
+      ${logCta}
     </section>` : stage === 'justMet' ? `<section class="next-panel${overdue ? ' is-overdue' : ''}">
       <p class="next-label">Just met. Follow up by</p>
       <p class="next-date">${esc(fmtDate(deadline))}</p>
       <p class="next-rel">${overdue ? 'Follow-up is late' : esc(cap(relDay(deadline, today)))}</p>
+      ${logCta}
     </section>` : `<section class="next-panel${overdue ? ' is-overdue' : ''}">
       <p class="next-label">${esc(nextLabelText(p.warmth === 'parked' ? 'Comes back' : light ? 'Next light touch' : stage ? 'First touchpoint' : 'Next touchpoint', shownNext, today))}</p>
       <p class="next-date">${esc(fmtDate(shownNext))}</p>
@@ -1784,10 +1793,10 @@ function renderPerson(id, { panel = false } = {}) {
         <button type="button" class="btn on-ink" data-action="snooze" data-id="${pid}">Snooze</button>
         <button type="button" class="btn on-ink" data-action="change-date" data-id="${pid}">Change date</button>
       </div>
+      ${logCta}
     </section>`}
+    ${metLine(p)}
     ${prompt}
-    <button type="button" class="hero-cta log-cta" data-action="log" data-id="${pid}">Log touchpoint</button>
-    ${p.warmth === 'parked' ? '' : ideaHTML(p)}
     ${personSections(p, tps, k)}`;
 
   // After Log touchpoint: news, loops and touchpoints, then who they are.
@@ -1993,7 +2002,7 @@ function connectionsHTML(p) {
 // A sheet for picking people. Resolves with an id (single), a list of ids
 // (multiple), undefined for "No one", or null when closed. With `allowName`,
 // the search box also takes a name that isn't in Callback: { name }.
-function peoplePicker({ title, multiple = false, selected = [], exclude = [], allowName = false, typedName = '' }) {
+function peoplePicker({ title, multiple = false, selected = [], exclude = [], allowName = false, typedName = '', none = true }) {
   return new Promise((resolve) => {
     let result = null;
     const chosen = new Set(selected);
@@ -2007,7 +2016,7 @@ function peoplePicker({ title, multiple = false, selected = [], exclude = [], al
         ${list.length || allowName ? '' : '<p class="hint">Add more people first, then link them here.</p>'}
         <div class="pick-list">
           ${allowName ? '<button type="button" class="pick-row pick-one pick-typed" data-typed hidden></button>' : ''}
-          ${multiple ? '' : `<button type="button" class="pick-row pick-one" data-none><span class="pick-box" aria-hidden="true"></span><span class="pick-main"><span class="pick-name">No one</span></span></button>`}
+          ${multiple || !none ? '' : `<button type="button" class="pick-row pick-one" data-none><span class="pick-box" aria-hidden="true"></span><span class="pick-main"><span class="pick-name">No one</span></span></button>`}
           ${list.map((x) => multiple
             ? `<label class="pick-row" data-find="${esc(x.name.toLowerCase())}"><input type="checkbox" data-pid="${esc(x.id)}"${chosen.has(x.id) ? ' checked' : ''}><span class="pick-main"><span class="pick-name">${esc(x.name)}${x.dreamList ? ` ${DREAM_STAR}` : ''}</span>${sub(x) ? `<span class="pick-sub">${sub(x)}</span>` : ''}</span></label>`
             : `<button type="button" class="pick-row pick-one${chosen.has(x.id) ? ' is-current' : ''}" data-pid="${esc(x.id)}" data-find="${esc(x.name.toLowerCase())}"><span class="pick-main"><span class="pick-name">${esc(x.name)}</span>${sub(x) ? `<span class="pick-sub">${sub(x)}</span>` : ''}</span></button>`).join('')}
@@ -2272,14 +2281,17 @@ async function syncBirthdayNews(p) {
 const rhythmDefaultText = (p) => rhythmWords({ ...p, cadenceOverrideDays: null }, S.settings)
   .replace(/ \([^()]*default\)$/, ' (default)')
   .replace(/^The cold sequence/, 'Cold sequence');
+// Light touch is one of the rhythms (11-11): picking it turns light touch
+// on (and drops any custom days); picking any other turns it off.
 function rhythmPickerHTML(p, label = 'Rhythm') {
   const n = p && Number(p.cadenceOverrideDays) > 0 ? Math.round(Number(p.cadenceOverrideDays)) : 0;
-  const pick = !n ? 'default' : RHYTHM_PRESETS.some((r) => r.days === n) ? String(n) : 'custom';
+  const pick = p && p.lightTouch && !n ? 'light' : !n ? 'default' : RHYTHM_PRESETS.some((r) => r.days === n) ? String(n) : 'custom';
   return `<label class="field"><span class="field-label">${esc(label)}</span>
       <select name="rhythm" data-rhythm>
         ${RHYTHM_PRESETS.map((r) => `<option value="${r.days}"${pick === String(r.days) ? ' selected' : ''}>${esc(r.label)} (${r.days} days)</option>`).join('')}
+        <option value="light"${pick === 'light' ? ' selected' : ''}>Light touch (${S.settings.cadence.lightTouch} days)</option>
         <option value="custom"${pick === 'custom' ? ' selected' : ''}>Custom</option>
-        <option value="default"${pick === 'default' ? ' selected' : ''}>${esc(rhythmDefaultText(p || {}))}</option>
+        <option value="default"${pick === 'default' ? ' selected' : ''}>${esc(rhythmDefaultText({ ...(p || {}), lightTouch: false }))}</option>
       </select></label>
     <label class="field rhythm-days"${pick === 'custom' ? '' : ' hidden'}><span class="field-label">Days</span>
       <input name="override" type="number" min="1" max="3650" inputmode="numeric" value="${pick === 'custom' ? n : ''}" placeholder="45"></label>
@@ -2301,7 +2313,7 @@ function wireRhythm(form) {
 // error showing) when Custom has no sensible number.
 function readRhythm(form) {
   const sel = form.querySelector('[data-rhythm]');
-  if (!sel || sel.value === 'default') return null;
+  if (!sel || sel.value === 'default' || sel.value === 'light') return null;
   if (sel.value !== 'custom') return Number(sel.value);
   const input = form.querySelector('[name="override"]');
   const n = parseInt(input.value, 10);
@@ -2311,6 +2323,12 @@ function readRhythm(form) {
   form.querySelector('[data-error="rhythm"]').hidden = false;
   input.focus();
   return undefined;
+}
+
+// Whether Light touch is the rhythm picked; null with no picker in the form.
+function readLight(form) {
+  const sel = form.querySelector('[data-rhythm]');
+  return sel ? sel.value === 'light' : null;
 }
 
 function rhythmSheet(p) {
@@ -2330,8 +2348,13 @@ function rhythmSheet(p) {
     e.preventDefault();
     const n = readRhythm(form);
     if (n === undefined) return;
-    const rec = { ...p, cadenceOverrideDays: n };
-    if ((n || null) !== (p.cadenceOverrideDays || null)) rec.nextTouchpointDate = computeNextDate(rec, tpsOf(p.id), S.settings, todayStr());
+    const light = !!readLight(form);
+    const tps = tpsOf(p.id);
+    let rec = { ...p, cadenceOverrideDays: n, lightTouch: light };
+    if (!light && p.lightTouch) rec = { ...rec, ...lightOffFields(rec, tps, S.settings, todayStr()), cadenceOverrideDays: n };
+    else if ((n || null) !== (p.cadenceOverrideDays || null) || light !== !!p.lightTouch) {
+      if (tps.length || p.nextTouchpointDate) rec.nextTouchpointDate = computeNextDate(rec, tps, S.settings, todayStr());
+    }
     await db.savePerson(rec);
     s.close();
     await refresh();
@@ -3508,7 +3531,6 @@ function installHTML() {
 function renderSettings(inSheet = false) {
   const c = S.settings.cadence;
   const g = S.settings.goals;
-  const appearance = getAppearance();
   const events = calendarEvents();
   return `
     ${inSheet ? '' : '<header class="topbar"><h1>Settings</h1></header>'}
@@ -3540,11 +3562,6 @@ function renderSettings(inSheet = false) {
     ${sectionBlock('set-ideas', 'Touchpoint ideas', null, ideasSettingsHTML(), 'yellow')}
 
     ${sectionBlock('set-look', 'Appearance', null, `
-      <div class="seg" role="radiogroup" aria-label="Appearance">
-        ${[['system', 'Match device'], ['light', 'Light'], ['dark', 'Dark']]
-          .map(([k, label]) => `<label class="seg-option"><input type="radio" name="appearance" value="${k}"${appearance === k ? ' checked' : ''}><span>${label}</span></label>`)
-          .join('')}
-      </div>
       ${greenRowHTML("The app's color.")}`, 'navy')}
 
     ${sectionBlock('set-data', 'Your data', null, `
@@ -3884,26 +3901,6 @@ function calendarEvents() {
     { people: S.people, orgsById: S.orgById, touchpointsByPerson: S.tpsByPerson, news: S.news },
     { appUrl: location.origin + location.pathname }
   );
-}
-
-function getAppearance() {
-  try {
-    const v = localStorage.getItem('callback-appearance');
-    return v === 'light' || v === 'dark' ? v : 'system';
-  } catch {
-    return 'system';
-  }
-}
-
-function applyAppearance(v) {
-  try {
-    if (v === 'system') localStorage.removeItem('callback-appearance');
-    else localStorage.setItem('callback-appearance', v);
-  } catch {
-    /* private mode: applies for this visit only */
-  }
-  if (v === 'system') document.documentElement.removeAttribute('data-theme');
-  else document.documentElement.setAttribute('data-theme', v);
 }
 
 async function saveSetting(path, raw) {
@@ -4318,25 +4315,16 @@ if (document.fonts) document.fonts.addEventListener('loadingdone', () => {
   placeSearchClear();
 });
 
-// A click anywhere on someone's card on Today (but its buttons) opens
-// them: on the board, on the right; otherwise their page. Selecting text
-// doesn't count.
+// Someone's name on a Today card opens them: on the board, on the right;
+// otherwise their page. The rest of the card doesn't (11-11).
 view.addEventListener('click', (e) => {
   if (parseRoute().name !== 'today') return;
   const host = e.target.closest('[data-pick]');
-  if (!host) return;
   const link = e.target.closest('a[href^="#/person/"]');
-  if (!link && e.target.closest('button, a, input, textarea, select, label, [data-action]')) return;
-  if (!link && String(window.getSelection() || '').trim()) return;
-  if (!boardOn()) {
-    if (!link) location.hash = `#/person/${host.dataset.pick}${host.dataset.focus ? `/${host.dataset.focus}` : ''}`;
-    return;
-  }
+  if (!host || !link || !boardOn()) return;
   e.preventDefault();
-  if (link) {
-    const [, , id, focus] = link.getAttribute('href').split('/');
-    pickPerson(decodeURIComponent(id), focus ? decodeURIComponent(focus) : null);
-  } else pickPerson(host.dataset.pick, host.dataset.focus || null);
+  const [, , id, focus] = link.getAttribute('href').split('/');
+  pickPerson(decodeURIComponent(id), focus ? decodeURIComponent(focus) : null);
 });
 
 // A row on People whose reply has waited two days: opening it asks.
@@ -4889,13 +4877,10 @@ function personForm(p, preset = {}) {
       </section>
       <section class="wiz-page" data-key="warm" data-title="How warm">
       <fieldset class="field"><legend class="field-label">Warmth</legend>
-        <div class="warmth-options">${WARMTH.map((w) => `<label class="warmth-option">
+        <div class="warmth-pick"><div class="warmth-options">${WARMTH.map((w) => `<label class="warmth-option">
           <input type="radio" name="warmth" value="${w}"${v.warmth === w ? ' checked' : ''}>
           <span class="warmth-option-body">${warmthBadge(w)}</span>
-        </label>`).join('')}</div></fieldset>
-      <div class="field">
-        <label class="check"><input type="checkbox" name="lightTouch"${v.lightTouch ? ' checked' : ''}> ${LIGHT_ICON} Light touch</label>
-      </div>
+        </label>`).join('')}</div>${warmthFigHTML(figureOf(v), v.warmth || 'cold')}</div></fieldset>
       </section>
       <section class="wiz-page" data-key="touch" data-title="Touchpoints">
       ${isNew ? `<fieldset class="field"><legend class="field-label">When should you first reach out?</legend>
@@ -4953,13 +4938,10 @@ function personForm(p, preset = {}) {
         </label>`).join('')}</div>
         <p class="field-error" data-error="rel" hidden>Tick at least one.</p></fieldset>
       <fieldset class="field"><legend class="field-label">Warmth</legend>
-        <div class="warmth-options">${WARMTH.map((w) => `<label class="warmth-option">
+        <div class="warmth-pick"><div class="warmth-options">${WARMTH.map((w) => `<label class="warmth-option">
           <input type="radio" name="warmth" value="${w}"${v.warmth === w ? ' checked' : ''}>
           <span class="warmth-option-body">${warmthBadge(w)}</span>
-        </label>`).join('')}</div></fieldset>
-      <div class="field">
-        <label class="check"><input type="checkbox" name="lightTouch"${v.lightTouch ? ' checked' : ''}> ${LIGHT_ICON} Light touch</label>
-      </div>
+        </label>`).join('')}</div>${warmthFigHTML(figureOf(v), v.warmth || 'cold')}</div></fieldset>
       ${isNew ? `<fieldset class="field"><legend class="field-label">When should you first reach out?</legend>
         <div class="warmth-options first-options">${FIRST_CONTACT_OPTIONS.map((o) => `<label class="warmth-option">
           <input type="radio" name="firstContact" value="${o.key}"${firstDefault === o.key ? ' checked' : ''}>
@@ -5044,13 +5026,19 @@ function personForm(p, preset = {}) {
       }
     });
   }
-  // The default touchpoints option follows the warmth and light touch picked.
+  // The figure beside the warmths follows the warmth and drawing picked.
+  form.addEventListener('change', (e) => {
+    if (e.target.name !== 'warmth' && e.target.name !== 'figure') return;
+    const w = form.querySelector('[name="warmth"]:checked');
+    const f = form.querySelector('[name="figure"]:checked');
+    setWarmthFig(form.querySelector('.warmth-fig'), w ? w.value : v.warmth || 'cold', e.target.name === 'figure' ? figureOf({ figure: f && f.value }) : null);
+  });
+  // The default touchpoints option follows the warmth picked.
   const rhythmDefault = form.querySelector('[data-rhythm] option[value="default"]');
   form.addEventListener('change', (e) => {
-    if (!rhythmDefault || !['warmth', 'lightTouch', 'relationshipTypes'].includes(e.target.name)) return;
+    if (!rhythmDefault || !['warmth', 'relationshipTypes'].includes(e.target.name)) return;
     const w = form.querySelector('[name="warmth"]:checked');
-    const light = form.querySelector('[name="lightTouch"]');
-    rhythmDefault.textContent = rhythmDefaultText({ ...v, warmth: w ? w.value : v.warmth, lightTouch: light ? light.checked : !!v.lightTouch });
+    rhythmDefault.textContent = rhythmDefaultText({ ...v, warmth: w ? w.value : v.warmth, lightTouch: false });
   });
   form.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-pick]');
@@ -5122,7 +5110,7 @@ function personForm(p, preset = {}) {
       introducedByName,
       canIntroduceToIds,
       circleIds: circleIds.filter((id) => S.circleById.has(id)),
-      lightTouch: !!fd.get('lightTouch'),
+      lightTouch: readLight(form) ?? !!v.lightTouch,
       figure: figureOf({ figure: get('figure') }),
     };
     const warmth = get('warmth') || 'cold';
@@ -5245,7 +5233,6 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose, k
     note: keep ? '' : preset || (idea.own ? idea.own : ''),
     responded: 'pending',
   };
-  const offer = idea && idea.text && idea.text !== v.note ? idea.text : '';
   // When they replied: the day already saved, or today when an old
   // touchpoint is marked Replied now. A new log that's Replied straight away
   // is a back-and-forth, so it follows the When date until you change it.
@@ -5262,13 +5249,13 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose, k
     ${kept ? `<p class="keep-quote">${editing ? '<b>Kept the promise:</b> ' : ''}${esc(kept.description)}</p>` : ''}
     <form class="form" novalidate>
       <fieldset class="field"><legend class="field-label">${kept ? `How did it get to ${esc(firstName(p))}?` : 'How did you reach out?'}</legend>
-        <div class="chip-choices">${TOUCH_TYPES.filter((t) => t.key !== 'project_wrapped' || v.type === 'project_wrapped').map((t) => `<label class="chip-choice"><input type="radio" name="type" value="${t.key}"${v.type === t.key ? ' checked' : ''}><span>${esc(t.label)}</span></label>`).join('')}</div>
+        <div class="chip-choices">${TOUCH_TYPES.filter((t) => (t.key !== 'project_wrapped' || v.type === 'project_wrapped') && (t.key !== 'idea' || (idea && idea.text) || v.type === 'idea')).map((t) => `<label class="chip-choice"><input type="radio" name="type" value="${t.key}"${v.type === t.key ? ' checked' : ''}><span>${esc(t.label)}</span></label>`).join('')}</div>
       </fieldset>
       <label class="field"><span class="field-label">When</span><input type="date" name="date" value="${esc(v.date)}" required></label>
       <div class="field">
         <label class="field"><span class="field-label">${kept ? 'Anything to add? (optional)' : 'What you sent or said'}</span>
           <textarea name="note" class="log-note" rows="1" maxlength="280" enterkeyhint="done" placeholder="${kept ? 'Framed it too' : 'Sent three frames from the beach test'}">${esc(v.note || '')}</textarea></label>
-        ${offer ? `<p class="field-hint log-idea"><span>${idea.own ? 'Your idea' : 'Idea'}: ${esc(offer)}</span> <button type="button" class="text-btn inline" data-use-idea>Use it</button></p>` : ''}
+        ${idea && idea.text && !idea.own ? `<p class="field-hint log-idea" data-idea-tools${v.type === 'idea' ? '' : ' hidden'}><button type="button" class="text-btn inline" data-next-idea>Another idea</button></p>` : ''}
       </div>
       <fieldset class="field"><legend class="field-label">Did they reply?</legend>
         <div class="seg">${RESPONDED.map((r) => `<label class="seg-option"><input type="radio" name="responded" value="${r.key}"${(v.responded || 'pending') === r.key ? ' checked' : ''}><span>${esc(r.label)}</span></label>`).join('')}</div>
@@ -5303,13 +5290,27 @@ function logSheet(p, { touchpoint = null, newsItem = null, note = '', onClose, k
       noteField.blur();
     }
   });
+  // Idea, in the list of ways you reached out (11-11): picking it puts the
+  // idea in the note (unless you've typed your own), and Another idea swaps it.
+  const ideaTools = form.querySelector('[data-idea-tools]');
+  let filled = '';
+  const putIdea = () => {
+    const cur = noteField.value.trim();
+    if (cur && cur !== filled) return;
+    noteField.value = shownIdea(p).text.slice(0, 280);
+    filled = noteField.value;
+    fitHeight(noteField);
+  };
+  if (idea && idea.text && v.type === 'idea' && !editing) putIdea();
+  form.querySelectorAll('[name="type"]').forEach((r) => r.addEventListener('change', () => {
+    const on = r.checked && r.value === 'idea';
+    if (ideaTools) ideaTools.hidden = !on;
+    if (on && idea) putIdea();
+  }));
   form.addEventListener('click', (e) => {
-    if (e.target.closest('[data-use-idea]')) {
-      const cur = noteField.value.trim();
-      noteField.value = (cur ? `${cur.replace(/[\s.]+$/, '')}. ${offer}` : offer).slice(0, 280);
-      e.target.closest('.log-idea').remove();
-      fitHeight(noteField);
-      noteField.focus();
+    if (e.target.closest('[data-next-idea]')) {
+      S.ui.ideaTurn.set(p.id, (S.ui.ideaTurn.get(p.id) || 0) + 1);
+      putIdea();
       return;
     }
     const b = e.target.closest('[data-interest]');
@@ -5645,9 +5646,12 @@ function dateSheet(p) {
     if (!pick || pick.hidden) return {};
     const n = readRhythm(form);
     if (n === undefined) return undefined;
-    return (n || null) !== (p.cadenceOverrideDays || null) ? { cadenceOverrideDays: n } : {};
+    const light = !!readLight(form);
+    const extra = (n || null) !== (p.cadenceOverrideDays || null) ? { cadenceOverrideDays: n } : {};
+    if (light !== !!p.lightTouch) extra.lightTouch = light;
+    return extra;
   };
-  const rhythmNote = (extra) => ('cadenceOverrideDays' in extra ? `. Rhythm: ${rhythmWords({ ...p, ...extra }, S.settings)}` : '');
+  const rhythmNote = (extra) => ('cadenceOverrideDays' in extra || 'lightTouch' in extra ? `. Rhythm: ${rhythmWords({ ...p, ...extra }, S.settings)}` : '');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const d = String(new FormData(e.target).get('date') || '');
@@ -5771,18 +5775,44 @@ async function relationshipSheet(p) {
   await refresh();
 }
 
+// Picking a warmth shows it on their figure first (11-11); Save keeps it.
 async function warmthSheet(p) {
   if (!p) return;
-  const key = await choiceSheet({
+  let pick = p.warmth;
+  const choice = (w) => `<button type="button" class="choice${w === pick ? ' current' : ''}" data-w="${w}" aria-pressed="${w === pick}">${warmthIcon(w)}<span class="choice-text"><span class="choice-label">${esc(WARMTH_INFO[w].label)}</span></span></button>`;
+  const s = openSheet({
     title: `How well do you know ${firstName(p)}?`,
-    options: [
-      ...WARMTH.map((w) => ({ key: w, label: WARMTH_INFO[w].label, icon: warmthIcon(w), current: p.warmth === w })),
-      // A project just finished: wrap it instead (back to Warm, with a follow-up).
-      { key: 'wrap', label: 'Wrap a project', icon: WRAP_ICON },
-    ],
+    className: 'sheet-small',
+    body: `<div class="warmth-pick">
+        <div class="choice-list">${WARMTH.map(choice).join('')}
+          <button type="button" class="choice" data-wrap>${WRAP_ICON}<span class="choice-text"><span class="choice-label">Wrap a project</span></span></button>
+        </div>
+        ${warmthFigHTML(figureOf(p), pick)}
+      </div>
+      <button type="button" class="modal-cta primary" data-save>Save</button>`,
   });
-  if (key === 'wrap') wrapSheet(S.personById.get(p.id) || p);
-  else if (key) await setWarmth(p, key);
+  s.body.addEventListener('click', async (e) => {
+    // A project just finished: wrap it instead (back to Warm, with a follow-up).
+    if (e.target.closest('[data-wrap]')) {
+      s.close();
+      wrapSheet(S.personById.get(p.id) || p);
+      return;
+    }
+    const b = e.target.closest('[data-w]');
+    if (b) {
+      pick = b.dataset.w;
+      s.body.querySelectorAll('[data-w]').forEach((x) => {
+        x.classList.toggle('current', x === b);
+        x.setAttribute('aria-pressed', String(x === b));
+      });
+      setWarmthFig(s.body.querySelector('.warmth-fig'), pick);
+      return;
+    }
+    if (e.target.closest('[data-save]')) {
+      s.close();
+      if (pick !== p.warmth) await setWarmth(S.personById.get(p.id) || p, pick);
+    }
+  });
 }
 
 async function unpark(p) {
@@ -6662,6 +6692,12 @@ const ACTIONS = {
     S.ui.thoughtKey = null;
     toggleMapView('today');
   },
+  'face-log': async () => {
+    closeFaceMenu();
+    const id = await peoplePicker({ title: 'Who did you reach out to?', none: false });
+    const p = id && S.personById.get(id);
+    if (p) logSheet(p);
+  },
   'face-settings': () => {
     closeFaceMenu();
     openSettings();
@@ -6888,17 +6924,11 @@ document.addEventListener('change', (e) => {
     const l = S.loops.find((x) => x.id === t.dataset.loopToggle);
     if (t.checked) closeLoop(l);
     else reopenLoop(l);
-  } else if (t.dataset.filter === 'parked') {
-    S.ui.people.showParked = t.checked;
-    if (!t.checked) S.ui.people.warmth.delete('parked');
-    render();
   } else if (t.dataset.filter) {
     S.ui.people[t.dataset.filter] = t.value;
     render();
   } else if (t.dataset.setting) {
     saveSetting(t.dataset.setting, t.value);
-  } else if (t.name === 'appearance') {
-    applyAppearance(t.value);
   }
 });
 

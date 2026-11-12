@@ -17,11 +17,9 @@
 <link rel="icon" type="image/png" href="icons/icon-192.png" />
 
 <script>
-  // Light or dark is a per-device choice kept in localStorage, set before the
-  // first paint so the page never flashes the wrong theme.
+  // Light only (11-11): an old light/dark pick is cleared.
   try {
-    var t = localStorage.getItem('callback-appearance');
-    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+    localStorage.removeItem('callback-appearance');
     // The app's colour, if it isn't the green (Your buddy, or Settings).
     var g = localStorage.getItem('callback-green');
     if (g && /^#[0-9a-f]{6}$/i.test(g)) {

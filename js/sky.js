@@ -104,16 +104,13 @@ export function skyNow() {
   };
 }
 
-// The page's colours: warmer in golden hour, grayer at night. Only the
-// light look changes; the dark look is already night.
+// The page's colours: warmer in golden hour, grayer at night.
 const root = document.documentElement;
-const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
-const isDark = () => root.getAttribute('data-theme') === 'dark' || (root.getAttribute('data-theme') !== 'light' && darkQuery.matches);
 const r2 = (v) => Math.round(v * 100) / 100;
 function tint() {
   const s = skyNow();
-  const golden = isDark() ? 0 : r2(s.golden);
-  const night = isDark() ? 0 : r2(s.night);
+  const golden = r2(s.golden);
+  const night = r2(s.night);
   const on = golden > 0 || night > 0;
   root.classList.toggle('sky-tint', on);
   if (on) {
@@ -137,8 +134,6 @@ export function startSky() {
   tint();
   setInterval(tint, 60 * 1000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) tint(); });
-  darkQuery.addEventListener('change', tint);
-  new MutationObserver(tint).observe(root, { attributes: true, attributeFilter: ['data-theme'] });
 }
 
 // ---------------------------------------------------------------------------
@@ -209,7 +204,6 @@ const SIDE_SIZE = 8;
 // clouds: where the thought clouds sit, as { cx, cy, rx, ry } in pixels.
 export function skyLines({ W, hx, hy, R, t, calm, clouds = [] }) {
   const s = skyNow();
-  const dark = isDark();
   const out = [];
   const top = 14;
   const low = hy - R * 0.55; // where the sun comes up and goes down
@@ -222,7 +216,7 @@ export function skyLines({ W, hx, hy, R, t, calm, clouds = [] }) {
     const x = W * (0.08 + 0.84 * f);
     const y = low - (low - (top + sr * 1.7)) * Math.sin(Math.PI * f) + sink * 900 + (calm ? 0 : Math.sin(t * 0.6) * 1.6);
     const stroke = mixHex('#f2bd00', '#ec7a14', s.sunGold);
-    const fill = dark ? mixHex('#5c5530', '#6a4a2c', s.sunGold) : mixHex('#fff3b0', '#ffc98a', s.sunGold);
+    const fill = mixHex('#fff3b0', '#ffc98a', s.sunGold);
     out.push({ d: ring(x, y, sr, 3.1), stroke, w: 2.2, fill, op: fade });
     // Little rays, slowly turning, each breathing in and out a touch.
     const turn = calm ? 0 : t * 0.05;
@@ -239,7 +233,7 @@ export function skyLines({ W, hx, hy, R, t, calm, clouds = [] }) {
   if (s.stars > 0.01) {
     // The lowest a star's middle goes: its points stay clear of the hair.
     const bottom = Math.max(top, hy - R * HAIR_TOP - 12);
-    const color = dark ? '#e9c548' : '#dca800';
+    const color = '#dca800';
     const m = SIDE_SIZE + 6;
     const free = ([x, y]) => x > m && x < W - m && clouds.every((c) => Math.hypot((x - c.cx) / (c.rx + m), (y - c.cy) / (c.ry + m)) > 1);
     const spots = [

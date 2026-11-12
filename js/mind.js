@@ -1228,7 +1228,7 @@ function update({ bubbles = [], pending = 0 } = {}) {
   }
   st.first = false;
   st.hit.setAttribute('aria-label', st.total
-    ? `A hand-drawn face, ${pending >= 6 ? 'worried' : 'a little concerned'}: ${st.total} ${st.total === 1 ? 'thing is' : 'things are'} waiting. The bubbles above it open them. Tap the face for Settings, your buddy and Help.`
+    ? `A hand-drawn face, ${pending >= 6 ? 'worried' : 'a little concerned'}: ${st.total} ${st.total === 1 ? 'thing is' : 'things are'} waiting. The bubbles above it open them. Tap the face to log a touchpoint, or for Settings, your buddy and Help.`
     : 'A hand-drawn face, smiling: nothing is waiting. Tap it for Settings, your buddy and Help.');
   layout();
 }

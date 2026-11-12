@@ -1,6 +1,8 @@
 // Fixed lists the data model uses: stored keys plus the words shown for them.
 
 export const TOUCH_TYPES = [
+  // Did the idea Callback suggested (11-11): picking it fills in the note.
+  { key: 'idea', label: 'Idea' },
   { key: 'email', label: 'Email' },
   { key: 'text', label: 'Text message' },
   { key: 'dm', label: 'DM' },

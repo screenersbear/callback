@@ -18,10 +18,9 @@
 
 /* Callback: the Documenting Fictions look. White, "mango yellow", the
    #12850f green for headers, bars, borders and fills, and "berry blade black"
-   (#313d45) for text. Square corners, Arial Black titles in capitals, Courier
-   for everything else. Dark mode keeps the green, with deep slate shades for
-   the page and surfaces. The green can be swapped for another colour (Your
-   buddy on Today, or Settings): --green, set on the page by index.html. */
+   (#313d45) for text, in Quicksand. Light only: no dark mode (11-11). The
+   green can be swapped for another colour (Your buddy on Today, or
+   Settings): --green, set on the page by index.html. */
 
 :root {
   --focus-glow: color-mix(in srgb, var(--accent) 45%, transparent);
@@ -33,8 +32,7 @@
   --surface: #ffffff;
   --text: #313d45;
   --text-dim: rgba(49, 61, 69, 0.72);
-  /* Chrome: heading bars, borders, fills. Separate from --text so dark mode
-     can lift it while text stays readable. */
+  /* Chrome: heading bars, borders, fills. */
   --ink: var(--green);
   --on-ink: #ffffff;
   --accent: #ffd103;
@@ -51,40 +49,6 @@
   --font-hand: "Callback Sans", "Helvetica Neue", Arial, sans-serif;
 
   color-scheme: light;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #1d252a;
-    --surface: #263037;
-    --text: #f6f6f3;
-    --text-dim: rgba(246, 246, 243, 0.7);
-    --ink: #4a5b67;
-    --on-ink: #ffffff;
-    --hero: var(--green);
-    --line: rgba(255, 255, 255, 0.18);
-    --field: #1d252a;
-    --overlay: rgba(12, 16, 19, 0.86);
-    --danger: #ff8a80;
-    color-scheme: dark;
-    --focus-glow: color-mix(in srgb, var(--accent) 22%, transparent);
-  }
-}
-
-:root[data-theme="dark"] {
-  --bg: #1d252a;
-  --surface: #263037;
-  --text: #f6f6f3;
-  --text-dim: rgba(246, 246, 243, 0.7);
-  --ink: #4a5b67;
-  --on-ink: #ffffff;
-  --hero: var(--green);
-  --line: rgba(255, 255, 255, 0.18);
-  --field: #1d252a;
-  --overlay: rgba(12, 16, 19, 0.86);
-  --danger: #ff8a80;
-  color-scheme: dark;
-  --focus-glow: color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 /* Type scale, kept to a few steps so the same kind of text always looks the same.
@@ -1204,6 +1168,9 @@ details.loop-done[open] summary { margin-bottom: 8px; }
 .next-panel.compact { margin: 6px 0 0; }
 
 .log-cta { margin-bottom: 14px; }
+/* Log touchpoint inside the next-touchpoint box, Where you met under it (11-11). */
+.next-panel .log-cta { margin: 14px 0 0; }
+.next-panel + .person-met { margin: 0 0 16px; }
 .person-head + .next-panel { margin-top: 0; }
 .detail-col > .idea { margin-bottom: 24px; }
 .detail-col > .prompt { margin-bottom: 14px; }
@@ -1712,6 +1679,21 @@ details.loop-done[open] summary { margin-bottom: 8px; }
 .chip-choice input:focus-visible + span { outline: 3px solid var(--accent); outline-offset: 2px; }
 
 .warmth-options { display: flex; flex-direction: column; gap: 6px; }
+/* A figure beside the warmth choices: People's sway, at the warmth's size
+   and colour, growing or shrinking to the one picked (11-11). */
+.warmth-pick { display: grid; grid-template-columns: minmax(0, 1fr) 72px; gap: 14px; align-items: center; }
+.warmth-fig { display: flex; align-items: flex-end; justify-content: center; height: 112px; color: var(--w-none); transition: color 0.3s ease; }
+.warmth-fig.is-client { color: var(--w-client); }
+.warmth-fig.is-active { color: var(--w-active); }
+.warmth-fig.is-warm { color: var(--w-warm); }
+.warmth-fig.is-cold { color: var(--w-cold); }
+.warmth-fig.is-parked { color: var(--w-parked); }
+.warmth-fig-body { display: block; width: 64px; transform: scale(var(--fig-s, 0.8)); transform-origin: 50% 100%; transition: transform 0.35s cubic-bezier(0.3, 1.4, 0.5, 1); }
+.warmth-fig-pic { display: block; width: 100%; height: auto; overflow: visible; transform-origin: 50% 100%; animation: fig-sway 5s ease-in-out infinite; }
+.warmth-fig-pic path { fill: none; stroke: currentColor; stroke-width: 3.4; stroke-linecap: round; stroke-linejoin: round; }
+.warmth-fig.is-parked .warmth-fig-pic path { stroke-dasharray: 6 5; }
+@keyframes fig-sway { 0%, 100% { transform: skewX(2deg); } 50% { transform: skewX(-2deg); } }
+@media (prefers-reduced-motion: reduce) { .warmth-fig-pic { animation: none; } .warmth-fig-body { transition: none; } }
 .warmth-option { position: relative; cursor: pointer; }
 .warmth-option input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
 .warmth-option-body {
@@ -2139,7 +2121,6 @@ div.stat-box, div.stat-box:active, .row-card.is-moving:active { cursor: default;
 .board-col { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 32px; }
 .board-col .card-list:has(> .item-card) { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
 .board .item-actions .btn { padding: 8px 10px; font-size: 12px; letter-spacing: 0.6px; }
-.view[data-route="today"] [data-pick] { cursor: pointer; }
 .board .item-card.is-picked { box-shadow: inset 8px 0 0 var(--accent); }
 .board .light-row.is-picked, .board .reply-row.is-picked { box-shadow: inset 8px 0 0 var(--accent); padding-left: 16px; }
 .dash.has-pick { grid-template-columns: 172px minmax(0, 1fr) clamp(560px, 50%, 1000px); }
@@ -2312,21 +2293,6 @@ html.mac-app .sheet-overlay, html.mac-app .toast { -webkit-app-region: no-drag; 
   html.mac-app .split-list { top: var(--mac-bar-h); height: calc(100dvh - var(--mac-bar-h)); }
 }
 
-/* Dark mode details that tokens alone don't cover. */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .section-block h2.heading-navy,
-  :root:not([data-theme="light"]) .filter-toggle.is-on,
-  :root:not([data-theme="light"]) .stat-box,
-  :root:not([data-theme="light"]) .next-panel { box-shadow: inset 0 0 0 2px var(--ink); }
-}
-:root[data-theme="dark"] .section-block h2.heading-navy,
-:root[data-theme="dark"] .filter-toggle.is-on,
-:root[data-theme="dark"] .stat-box,
-:root[data-theme="dark"] .next-panel { box-shadow: inset 0 0 0 2px var(--ink); }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .small-btn.navy { border-color: var(--ink); }
-}
-:root[data-theme="dark"] .small-btn.navy { border-color: var(--ink); }
 
 /* What you sent or said: wraps to fit, with the idea offered underneath. */
 .field textarea.log-note { resize: none; overflow: hidden; }
@@ -2386,8 +2352,7 @@ html.mac-app .sheet-overlay, html.mac-app .toast { -webkit-app-region: no-drag; 
 
 /* ---------- Phone Today's numbers, and the phone tab bar, by hand ----------
    No boxes: the number and what it counts, handwritten in berry blade black,
-   with a loose yellow line drawn under each (app.js statScrib). Last in the
-   file so it wins over the dark-mode box outline. */
+   with a loose yellow line drawn under each (app.js statScrib). */
 
 .stat-scrib { display: none; }
 .dash.is-mind > .stats-row { gap: 8px; }
@@ -2582,46 +2547,18 @@ html:has(.ring-wrap) { background: var(--bg); }
 .buddy-pic path { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
 .mind-head:focus-visible { outline: 2px dashed var(--hero); outline-offset: 4px; border-radius: 50%; }
 
-/* Warmth by colour, for the people drawn on People (with their size and a
-   key above them). */
+/* Warmth by colour, for the people drawn on People (with their size). */
 :root { --w-client: #12850f; --w-active: #d29b00; --w-warm: #e2621b; --w-cold: #2f6fc4; --w-parked: #8a949a; --w-none: #9aa3a8; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --w-client: #3dbb36; --w-active: #ffd103; --w-warm: #ff8a3d; --w-cold: #6ea6f5; --w-parked: #7f8b92; --w-none: #6c7880; }
-}
-:root[data-theme="dark"] { --w-client: #3dbb36; --w-active: #ffd103; --w-warm: #ff8a3d; --w-cold: #6ea6f5; --w-parked: #7f8b92; --w-none: #6c7880; }
 /* The buildings on Organizations, each in its own (11-10). */
 :root { --b-0: #12850f; --b-1: #2563c4; --b-2: #c8500f; --b-3: #8a3fb0; --b-4: #c2255c; --b-5: #8f6b00; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --b-0: #3dbb36; --b-1: #6ea6f5; --b-2: #ff8a3d; --b-3: #c79bf2; --b-4: #ff7fa8; --b-5: #ffd103; }
-}
-:root[data-theme="dark"] { --b-0: #3dbb36; --b-1: #6ea6f5; --b-2: #ff8a3d; --b-3: #c79bf2; --b-4: #ff7fa8; --b-5: #ffd103; }
 .ring-wrap { position: relative; }
-.ring-key {
-  position: absolute;
-  top: 6px;
-  left: 16px;
-  right: 16px;
-  z-index: 1;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 2px 14px;
-  pointer-events: none;
-  font-family: var(--font-hand);
-  font-size: 15px;
-  color: var(--text);
-}
-.ring-key-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-.ring-key-dot { width: 14px; height: 4px; border-radius: 2px; display: block; background: var(--w-none); }
-.ring-key-dot.is-client { background: var(--w-client); }
-.ring-key-dot.is-active { background: var(--w-active); }
-.ring-key-dot.is-warm { background: var(--w-warm); }
-.ring-key-dot.is-cold { background: var(--w-cold); }
-.ring-key-dot.is-parked { background: repeating-linear-gradient(90deg, var(--w-parked) 0 4px, transparent 4px 7px); }
 
 /* ---------- Plain sentence case ----------
    Every page, tab and pop-up, on the phone and on the Mac. */
 *, *::before, *::after, ::placeholder { text-transform: none !important; letter-spacing: 0 !important; }
+/* Page titles in capitals: People, Their news, Settings... (11-11). Not
+   names: a circle or organization seen from inside keeps its own case. */
+.topbar h1:not(.name-title) { text-transform: uppercase !important; letter-spacing: 0.5px !important; }
 
 /* Circles and Organizations on a phone: a map you drag about (map.js),
    down to the tab bar like People's ring; in one, its ring of people. */
@@ -2803,10 +2740,6 @@ html.is-turned .ring-canvas { touch-action: pan-x; }
 }
 .news-list > .fold > .fold-head .fold-n { color: inherit; }
 .news-list > .fold + .fold { margin-top: 14px; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .news-list > .fold:nth-child(odd) > .fold-head { box-shadow: inset 0 0 0 2px var(--ink); }
-}
-:root[data-theme="dark"] .news-list > .fold:nth-child(odd) > .fold-head { box-shadow: inset 0 0 0 2px var(--ink); }
 /* Waiting on a reply, on People: a little drawn "!" after the name (11-10). */
 .reply-flag { display: inline-block; width: 11px; height: 22px; margin-left: 4px; vertical-align: -3px; color: var(--text); }
 .reply-flag svg { display: block; width: 100%; height: 100%; overflow: visible; }
@@ -2815,8 +2748,6 @@ html.is-turned .ring-canvas { touch-action: pan-x; }
 
 /* The Dream list link's star, in the night sky's yellow (11-10). */
 .dream-sky-star { color: #dca800; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .dream-sky-star { color: #e9c548; } }
-:root[data-theme="dark"] .dream-sky-star { color: #e9c548; }
 
 /* ---------- The buddy's face menu, the welcome and the tour (11-10) ---------- */
 
@@ -2825,7 +2756,9 @@ html.is-turned .ring-canvas { touch-action: pan-x; }
   position: fixed;
   z-index: 40;
   display: flex;
-  gap: 18px;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
   padding: 10px 18px 8px;
   background: var(--surface);
   border: 2px solid var(--hero);
@@ -2847,6 +2780,11 @@ html.is-turned .ring-canvas { touch-action: pan-x; }
   transform: rotate(45deg);
 }
 .buddy-menu .stat-scrib { display: block; width: 92%; height: 12px; margin: 2px auto 0; overflow: visible; }
+/* LOG TOUCHPOINT across the top, nearly as wide as the three under it (11-11). */
+.buddy-menu-row { display: flex; gap: 18px; }
+.buddy-menu .buddy-log { align-self: stretch; margin: 0 4%; font-weight: 700; }
+.buddy-log .hand-btn-text { justify-content: center; letter-spacing: 0.06em !important; }
+.buddy-menu .buddy-log .stat-scrib { width: 100%; }
 
 /* First open: a hello at the top, the numbers held back till it's done. */
 .dash.is-welcome { position: relative; }
