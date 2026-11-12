@@ -342,7 +342,7 @@ function build() {
   }).observe(el);
   document.addEventListener('visibilitychange', kick);
   window.addEventListener('resize', () => { if (st.el.isConnected) { resize(); kick(); } });
-  if (document.fonts) document.fonts.load('16px Mansalva').then(() => draw(), () => {});
+  if (document.fonts) document.fonts.load('16px "Callback Sans"').then(() => draw(), () => {});
 }
 
 // Like Today's head, the stage runs down to the tab bar.
@@ -833,7 +833,7 @@ function draw() {
   for (const o of [...on].reverse()) {
     if (o.it.ghost || o.p.s < 0.62 || o.fade < 1) continue;
     const size = Math.round(16 * clamp(o.p.s, 0.75, 1));
-    ctx.font = `${size}px Mansalva, "Bradley Hand", cursive`;
+    ctx.font = `${size}px "Callback Sans", "Helvetica Neue", Arial, sans-serif`;
     const label = o.it.name;
     const tw = ctx.measureText(label).width;
     const box = { x0: o.p.x - tw / 2 - 4, x1: o.p.x + tw / 2 + 4, y0: o.p.y + 6 * o.p.s, y1: o.p.y + 6 * o.p.s + size };

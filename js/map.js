@@ -25,7 +25,7 @@ const FLY = 0.72; // seconds to fly in
 const BACKOUT = 0.55; // and out again
 const CLOSEST = 4; // a pinch goes in to four times as big as at the start
 const FARTHEST = 0.3; // and out to a third as big (or to the whole map)
-const FONT = 'Mansalva, "Bradley Hand", cursive';
+const FONT = '"Callback Sans", "Helvetica Neue", Arial, sans-serif';
 
 // The buildings are drawn smaller than people would be.
 const zoomOf = (kind) => (kind === 'orgs' ? 0.6 : 1);
@@ -83,7 +83,7 @@ function build() {
   }).observe(el);
   document.addEventListener('visibilitychange', kick);
   window.addEventListener('resize', () => { if (st.el.isConnected) { resize(); kick(); } });
-  if (document.fonts) document.fonts.load('16px Mansalva').then(() => draw(), () => {});
+  if (document.fonts) document.fonts.load('16px "Callback Sans"').then(() => draw(), () => {});
 }
 
 // The stage runs down to the tab bar, like People's ring.

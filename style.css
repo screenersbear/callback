@@ -1,9 +1,19 @@
+/* Quicksand (fonts/, SIL OFL 1.1), Google's latin and latin-ext files. */
 @font-face {
-  font-family: "Mansalva";
-  src: url("fonts/mansalva-latin.woff2") format("woff2");
-  font-weight: 400;
+  font-family: "Callback Sans";
+  src: url("fonts/quicksand-latin.woff2") format("woff2");
+  font-weight: 300 700;
   font-style: normal;
   font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Callback Sans";
+  src: url("fonts/quicksand-latin-ext.woff2") format("woff2");
+  font-weight: 300 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
 /* Callback: the Documenting Fictions look. White, "mango yellow", the
@@ -35,10 +45,10 @@
   --overlay: color-mix(in srgb, var(--green) 90%, transparent);
   --danger: #b3261e;
 
-  --font-title: "Arial Black", "Helvetica Neue", Arial, sans-serif;
-  --font-body: "Courier New", Courier, monospace;
-  /* Handwriting for phone Today and the phone tab bar (fonts/, SIL OFL). */
-  --font-hand: "Mansalva", "Bradley Hand", "Noteworthy", cursive;
+  /* One typeface everywhere, phone and Mac: Quicksand (11-11). */
+  --font-title: "Callback Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "Callback Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-hand: "Callback Sans", "Helvetica Neue", Arial, sans-serif;
 
   color-scheme: light;
 }
@@ -2609,25 +2619,8 @@ html:has(.ring-wrap) { background: var(--bg); }
 .ring-key-dot.is-cold { background: var(--w-cold); }
 .ring-key-dot.is-parked { background: repeating-linear-gradient(90deg, var(--w-parked) 0 4px, transparent 4px 7px); }
 
-/* ---------- Everything by hand ----------
-   The handwriting from Today and People on every page, tab and pop-up, on
-   the phone and on the Mac: the same pen (Mansalva), set a little bigger
-   so the type scale above still reads, and in plain sentence case. */
-@font-face {
-  font-family: "Callback Hand";
-  src: url("fonts/mansalva-latin.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-  size-adjust: 126%;
-  ascent-override: 92%;
-  descent-override: 42%;
-  line-gap-override: 0%;
-}
-:root {
-  --font-title: "Callback Hand", "Bradley Hand", "Noteworthy", cursive;
-  --font-body: "Callback Hand", "Bradley Hand", "Noteworthy", cursive;
-}
+/* ---------- Plain sentence case ----------
+   Every page, tab and pop-up, on the phone and on the Mac. */
 *, *::before, *::after, ::placeholder { text-transform: none !important; letter-spacing: 0 !important; }
 
 /* Circles and Organizations on a phone: a map you drag about (map.js),
