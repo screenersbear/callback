@@ -1776,8 +1776,7 @@ function renderPerson(id, { panel = false } = {}) {
         <button type="button" class="warmth-btn" data-action="change-rel" data-id="${pid}" aria-label="Change relationship, now ${esc(relWords(p))}">
           <span class="rel-set">${relLabels(p)}</span></button>
       </div>
-      <div class="person-circles">${circleChips(p, { link: true })}
-        <button type="button" class="circle-change" data-action="change-circles" data-id="${pid}">${circlesOf(p).length ? 'Change circles' : '+ Add to a circle'}</button></div>
+      ${circlesOf(p).length ? `<div class="person-circles">${circleChips(p, { link: true })}</div>` : ''}
     </header>
     ${dreamOnly(p) ? `<section class="next-panel">
       <p class="next-label">On your dream list</p>
@@ -6619,14 +6618,6 @@ const ACTIONS = {
         },
       },
     });
-  },
-  'change-circles': async (el) => {
-    const p = person(el);
-    const ids = await circlePicker({ title: `${firstName(p)}'s circles`, selected: p.circleIds });
-    if (ids !== null) await db.savePerson({ ...p, circleIds: ids });
-    // A circle made in the picker shows up either way.
-    await refresh();
-    if (ids !== null) toast('Circles saved');
   },
   'add-org': () => orgForm(null),
   'edit-org': (el) => orgForm(S.orgById.get(el.dataset.id)),
