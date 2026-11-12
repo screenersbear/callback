@@ -727,7 +727,7 @@ function thoughtPanelHTML(sec) {
 }
 
 // Tapping the buddy's face (11-10): LOG TOUCHPOINT across the top (11-11),
-// Settings, Buddy and Help under it, over its head. Tapping the face again,
+// the only one underlined, and Settings, Buddy and Help under it, over its head. Tapping the face again,
 // or anywhere else, puts them away.
 function faceMenu() {
   if (closeFaceMenu() || S.ui.welcome) return;
@@ -740,7 +740,7 @@ function faceMenu() {
   m.setAttribute('aria-label', 'Buddy');
   m.innerHTML = `<button type="button" class="hand-btn buddy-log" role="menuitem" data-action="face-log" aria-label="Log touchpoint"><span class="hand-btn-text">LOG TOUCHPOINT</span>${statScrib('Log touchpoint')}</button>
     <div class="buddy-menu-row">${[['face-settings', 'Settings'], ['face-buddy', 'Buddy'], ['face-help', 'Help']]
-      .map(([a, label]) => `<button type="button" class="hand-btn" role="menuitem" data-action="${a}"><span class="hand-btn-text">${label}</span>${statScrib(label)}</button>`).join('')}</div>`;
+      .map(([a, label]) => `<button type="button" class="hand-btn" role="menuitem" data-action="${a}"><span class="hand-btn-text">${label}</span></button>`).join('')}</div>`;
   document.body.appendChild(m);
   placeFaceMenu();
   if (head.matches(':focus-visible')) m.querySelector('button').focus({ preventScroll: true });
