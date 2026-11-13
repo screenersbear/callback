@@ -5527,6 +5527,8 @@ function showLogged(s, p, tps, { clearedIdea = false, loop = null, lightEnded = 
   } else if (needsParkPrompt(p, tps) && tps.length && tps[0].responded === 'no') {
     prompt = promptBox(`No reply to any of the ${COLD_STEPS} notes. Park ${name} now?`, `<button type="button" class="btn primary" data-sheet-act="park">Park ${name}</button>`);
   }
+  // Their page, to change a status or anything else, unless that's where you are.
+  const onTheirPage = (location.hash.split('?')[0] + '/').startsWith(`#/person/${p.id}/`);
   s.setTitle('Logged');
   s.body.innerHTML = `<div class="logged">
     <div class="logged-check">${CHECK}</div>
@@ -5541,6 +5543,7 @@ function showLogged(s, p, tps, { clearedIdea = false, loop = null, lightEnded = 
     ${lightEnded ? `<p class="logged-why">${LIGHT_ICON} ${name} is off light touch now, since something real is in motion.</p>` : ''}
     ${prompt}
     <div class="sheet-actions">
+      ${onTheirPage ? '' : `<button type="button" class="btn secondary logged-open" data-sheet-act="open-person">Open ${name}'s page</button>`}
       <button type="button" class="btn secondary" data-sheet-act="change-date">Change date</button>
       <button type="button" class="btn primary" data-close>Done</button>
     </div>
@@ -5549,7 +5552,9 @@ function showLogged(s, p, tps, { clearedIdea = false, loop = null, lightEnded = 
     const b = e.target.closest('[data-sheet-act]');
     if (!b) return;
     const fresh = S.personById.get(p.id);
-    if (b.dataset.sheetAct === 'change-date') {
+    if (b.dataset.sheetAct === 'open-person') {
+      leaveTo(`#/person/${p.id}`);
+    } else if (b.dataset.sheetAct === 'change-date') {
       s.close();
       dateSheet(fresh);
     } else if (b.dataset.sheetAct === 'make-warm') {

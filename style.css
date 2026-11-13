@@ -1822,6 +1822,7 @@ details.more > .field + .field { margin-top: 14px; }
 .logged-check svg { width: 28px; height: 28px; }
 .logged-title { margin: 0; font-size: 16px; font-weight: 700; }
 .logged-why { margin: 4px 0 0; font-size: 15px; }
+.logged .logged-open { grid-column: 1 / -1; }
 
 /* ---------- Toast ---------- */
 
