@@ -126,7 +126,6 @@ export function planMerge(local, remote, base, { incomingWins = [], now = new Da
 
   for (const s of RECORDS) {
     const ids = new Set([...L[s].keys(), ...R[s].keys()]);
-    for (const t of [...lt.values(), ...rt.values()]) if (t.store === s) ids.add(t.id);
     for (const id of ids) {
       const l = L[s].get(id);
       const r = R[s].get(id);
@@ -200,21 +199,19 @@ export function planMerge(local, remote, base, { incomingWins = [], now = new Da
         continue;
       }
 
-      if (r) {
-        // In the file, not here: new there, or deleted here.
-        if (!ltomb) {
-          if (rtomb && (rtomb.deletedAt || '') >= (r.updatedAt || '')) continue;
-          puts[s].push(r);
-        } else if (b && sameContent(r, b)) {
-          // Deleted here, untouched there: stays deleted.
-        } else if (b) {
-          const c = { kind: 'deletedHere', store: s, id, mine: null, theirs: r, tomb: ltomb, base: b, children: [] };
-          conflicts.push(c);
-          held.add(key);
-          if (s === 'people') heldPeople.set(id, c);
-        } else if ((ltomb.deletedAt || '') < (r.updatedAt || '')) {
-          puts[s].push(r);
-        }
+      // Only in the file (every id comes from one side or the other): new there, or deleted here.
+      if (!ltomb) {
+        if (rtomb && (rtomb.deletedAt || '') >= (r.updatedAt || '')) continue;
+        puts[s].push(r);
+      } else if (b && sameContent(r, b)) {
+        // Deleted here, untouched there: stays deleted.
+      } else if (b) {
+        const c = { kind: 'deletedHere', store: s, id, mine: null, theirs: r, tomb: ltomb, base: b, children: [] };
+        conflicts.push(c);
+        held.add(key);
+        if (s === 'people') heldPeople.set(id, c);
+      } else if ((ltomb.deletedAt || '') < (r.updatedAt || '')) {
+        puts[s].push(r);
       }
     }
   }

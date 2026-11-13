@@ -167,8 +167,11 @@ export const isOwnIdea = (text) => library.ownKeys.has(String(text).toLowerCase(
 // Shown only if every suggestion that fits someone has been removed.
 export const FALLBACK_IDEA = 'Reach out with something that gives: a frame, a print or a thank-you.';
 
+// A table's own entry, so names every object has ("constructor") don't count.
+const entry = (table, key) => (Object.prototype.hasOwnProperty.call(table, key) ? table[key] : null);
+
 export function ideasFor(person, { firstContact = null } = {}) {
-  const first = (FIRST_CONTACT[firstContact] || []).filter((t) => !library.hidden.has(t.toLowerCase()));
+  const first = (entry(FIRST_CONTACT, firstContact) || []).filter((t) => !library.hidden.has(t.toLowerCase()));
   if (first.length) return first;
   // Light touches only ever get light ideas: your own suggestions stay out,
   // since they may be bigger asks.
@@ -186,7 +189,7 @@ export function ideasFor(person, { firstContact = null } = {}) {
 function builtInIdeasFor(person) {
   // A known interest level leads; unknown falls back to relationship and
   // role. Someone with several relationship types gets each one's ideas.
-  if (person && BY_INTEREST[person.interest]) return BY_INTEREST[person.interest];
+  if (person && entry(BY_INTEREST, person.interest)) return BY_INTEREST[person.interest];
   const types = relTypesOf(person);
   const role = (person && person.role) || '';
   const list = [];

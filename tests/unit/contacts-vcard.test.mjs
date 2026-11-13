@@ -194,6 +194,29 @@ describe('parseVCards: quoted-printable', () => {
   it('does not decode values that are not quoted-printable', () => {
     expect(one('FN:Test Person', 'NOTE;ENCODING=b:A=42C').notes).toBe('A=42C');
   });
+
+  it('decodes vCard 2.1 values marked QUOTED-PRINTABLE without ENCODING=', () => {
+    expect(one('FN;CHARSET=UTF-8;QUOTED-PRINTABLE:Caf=C3=A9 Test').name).toBe('Café Test');
+    expect(one('FN:Test Person', 'NOTE;quoted-printable:50=25 off').notes).toBe('50% off');
+  });
+
+  it('joins soft line breaks for a bare QUOTED-PRINTABLE', () => {
+    const text = ['BEGIN:VCARD', 'FN:Test Person', 'NOTE;QUOTED-PRINTABLE:a=', 'b=', 'c', 'END:VCARD'].join('\n');
+    expect(parseVCards(text)[0].notes).toBe('abc');
+  });
+
+  it('only takes the whole word QUOTED-PRINTABLE as the encoding', () => {
+    expect(one('FN:Test Person', 'NOTE;X-QUOTED-PRINTABLE:50=25').notes).toBe('50=25');
+    expect(one('FN:Test Person', 'NOTE;QUOTED-PRINTABLE-NOT:50=25').notes).toBe('50=25');
+    const c = one('FN:Test Person', 'NOTE;QUOTED-PRINTABLE-NOT:ends with=', 'TITLE:Producer');
+    expect(c.notes).toBe('ends with=');
+    expect(c.role).toBe('Producer');
+  });
+
+  it('does not count QUOTED-PRINTABLE as a phone or email type', () => {
+    const c = one('FN:Test Person', 'TEL;QUOTED-PRINTABLE:555=2D0100', 'TEL;CELL:555-0199');
+    expect(c.phone).toBe('555-0199');
+  });
 });
 
 describe('parseVCards: names', () => {

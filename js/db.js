@@ -153,13 +153,22 @@ async function write(stores, fn, { quiet = false } = {}) {
   const db = await open();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(stores, 'readwrite');
-    fn((name) => tx.objectStore(name));
     tx.oncomplete = () => {
       resolve();
       if (!quiet && syncedChange && stores.some((s) => SYNCED.includes(s))) syncedChange();
     };
-    tx.onerror = () => reject(tx.error);
+    // A failed request reaches here before the transaction knows why; the
+    // abort that follows carries the reason.
+    tx.onerror = () => { if (tx.error) reject(tx.error); };
     tx.onabort = () => reject(tx.error || new Error('Save was cancelled.'));
+    // One record that can't be stored cancels the whole batch, so nothing is
+    // half saved.
+    try {
+      fn((name) => tx.objectStore(name));
+    } catch (e) {
+      reject(e);
+      tx.abort();
+    }
   });
 }
 

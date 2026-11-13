@@ -373,3 +373,24 @@ describe('snoozeDate', () => {
     expect(snoozeDate('3d')).toBe('2026-03-02');
   });
 });
+
+describe('an unknown or missing warmth counts as warm', () => {
+  const asWarm = cadenceLabel({ warmth: 'warm' }, [], undefined);
+  it('labels the rhythm as the warm default', () => {
+    expect(cadenceLabel({ warmth: 'hot' }, [], undefined)).toBe(asWarm);
+    expect(cadenceLabel({}, [], undefined)).toBe(asWarm);
+    expect(cadenceLabel({ warmth: 'constructor' }, [], undefined)).toBe(asWarm);
+  });
+  it('labels a zero setting with the warm rhythm, as the date uses', () => {
+    expect(cadenceLabel({ warmth: 'active' }, [], { cadence: { active: 0 } })).toBe('Every 6 weeks (Active default)');
+    expect(rhythmWords({ warmth: 'active' }, { cadence: { active: 0 } })).toBe(cadenceLabel({ warmth: 'active' }, [], { cadence: { active: 0 } }));
+  });
+  it('uses your warm setting in the label', () => {
+    expect(cadenceLabel({ warmth: 'hot' }, [], { cadence: { warm: 14 } })).toBe(cadenceLabel({ warmth: 'warm' }, [], { cadence: { warm: 14 } }));
+  });
+  it('describes the rhythm and picks the date as warm too', () => {
+    expect(rhythmWords({ warmth: 'constructor' }, undefined)).toBe(rhythmWords({ warmth: 'warm' }, undefined));
+    expect(computeNextDate({ warmth: 'constructor' }, [], undefined, TODAY)).toBe(computeNextDate({ warmth: 'warm' }, [], undefined, TODAY));
+    expect(computeNextDate({ warmth: 'toString' }, [], undefined, TODAY)).toBe(computeNextDate({ warmth: 'warm' }, [], undefined, TODAY));
+  });
+});

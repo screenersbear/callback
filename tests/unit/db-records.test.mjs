@@ -81,6 +81,12 @@ describe('savePeople', () => {
     await expect(db.savePeople([{ id: 'a', name: 'Test A' }, { id: 'b', bad: Symbol('x') }])).rejects.toMatchObject({ name: 'DataCloneError' });
     expect((await rawAll('people')).map((p) => p.id)).not.toContain('b');
   });
+  it('saves none of them when one cannot be stored', async () => {
+    await expect(db.savePeople([{ id: 'a', name: 'Test A' }, { id: 'b', bad: Symbol('x') }])).rejects.toMatchObject({ name: 'DataCloneError' });
+    expect(await rawAll('people')).toEqual([]);
+    await expect(db.savePeople([{ id: 'c', name: 'Test C' }])).resolves.toHaveLength(1);
+    expect((await rawAll('people')).map((p) => p.id)).toEqual(['c']);
+  });
 });
 
 describe('deletePerson', () => {
@@ -405,6 +411,26 @@ describe('saving: failures', () => {
     await db.savePerson({ id: 'p1' }).catch(() => { failed = true; });
     expect(failed).toBe(true);
     expect(await rawAll('people')).toEqual([]);
+  });
+  it('rejects a real cancelled save with a plain message, not an empty reason', async () => {
+    await db.getPeople();
+    const real = IDBDatabase.prototype.transaction;
+    vi.spyOn(IDBDatabase.prototype, 'transaction').mockImplementationOnce(function abortSoon(...args) {
+      const tx = real.apply(this, args);
+      queueMicrotask(() => tx.abort());
+      return tx;
+    });
+    await expect(db.savePerson({ id: 'p1' })).rejects.toThrow('Save was cancelled.');
+  });
+  it('waits for the abort when an error comes with no reason yet', async () => {
+    await db.getPeople();
+    const tx = fakeTx();
+    const saving = db.savePerson({ name: 'Test Person' });
+    await vi.waitFor(() => expect(tx.onerror).toBeTypeOf('function'));
+    tx.onerror();
+    tx.error = Object.assign(new Error('taken'), { name: 'ConstraintError' });
+    tx.onabort();
+    await expect(saving).rejects.toMatchObject({ name: 'ConstraintError' });
   });
 });
 

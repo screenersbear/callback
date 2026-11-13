@@ -217,6 +217,17 @@ describe('ideasFor: by interest', () => {
     expect(ideasFor({ interest: 'bogus' })).toEqual(GENERAL);
     expect(ideasFor({ interest: '' })).toEqual(GENERAL);
   });
+
+  it('treats built-in object names as an unknown interest', () => {
+    expect(ideasFor({ interest: 'constructor', relationshipTypes: ['collaborator'] })).toEqual(COLLABORATOR);
+    expect(ideasFor({ interest: 'toString' })).toEqual(GENERAL);
+    expect(ideasFor({ interest: '__proto__' })).toEqual(GENERAL);
+  });
+
+  it('treats a built-in object name as no first contact', () => {
+    expect(ideasFor({ interest: 'eager' }, { firstContact: 'constructor' })).toEqual(EAGER);
+    expect(ideasFor({ interest: 'eager' }, { firstContact: 'hasOwnProperty' })).toEqual(EAGER);
+  });
 });
 
 describe('ideasFor: your own and removed ideas', () => {

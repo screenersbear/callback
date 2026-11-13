@@ -157,6 +157,17 @@ describe('parsePasted: names', () => {
     expect(parsePasted('From:   "Test Person"   <tp@example.com>').name).toBe('Test Person');
   });
 
+  it('tidies extra spaces inside a From: name', () => {
+    expect(parsePasted('From: Test   Person <tp@example.com>').name).toBe('Test Person');
+    expect(parsePasted('From:\tTest\tPerson <tp@example.com>').name).toBe('Test Person');
+    expect(parsePasted('From: "  Test  Person " <tp@example.com>').name).toBe('Test Person');
+  });
+
+  it('reads an indented From: line, as in a quoted reply', () => {
+    expect(parsePasted('Thanks!\n   From: Test Person <tp@example.com>').name).toBe('Test Person');
+    expect(parsePasted('\tFROM: Test Person <tp@example.com>').name).toBe('Test Person');
+  });
+
   it('keeps a labelled name over a From: line', () => {
     expect(parsePasted('Name: Labelled Person\nFrom: "Other Person" <op@example.com>').name).toBe('Labelled Person');
   });

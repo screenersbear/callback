@@ -16,6 +16,10 @@ export const WARMTH_INFO = {
   parked: { label: 'Parked', blurb: 'Resting for now. Callback brings them back later.' },
 };
 
+// A warmth Callback doesn't know (missing, or from an old or odd file)
+// counts as warm. Only the table's own keys count, so "constructor" is unknown.
+const warmthKey = (person) => (Object.prototype.hasOwnProperty.call(WARMTH_INFO, person.warmth) ? person.warmth : 'warm');
+
 // How many notes make up the cold sequence: first note, follow-up, last try.
 export const COLD_STEPS = 3;
 
@@ -149,7 +153,7 @@ export function computeNextDate(person, tps, settings, today = todayStr()) {
     return addDays(from, gap);
   }
 
-  return addDays(from, c[person.warmth] || c.warm);
+  return addDays(from, c[warmthKey(person)] || c.warm);
 }
 
 // Fields to merge into a person when their warmth changes, so the cold
@@ -179,7 +183,8 @@ export function cadenceLabel(person, tps, settings) {
     if (sent === 2) return `Cold. Last try ${span(c.coldLastTry)} after the follow-up`;
     return 'Cold. The sequence is finished';
   }
-  return `${every(c[person.warmth])} (${WARMTH_INFO[person.warmth].label} default)`;
+  const w = warmthKey(person);
+  return `${every(c[w] || c.warm)} (${WARMTH_INFO[w].label} default)`;
 }
 
 // The person's rhythm in plain words, for their page: "Every 2 months
@@ -191,7 +196,7 @@ export function rhythmWords(person, settings) {
   if (person.warmth === 'parked') return `Back after ${span(c.parked)} (Parked default)`;
   if (person.lightTouch) return `${every(c.lightTouch)} (Light touch default)`;
   if (person.warmth === 'cold') return 'The cold sequence (Cold default)';
-  const w = WARMTH_INFO[person.warmth] ? person.warmth : 'warm';
+  const w = warmthKey(person);
   return `${every(c[w] || c.warm)} (${WARMTH_INFO[w].label} default)`;
 }
 

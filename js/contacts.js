@@ -85,7 +85,7 @@ function unfold(text) {
       lines[lines.length - 1] += line.slice(1);
       continue;
     }
-    if (/ENCODING=QUOTED-PRINTABLE/i.test(line.split(':')[0])) {
+    if (/;(ENCODING=)?QUOTED-PRINTABLE(;|$)/i.test(line.split(':')[0])) {
       while (line.endsWith('=') && i + 1 < raw.length) line = line.slice(0, -1) + raw[++i];
     }
     lines.push(line);
@@ -103,7 +103,8 @@ function parseLine(line) {
   const params = {};
   for (const p of rawParams) {
     const eq = p.indexOf('=');
-    const key = eq < 0 ? 'TYPE' : p.slice(0, eq).toUpperCase();
+    // vCard 2.1 may say just QUOTED-PRINTABLE, meaning ENCODING=QUOTED-PRINTABLE.
+    const key = eq < 0 ? (p.toLowerCase() === 'quoted-printable' ? 'ENCODING' : 'TYPE') : p.slice(0, eq).toUpperCase();
     const vals = (eq < 0 ? p : p.slice(eq + 1)).replace(/"/g, '').toLowerCase().split(',');
     (params[key] = params[key] || []).push(...vals.map((v) => v.trim()).filter(Boolean));
   }
@@ -274,8 +275,8 @@ export function parsePasted(input) {
 
   // "Rosa Lind <rosa@fordmodels.com>", as in a From: line.
   if (!out.name) {
-    const from = text.match(/(?:^|\n)(?:from:\s*)?"?([^"<>\n@:]{3,40}?)"?\s*<[^>\n]+@[^>\n]+>/i);
-    if (from) out.name = from[1].trim();
+    const from = text.match(/(?:^|\n)[ \t]*(?:from:\s*)?"?([^"<>\n@:]{3,40}?)"?\s*<[^>\n]+@[^>\n]+>/i);
+    if (from) out.name = from[1].replace(/\s+/g, ' ').trim();
   }
 
   const noEmails = text.replace(new RegExp(EMAIL_RE.source, 'gi'), ' ');
