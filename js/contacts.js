@@ -150,7 +150,7 @@ function toContact(props) {
   const insta =
     socials.find((p) => hasType(p, 'instagram')) ||
     [...socials, ...urls].find((p) => /instagram\.com/i.test(p.value));
-  const website = urls.find((p) => !/instagram\.com|facebook\.com|twitter\.com|x\.com\//i.test(p.value));
+  const website = urls.find((p) => !/instagram\.com|facebook\.com|twitter\.com|\bx\.com\//i.test(p.value));
 
   const email = emailProp ? unescapeText(emailProp.value) : '';
   const name = text('FN') || fromN || org || email;
@@ -158,7 +158,8 @@ function toContact(props) {
   return contact({
     name,
     email,
-    phone: telProp ? unescapeText(telProp.value) : '',
+    // vCard 4 can write the number as a link: TEL;VALUE=uri:tel:+1-555-...
+    phone: telProp ? unescapeText(telProp.value).replace(/^tel:/i, '') : '',
     role: text('TITLE') || text('ROLE'),
     org: org && org !== name ? org : '',
     website: website ? unescapeText(website.value) : '',
@@ -219,7 +220,7 @@ const URL_SRC =
   '(?:\\/[^\\s|,;<>]*)?)';
 const findUrls = (s) => s.match(new RegExp(URL_SRC, 'gi')) || [];
 const hasUrl = (s) => new RegExp(URL_SRC, 'i').test(s);
-const SOCIAL_RE = /instagram\.com|facebook\.com|twitter\.com|x\.com\/|tiktok\.com|threads\.net|linkedin\.com/i;
+const SOCIAL_RE = /instagram\.com|facebook\.com|twitter\.com|\bx\.com\/|tiktok\.com|threads\.net|linkedin\.com/i;
 const SIGN_OFF_RE = /^(best( regards| wishes)?|kind regards|warm(est)? regards|regards|warmly|thanks( so much)?|thank you|many thanks|cheers|sincerely|all the best|talk soon|speak soon|xo+|x+|-{2,}|_{2,}|sent from my .*|get outlook for .*|hi|hello|hey|dear .*)[\s,.!]*$/i;
 const ROLE_RE = /\b(director|casting|booker|booking|agent|manager|producer|editor|editorial|marketer|marketing|brand|coordinator|assistant|associate|head|lead|founder|co-?founder|partner|president|vp|chief|officer|executive|photographer|buyer|creative|designer|talent|actor|actress|model|owner|ceo|cmo|coo|specialist|supervisor|strategist|curator|writer|journalist|publicist|stylist|scout|intern)\b/i;
 // Role words that also end company names, as in "Jane Doe Casting".

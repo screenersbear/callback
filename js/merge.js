@@ -37,7 +37,6 @@ export function dataKey(data) {
   return canonical(STORES.map((s) => [...(data[s] || [])].sort(byId)));
 }
 const content = (r) => {
-  if (!r) return r;
   const { id, createdAt, updatedAt, ...rest } = r;
   return rest;
 };

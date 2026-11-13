@@ -1,0 +1,65 @@
+{
+  "_readme": "One settings file for every safety check. Edit this, not the individual configs. Round 1 (2026-11-12): logic = the files that were already logic (model, util, cadence, ideas, ics, merge, contacts, db, sync). The drawing and page files (ui, mind, ring, map, sky, swipebar, upright, app) are covered by the browser tests; app.js still holds logic that comes out into tested files in later rounds.",
+  "logic": [
+    "js/model.js",
+    "js/util.js",
+    "js/cadence.js",
+    "js/ideas.js",
+    "js/ics.js",
+    "js/merge.js",
+    "js/contacts.js",
+    "js/db.js",
+    "js/sync.js"
+  ],
+  "ignore": [
+    "**/vendor/**",
+    "**/*.min.js",
+    "sw.js",
+    "service-worker.js"
+  ],
+  "serveDir": ".",
+  "port": 4185,
+  "pages": [
+    "/",
+    "/#/people",
+    "/#/circles",
+    "/#/orgs",
+    "/#/news",
+    "/#/week",
+    "/#/settings",
+    "/#/dreams",
+    "/#/person/seed-person-one"
+  ],
+  "coverage": 100,
+  "mutationScore": 80,
+  "clickDepth": 2,
+  "maxClicks": 200,
+  "settleMs": 400,
+  "firstVisitWaitMs": 1000,
+  "returningVisitor": {
+    "_readme": "The button clicker runs each page twice: as a first visit (empty storage: the welcome comes up) and as a returning visitor. Callback keeps 'welcomed' and everyone in IndexedDB, so tests/e2e/seed.mjs saves a few made-up people through js/db.js and the page reloads. /#/person/seed-person-one is one of them.",
+    "localStorage": {},
+    "seed": "tests/e2e/seed.mjs"
+  },
+  "skipClickSelectors": [
+    "[data-test-skip]"
+  ],
+  "modalSelectors": [
+    "[aria-modal=\"true\"]",
+    "dialog[open]"
+  ],
+  "ignoreConsoleErrors": [
+    "favicon.ico"
+  ],
+  "budgets": {
+    "loadMs": 2500,
+    "lcpMs": 2500,
+    "cls": 0.1,
+    "longestTaskMs": 200,
+    "heapMB": 60,
+    "slowPhoneLoadMs": 6000,
+    "lighthousePerformance": 0.9,
+    "lighthouseAccessibility": 0.9,
+    "lighthouseBestPractices": 0.9
+  }
+}

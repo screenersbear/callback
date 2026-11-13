@@ -1,0 +1,27 @@
+{
+  "name": "callback",
+  "private": true,
+  "scripts": {
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "vitest run --coverage --config vitest.config.mjs",
+    "test:watch": "vitest --config vitest.config.mjs",
+    "test:mutation": "stryker run stryker.config.mjs",
+    "test:e2e": "playwright test --config playwright.config.mjs tests/e2e",
+    "test:perf": "playwright test --config playwright.config.mjs tests/perf --project=desktop-chrome",
+    "test:lighthouse": "lhci autorun --config=lighthouserc.cjs",
+    "test:quick": "npm run test:unit && playwright test --config playwright.config.mjs tests/e2e --project=desktop-chrome",
+    "test:all": "npm run test:unit && npm run test:mutation && npm run test:e2e && npm run test:perf && npm run test:lighthouse",
+    "test:report": "playwright show-report reports/playwright"
+  },
+  "devDependencies": {
+    "@lhci/cli": "^0.16.1",
+    "@playwright/test": "^1.65.0",
+    "@stryker-mutator/core": "^10.1.1",
+    "@stryker-mutator/vitest-runner": "^10.1.1",
+    "@vitest/coverage-v8": "^5.1.0",
+    "fake-indexeddb": "^6.2.8",
+    "http-server": "^14.1.1",
+    "jsdom": "^31.0.0",
+    "vitest": "^5.1.0"
+  }
+}

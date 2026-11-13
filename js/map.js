@@ -76,7 +76,13 @@ function build() {
   st.cv = el.querySelector('canvas');
   st.ctx = st.cv.getContext('2d');
   wire(st.cv);
-  new ResizeObserver(() => { resize(); kick(); }).observe(el);
+  // Resized in the next frame, not inside the observer: resizing the box it
+  // watches from inside it makes Safari report a ResizeObserver loop (11-13).
+  let sizing = 0;
+  new ResizeObserver(() => {
+    if (sizing) return;
+    sizing = requestAnimationFrame(() => { sizing = 0; resize(); kick(); });
+  }).observe(el);
   new IntersectionObserver((entries) => {
     st.visible = entries[entries.length - 1].isIntersecting;
     kick();

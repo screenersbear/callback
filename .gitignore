@@ -2,3 +2,9 @@
 callback-spec.md
 callback-quick-add-light-touch.md
 mockups/
+# app-safety-kit
+node_modules
+reports/
+.stryker-tmp*/
+.lighthouseci/
+test-results/

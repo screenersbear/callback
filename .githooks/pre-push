@@ -1,0 +1,15 @@
+#!/bin/sh
+# Blocks a push (and so a GitHub Pages deploy) if the fast checks fail.
+# Emergency bypass: git push --no-verify
+# Node lives in ~/.local/node on this Mac and isn't on the PATH, so add it here.
+PATH="$HOME/.local/node/bin:$PATH"
+export PATH
+echo "Safety check: unit tests + click-everything before push..."
+npm run --silent test:quick
+status=$?
+if [ $status -ne 0 ]; then
+  echo ""
+  echo "Push blocked: tests failed. Open reports/playwright/index.html or reports/coverage/index.html to see why."
+  echo "Bypass only in an emergency: git push --no-verify"
+  exit $status
+fi
