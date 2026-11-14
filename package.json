@@ -23,5 +23,8 @@
     "http-server": "^14.1.1",
     "jsdom": "^31.0.0",
     "vitest": "^5.1.0"
+  },
+  "overrides": {
+    "basic-ftp": "^6.2.6"
   }
 }

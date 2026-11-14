@@ -1,0 +1,107 @@
+# Runs on GitHub's computers, in the background, every time you push.
+# Costs zero Claude tokens. Free for public repos; private repos get 2,000 free minutes/month.
+name: Safety checks
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  schedule:
+    - cron: '17 8 * * *' # nightly full run, catches anything that slipped through
+  workflow_dispatch: # adds a "Run workflow" button on the Actions tab
+
+# The checks only read the code; nothing here can change the repo.
+permissions:
+  contents: read
+
+# A newer push stops the older push's run (the newer one checks it all
+# anyway), but never the nightly run.
+concurrency:
+  group: safety-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Security audit (fails on high or critical)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      # Reads package-lock.json against npm's list of known problems.
+      - run: npm audit --package-lock-only --audit-level=high
+
+  unit:
+    name: Unit tests + 100% coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci || npm install
+      - run: npm run test:unit
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: coverage-report, path: reports/coverage, retention-days: 14 }
+
+  mutation:
+    name: Mutation tests (are the tests any good?)
+    needs: unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci || npm install
+      - uses: actions/cache@v4
+        with:
+          path: reports/stryker-incremental.json
+          key: stryker-${{ github.ref }}-${{ github.run_id }}
+          restore-keys: |
+            stryker-${{ github.ref }}-
+            stryker-
+      - run: npm run test:mutation
+      # Notes the mutants not caught on the run, where node tools/ci-status.mjs reads them.
+      - if: success() || failure()
+        run: node tools/ci-notes.mjs mutation
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: mutation-report, path: reports/mutation, retention-days: 14 }
+
+  e2e:
+    name: End-to-end (clicks every button)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci || npm install
+      - run: npx playwright install --with-deps chromium webkit
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: e2e-report, path: reports/playwright, retention-days: 14 }
+
+  performance:
+    name: Performance budgets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci || npm install
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:perf
+      # Runs even when a speed check failed, so one run reports both.
+      - if: success() || failure()
+        run: npm run test:lighthouse
+      - if: success() || failure()
+        run: node tools/ci-notes.mjs lighthouse
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: performance-report
+          path: |
+            reports/playwright
+            reports/lighthouse
+          retention-days: 14

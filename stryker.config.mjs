@@ -7,8 +7,10 @@ export default {
   testRunner: 'vitest',
   vitest: { configFile: 'vitest.config.mjs' },
   mutate: [...cfg.logic, ...cfg.ignore.map((g) => `!${g}`)],
-  reporters: ['clear-text', 'progress', 'html'],
+  // json: read on GitHub by tools/ci-notes.mjs, which notes the mutants not caught.
+  reporters: ['clear-text', 'progress', 'html', 'json'],
   htmlReporter: { fileName: 'reports/mutation/index.html' },
+  jsonReporter: { fileName: 'reports/mutation/mutation.json' },
   thresholds: { high: 90, low: cfg.mutationScore, break: cfg.mutationScore },
   // Only re-check code that changed since the last run. Keeps CI fast.
   incremental: true,

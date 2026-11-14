@@ -1,0 +1,23 @@
+# Dependabot (free): once a week it checks the test tools (npm) and the
+# GitHub Actions the safety checks use, and opens a pull request when there's
+# a newer version. The safety checks run on each one before it's merged.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # Small updates come together in one pull request; big (major) ones
+      # come one at a time, since they're the ones that can break things.
+      test-tools:
+        patterns: ['*']
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
