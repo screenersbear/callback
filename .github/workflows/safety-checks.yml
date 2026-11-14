@@ -25,8 +25,8 @@ jobs:
     name: Security audit (fails on high or critical)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 24 }
       # Reads package-lock.json against npm's list of known problems.
       - run: npm audit --package-lock-only --audit-level=high
@@ -35,12 +35,12 @@ jobs:
     name: Unit tests + 100% coverage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 24, cache: npm }
       - run: npm ci || npm install
       - run: npm run test:unit
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with: { name: coverage-report, path: reports/coverage, retention-days: 14 }
 
@@ -49,11 +49,11 @@ jobs:
     needs: unit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 24, cache: npm }
       - run: npm ci || npm install
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: reports/stryker-incremental.json
           key: stryker-${{ github.ref }}-${{ github.run_id }}
@@ -69,7 +69,7 @@ jobs:
       # Notes the mutants not caught on the run, where node tools/ci-status.mjs reads them.
       - if: success() || failure()
         run: node tools/ci-notes.mjs mutation
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with: { name: mutation-report, path: reports/mutation, retention-days: 14 }
 
@@ -77,13 +77,13 @@ jobs:
     name: End-to-end (clicks every button)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 24, cache: npm }
       - run: npm ci || npm install
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with: { name: e2e-report, path: reports/playwright, retention-days: 14 }
 
@@ -91,8 +91,8 @@ jobs:
     name: Performance budgets
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 24, cache: npm }
       - run: npm ci || npm install
       - run: npx playwright install --with-deps chromium
@@ -102,7 +102,7 @@ jobs:
         run: npm run test:lighthouse
       - if: success() || failure()
         run: node tools/ci-notes.mjs lighthouse
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: performance-report
