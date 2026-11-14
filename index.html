@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<!-- interactive-widget (the page shrinks for the keyboard) only on Android, whose browsers know it: Safari logs an error for it. -->
+<script>if (/Android/i.test(navigator.userAgent)) document.querySelector('meta[name="viewport"]').content += ', interactive-widget=resizes-content';</script>
 <title>Callback</title>
 <meta name="description" content="Remember who to reach out to, when, and why. An outreach tracker for photographers." />
 

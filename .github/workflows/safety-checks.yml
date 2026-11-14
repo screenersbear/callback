@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22 }
+        with: { node-version: 24 }
       # Reads package-lock.json against npm's list of known problems.
       - run: npm audit --package-lock-only --audit-level=high
 
@@ -37,7 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm }
+        with: { node-version: 24, cache: npm }
       - run: npm ci || npm install
       - run: npm run test:unit
       - uses: actions/upload-artifact@v4
@@ -51,7 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm }
+        with: { node-version: 24, cache: npm }
       - run: npm ci || npm install
       - uses: actions/cache@v4
         with:
@@ -60,7 +60,12 @@ jobs:
           restore-keys: |
             stryker-${{ github.ref }}-
             stryker-
-      - run: npm run test:mutation
+      # Its output is saved too, so a run that stops before writing a report
+      # says why (tools/ci-notes.mjs).
+      - run: |
+          set -o pipefail
+          mkdir -p reports
+          npm run test:mutation 2>&1 | tee reports/mutation-run.log
       # Notes the mutants not caught on the run, where node tools/ci-status.mjs reads them.
       - if: success() || failure()
         run: node tools/ci-notes.mjs mutation
@@ -74,7 +79,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm }
+        with: { node-version: 24, cache: npm }
       - run: npm ci || npm install
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e
@@ -88,7 +93,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm }
+        with: { node-version: 24, cache: npm }
       - run: npm ci || npm install
       - run: npx playwright install --with-deps chromium
       - run: npm run test:perf

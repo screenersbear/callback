@@ -28,7 +28,7 @@ if (runs.length) {
     const steps = job.steps.filter((s) => s.conclusion === 'failure').map((s) => s.name);
     console.log(`\nFAILED ${job.name}, at: ${steps.join(', ') || '(no step named)'}`);
     for (const a of await get(`check-runs/${job.id}/annotations`)) {
-      console.log(`  ${a.annotation_level} ${a.path === '.github' ? '' : `${a.path}:${a.start_line} `}${a.message.split('\n').slice(0, 25).join('\n    ')}`);
+      console.log(`  ${a.annotation_level} ${a.path === '.github' ? '' : `${a.path}:${a.start_line} `}${a.message.split('\n').slice(0, 35).join('\n    ')}`);
     }
   }
 }

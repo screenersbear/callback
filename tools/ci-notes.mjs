@@ -12,7 +12,13 @@ const note = (level, text, file) => console.log(`::${level}${file ? ` file=${fil
 
 if (process.argv[2] === 'mutation') {
   const report = read('reports/mutation/mutation.json');
-  if (!report) note('error', 'The mutation tests wrote no report.');
+  if (!report) {
+    // Stopped before writing one: the end of what it said (the workflow saves it).
+    let said = '';
+    try { said = fs.readFileSync('reports/mutation-run.log', 'utf8'); } catch { /* no log either */ }
+    const end = said.replace(/\x1b\[[0-9;]*m/g, '').trim().split('\n').slice(-30).join('\n');
+    note('error', `The mutation tests wrote no report.${end ? `\nThe end of what they said:\n${end}` : ''}`);
+  }
   else {
     // One note per file (GitHub shows up to 10 per step), most first.
     const files = Object.entries(report.files)
