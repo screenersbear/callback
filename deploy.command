@@ -1,5 +1,5 @@
 #!/bin/bash
-cd "/Users/starkyproductions/Library/CloudStorage/OneDrive-SharedLibraries-Onedrive/Documents/Claude/Callback"
+cd "/Users/starkyproductions/Library/CloudStorage/GoogleDrive-starky@starkymorillo.com/My Drive/Claude/Callback"
 git add .
 echo "What did you change?"
 read message
